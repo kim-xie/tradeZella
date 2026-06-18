@@ -1,9 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import axios from 'axios';
-import Button from '../components/common/Button';
 import CSVUploader from '../components/CSVUploader'; // Import the new component
-
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 import React, { useState, useEffect } from 'react';
 import Button from '../components/common/Button';
 import { getUserTrades } from '../services/api';
@@ -25,52 +20,29 @@ const TradesPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchTrades = useCallback(async () => {
+  const fetchTrades = async () => {
     try {
       setLoading(true);
       const token = localStorage.getItem('token');
       if (!token) {
         setError('No authentication token found. Please log in.');
-  useEffect(() => {
-    const fetchTrades = async () => {
-      try {
-        setLoading(true);
-        const token = localStorage.getItem('token');
-        if (!token) {
-          setError('No authentication token found. Please log in.');
-          setLoading(false);
-          return;
-        }
-
-        const data = await getUserTrades(token);
-        setTrades(data);
-        setError(null);
-      } catch (err) {
-        setError((err as Error).message || 'Failed to fetch trades.');
-      } finally {
         setLoading(false);
         return;
       }
 
-      const response = await axios.get<{ data: Trade[] }>(`${API_BASE_URL}/api/trades`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-      
-      // The actual trade data is in response.data.data
-      setTrades(response.data.data || []);
+      const data = await getUserTrades(token);
+      setTrades(data);
       setError(null);
-    } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to fetch trades.');
+    } catch (err) {
+      setError((err as Error).message || 'Failed to fetch trades.');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }
 
   useEffect(() => {
     fetchTrades();
-  }, [fetchTrades]);
+  }, []);
 
   if (loading && trades.length === 0) { // Only show full page loader on initial load
     return <div className="container mx-auto p-4">Loading trades...</div>;
