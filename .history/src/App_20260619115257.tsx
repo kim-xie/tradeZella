@@ -60,7 +60,7 @@ function AppContent() {
     <div className="min-h-screen bg-white dark:bg-navy-900">
       {isLoading && <Loader />}
       <Navbar />
-      <div className="container mx-auto p-4 pt-[65px]">
+      <div className="container mx-auto p-4 pt-65">
         <Routes>
           <Route path="/" element={<DashboardPage />} />
           <Route path="/home" element={

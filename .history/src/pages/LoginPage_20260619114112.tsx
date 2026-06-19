@@ -17,7 +17,7 @@ const LoginPage: React.FC = () => {
     try {
       const response = await axios.post(`${API_BASE_URL}/api/auth/login`, { email, password });
       console.log('Login response:', response.data);
-      localStorage.setItem('token', response.data?.data?.token);
+      localStorage.setItem('token', response.data.token);
       navigate('/');
     } catch (err: any) {
       setError(err.response?.data?.message || 'An error occurred.');

@@ -5,12 +5,7 @@ import { dirname, resolve } from 'path';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const envResult = dotenv.config({ path: resolve(__dirname, '../.env') });
-console.log('=== DB Config ===');
-console.log('.env error:', envResult.error);
-console.log('DB_HOST:', process.env.DB_HOST);
-console.log('DB_USER:', process.env.DB_USER);
-console.log('=================');
+dotenv.config({ path: resolve(__dirname, '../.env') });
 
 import pkg from 'pg';
 import fs from 'fs';
@@ -21,11 +16,10 @@ const { Pool } = pkg;
 // Create a PostgreSQL connection pool
 const pool = new Pool({
   host: process.env.DB_HOST || 'localhost',
-  port: parseInt(process.env.DB_PORT || '5432'),
+  port: process.env.DB_PORT || 5432,
   database: process.env.DB_NAME || 'tradezella',
   user: process.env.DB_USER || 'postgres',
   password: process.env.DB_PASSWORD || 'postgres',
-  ssl: process.env.DB_HOST?.includes('neon.tech') ? { rejectUnauthorized: false } : false,
 });
 
 // Function to get a database connection

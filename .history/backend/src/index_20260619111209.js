@@ -5,15 +5,7 @@ import { dirname, resolve } from 'path';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const envPath = resolve(__dirname, '../.env');
-console.log('Loading .env from:', envPath);
-const result = dotenv.config({ path: envPath });
-if (result.error) {
-  console.error('Failed to load .env:', result.error);
-} else {
-  console.log('.env loaded successfully');
-  console.log('DB_HOST:', process.env.DB_HOST);
-}
+dotenv.config({ path: resolve(__dirname, '../.env') });
 
 import express from 'express';
 import cors from 'cors';

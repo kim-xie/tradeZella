@@ -1,5 +1,5 @@
 import CSVUploader from '../components/CSVUploader';
-import AddTradeModal from './AddTradeModal';
+import AddTradeModal from '../components/AddTradeModal';
 import React, { useState, useEffect } from 'react';
 import Button from '../components/common/Button';
 import { getUserTrades } from '../services/api';
@@ -61,10 +61,10 @@ const TradesPage: React.FC = () => {
         <Button variant="primary" onClick={() => setIsAddModalOpen(true)}>Add New Trade</Button>
       </div>
 
-      <AddTradeModal
-        isOpen={isAddModalOpen}
-        onClose={() => setIsAddModalOpen(false)}
-        onSuccess={fetchTrades}
+      <AddTradeModal 
+        isOpen={isAddModalOpen} 
+        onClose={() => setIsAddModalOpen(false)} 
+        onSuccess={fetchTrades} 
       />
 
       {/* CSV Uploader Component */}

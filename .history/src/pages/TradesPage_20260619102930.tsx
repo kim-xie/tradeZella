@@ -1,5 +1,4 @@
-import CSVUploader from '../components/CSVUploader';
-import AddTradeModal from './AddTradeModal';
+import CSVUploader from '../components/CSVUploader'; // Import the new component
 import React, { useState, useEffect } from 'react';
 import Button from '../components/common/Button';
 import { getUserTrades } from '../services/api';
@@ -20,7 +19,6 @@ const TradesPage: React.FC = () => {
   const [trades, setTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
 
   const fetchTrades = async () => {
     try {
@@ -58,14 +56,8 @@ const TradesPage: React.FC = () => {
     <div className="container mx-auto p-4">
       <div className="flex justify-between items-center mb-4">
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white">My Trades</h1>
-        <Button variant="primary" onClick={() => setIsAddModalOpen(true)}>Add New Trade</Button>
+        <Button variant="primary">Add New Trade</Button>
       </div>
-
-      <AddTradeModal
-        isOpen={isAddModalOpen}
-        onClose={() => setIsAddModalOpen(false)}
-        onSuccess={fetchTrades}
-      />
 
       {/* CSV Uploader Component */}
       <div className="mb-6">
