@@ -2,7 +2,7 @@ import CSVUploader from '../components/CSVUploader';
 import TradeDrawer from '../components/TradeDrawer';
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { X } from 'lucide-react';
+import { X, Star } from 'lucide-react';
 import Button from '../components/common/Button';
 import { getUserTrades, deleteTrade, SERVER_BASE_URL as API_BASE_URL, getAssetUrl } from '../services/api';
 
@@ -25,6 +25,7 @@ interface Trade {
   stop_loss?: number;
   take_profit?: number;
   entry_conditions?: string[];
+  rating?: number;
 }
 
 const formatDuration = (entryTime?: string, exitTime?: string): string => {
@@ -376,6 +377,7 @@ const TradesPage: React.FC = () => {
                   {(() => { const p = calculateTradePnL(viewingTrade); return p ? <div><span className="text-sm text-gray-500 dark:text-gray-400">P/L:</span> <span className={`text-sm font-semibold ${p.pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>{p.pnl >= 0 ? '+' : ''}{p.pnl.toFixed(2)} ({p.pnlPercent.toFixed(2)}%)</span></div> : null; })()}
                   {(() => { const tr = calculateTargetRR(viewingTrade); return tr != null ? <div><span className="text-sm text-gray-500 dark:text-gray-400">Target R/R:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">1:{tr.toFixed(1)}</span></div> : null; })()}
                   {(() => { const p = calculateTradePnL(viewingTrade); return p?.rr != null ? <div><span className="text-sm text-gray-500 dark:text-gray-400">Actual R/R:</span> <span className={`text-sm font-semibold ${p.rr >= 1 ? 'text-green-600' : 'text-red-600'}`}>1:{p.rr.toFixed(1)}</span></div> : null; })()}
+                  <div className="flex items-center gap-2"><span className="text-sm text-gray-500 dark:text-gray-400">Rating:</span> {(viewingTrade.rating || 0) > 0 ? <div className="flex items-center">{[1, 2, 3, 4, 5].map((star) => (<Star key={star} size={16} className={(viewingTrade.rating || 0) >= star ? 'text-yellow-400 fill-yellow-400' : 'text-gray-300 dark:text-gray-600'} />))}</div> : <span className="text-sm font-medium text-gray-900 dark:text-white">-</span>}</div>
                   <div><span className="text-sm text-gray-500 dark:text-gray-400">Created At:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{formatLocalTimeFull(viewingTrade.createdat)}</span></div>
                   <div><span className="text-sm text-gray-500 dark:text-gray-400">Updated At:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{formatLocalTimeFull(viewingTrade.updatedat)}</span></div>
                   <div className="flex items-center gap-2"><span className="text-sm text-gray-500 dark:text-gray-400">Result:</span> {(() => { const p = calculateTradePnL(viewingTrade); if (!viewingTrade.exitprice) return <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400">-</span>; if (!p) return <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400">-</span>; if (p.pnl > 0) return <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">Profit</span>; if (p.pnl < 0) return <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">Loss</span>; return <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300">Break Even</span>; })()}</div>
@@ -466,6 +468,7 @@ const TradesPage: React.FC = () => {
               <th className="px-5 py-3 border-b-2 border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-700 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider">Duration</th>
               <th className="px-5 py-3 border-b-2 border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-700 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider">P/L</th>
               <th className="px-5 py-3 border-b-2 border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-700 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider">Actual R/R</th>
+              <th className="px-5 py-3 border-b-2 border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-700 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider">Rating</th>
               <th className="px-5 py-3 border-b-2 border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-700 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider">Status</th>
               <th className="px-5 py-3 border-b-2 border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-700 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider">Actions</th>
             </tr>
@@ -541,6 +544,17 @@ const TradesPage: React.FC = () => {
                           <span className={`font-semibold ${pnl.rr >= 1 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>1:{pnl.rr.toFixed(1)}</span>
                         ) : '-'}
                       </td>
+                      <td className={`px-5 py-5 border-b border-gray-200 dark:border-gray-700 ${rowBg} text-sm`}>
+                        <div className="flex items-center">
+                          {[1, 2, 3, 4, 5].map((star) => (
+                            <Star
+                              key={star}
+                              size={14}
+                              className={(trade.rating || 0) >= star ? 'text-yellow-400 fill-yellow-400' : 'text-gray-300 dark:text-gray-600'}
+                            />
+                          ))}
+                        </div>
+                      </td>
                       <td className={`px-5 py-5 border-b border-gray-200 dark:border-gray-700 ${rowBg} text-sm whitespace-nowrap`}>
                         <span className={`inline-block px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap ${isCompleted ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' : 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400'}`}>
                           {isCompleted ? 'Completed' : 'In Progress'}
@@ -559,7 +573,7 @@ const TradesPage: React.FC = () => {
               }
               return (
                 <tr>
-                  <td colSpan={10} className="text-center py-10 text-gray-500 dark:text-gray-400">No trades found.</td>
+                  <td colSpan={11} className="text-center py-10 text-gray-500 dark:text-gray-400">No trades found.</td>
                 </tr>
               );
             })()}

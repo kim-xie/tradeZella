@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import Button from './common/Button';
 import { createTrade, updateTrade, uploadScreenshot, CreateTradeData, SERVER_BASE_URL as API_BASE_URL, getAssetUrl } from '../services/api';
-import { X, Upload, Trash2 } from 'lucide-react';
+import { X, Upload, Trash2, Star } from 'lucide-react';
 interface Trade {
     id: number;
     symbol: string;
@@ -16,6 +16,7 @@ interface Trade {
     exit_time?: string;
     stop_loss?: number;
     take_profit?: number;
+    rating?: number;
 }
 
 interface TradeDrawerProps {
@@ -49,6 +50,7 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, t
         takeProfit: undefined,
         screenshots: [],
         entryConditions: [],
+        rating: 0,
     });
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -86,6 +88,7 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, t
                 takeProfit: trade.take_profit,
                 screenshots: trade.screenshots || [],
                 entryConditions: (trade as any).entry_conditions || [],
+                rating: trade.rating || 0,
             });
         } else {
             setFormData({
@@ -101,6 +104,7 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, t
                 takeProfit: undefined,
                 screenshots: [],
                 entryConditions: [],
+                rating: 0,
             });
         }
         setError(null);
@@ -287,6 +291,10 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, t
         }
         if (cleanData.exitTime === '' || cleanData.exitTime === null) {
             cleanData.exitTime = undefined;
+        }
+        // rating 为 0 表示未评分，转为 undefined 让后端 optional 跳过校验
+        if (!cleanData.rating) {
+            cleanData.rating = undefined;
         }
 
         try {
@@ -544,6 +552,49 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, t
                                 }
                                 return null;
                             })()}
+                        </div>
+
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                Rating (Optional)
+                            </label>
+                            <div className="flex items-center gap-1">
+                                {[1, 2, 3, 4, 5].map((star) => {
+                                    const filled = (formData.rating || 0) >= star;
+                                    return (
+                                        <button
+                                            key={star}
+                                            type="button"
+                                            onClick={() => {
+                                                const current = formData.rating || 0;
+                                                setFormData({
+                                                    ...formData,
+                                                    rating: current === star ? 0 : star,
+                                                });
+                                            }}
+                                            className="p-1 hover:scale-110 transition-transform"
+                                            title={`${star} star${star > 1 ? 's' : ''}`}
+                                        >
+                                            <Star
+                                                size={24}
+                                                className={filled
+                                                    ? 'text-yellow-400 fill-yellow-400'
+                                                    : 'text-gray-300 dark:text-gray-600'}
+                                            />
+                                        </button>
+                                    );
+                                })}
+                                {(formData.rating || 0) > 0 && (
+                                    <button
+                                        type="button"
+                                        onClick={() => setFormData({ ...formData, rating: 0 })}
+                                        className="ml-2 text-xs text-gray-400 hover:text-red-500"
+                                    >
+                                        Clear
+                                    </button>
+                                )}
+                            </div>
+                            <p className="mt-1 text-xs text-gray-400">Rate this trade from 1 to 5 stars</p>
                         </div>
 
                         <div>

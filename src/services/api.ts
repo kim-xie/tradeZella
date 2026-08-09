@@ -42,7 +42,7 @@ if (typeof window !== 'undefined') {
   console.log('[API] API_BASE_URL:', API_BASE_URL, '| SERVER_BASE_URL:', SERVER_BASE_URL || '(same-origin)');
 }
 
-// Response interceptor: auto-refresh token for sliding expiration
+// Response interceptor: auto-refresh token for sliding expiration + 401 auto-logout
 apiClient.interceptors.response.use(
   (response) => {
     const newToken = response.headers['x-new-token'];
@@ -54,6 +54,28 @@ apiClient.interceptors.response.use(
     return response;
   },
   (error) => {
+    const status = error.response?.status;
+
+    // 401 = 会话失效（token 过期/无效/缺失）
+    // 自动清除 token 并跳转登录页，避免用户看到一堆报错
+    if (status === 401) {
+      const path = window.location.pathname;
+      const isAuthPage =
+        path === '/login' ||
+        path === '/signup' ||
+        path === '/forgot-password' ||
+        path.startsWith('/reset-password') ||
+        path === '/oauth-callback';
+
+      // 在认证页面不跳转，避免循环
+      if (!isAuthPage) {
+        localStorage.removeItem('token');
+        window.dispatchEvent(new Event('auth-change'));
+        const currentPath = path + window.location.search;
+        window.location.href = `/login?redirect=${encodeURIComponent(currentPath)}`;
+      }
+    }
+
     return Promise.reject(error);
   }
 );
@@ -110,6 +132,7 @@ export interface CreateTradeData {
   sentiment?: string;
   screenshots?: string[];
   entryConditions?: string[];
+  rating?: number;
 }
 
 export const createTrade = async (token: string, tradeData: CreateTradeData) => {

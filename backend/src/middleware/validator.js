@@ -33,6 +33,7 @@ export const tradeValidationRules = () => {
     body('screenshots').optional({ nullable: true }).isArray().withMessage('Screenshots must be an array of strings (URLs)'),
     body('entryConditions').isArray().withMessage('Entry conditions must be an array of strings').notEmpty().withMessage('At least one entry condition is required'),
     body('entryConditions.*').isString().withMessage('Each entry condition must be a string'),
+    body('rating').optional({ nullable: true }).isInt({ min: 1, max: 5 }).withMessage('Rating must be an integer between 1 and 5'),
   ];
 };
 
@@ -55,6 +56,7 @@ export const updateTradeValidationRules = () => {
     body('screenshots').optional({ nullable: true }).isArray().withMessage('Screenshots must be an array of strings (URLs)'),
     body('entryConditions').optional({ nullable: true }).isArray().withMessage('Entry conditions must be an array of strings'),
     body('entryConditions.*').optional().isString().withMessage('Each entry condition must be a string'),
+    body('rating').optional({ nullable: true }).isInt({ min: 1, max: 5 }).withMessage('Rating must be an integer between 1 and 5'),
   ];
 };
 
