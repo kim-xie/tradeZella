@@ -69,10 +69,39 @@ const calculateTargetRR = (trade: Trade): number | null => {
   return reward / risk;
 };
 
+// 后端返回的时间字符串视为本地时间（无时区），直接字符串处理避免时区偏移
+// 数据库存什么显示什么，不做任何转换
+const parseServerTime = (dateStr: string): Date | null => {
+  if (!dateStr) return null;
+  // 将 "2026-08-09 11:13:00" 或 "2026-08-09T11:13:00" 转为 "2026-08-09T11:13"
+  // 不加 Z 后缀，让 new Date() 按本地时区解析
+  const normalized = dateStr.replace(' ', 'T').slice(0, 16);
+  const d = new Date(normalized);
+  return isNaN(d.getTime()) ? null : d;
+};
+
+const formatLocalTime = (dateStr?: string): string => {
+  if (!dateStr) return '-';
+  // 直接字符串截取显示，不走 Date 对象避免任何时区转换
+  const normalized = dateStr.replace(' ', 'T');
+  // 格式 "2026-08-09T11:13" 或 "2026-08-09T11:13:00.000Z"
+  const match = normalized.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+  if (!match) return '-';
+  return `${match[1]}/${match[2]}/${match[3]} ${match[4]}:${match[5]}`;
+};
+
+const formatLocalTimeFull = (dateStr?: string): string => {
+  if (!dateStr) return '-';
+  const normalized = dateStr.replace(' ', 'T');
+  const m = normalized.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+  if (!m) return '-';
+  return `${m[1]}-${m[2]}-${m[3]} ${m[4]}:${m[5]}`;
+};
+
 const isToday = (dateStr?: string): boolean => {
   if (!dateStr) return false;
-  const date = new Date(dateStr);
-  if (isNaN(date.getTime())) return false;
+  const date = parseServerTime(dateStr);
+  if (!date) return false;
   const today = new Date();
   return date.getFullYear() === today.getFullYear()
     && date.getMonth() === today.getMonth()
@@ -80,8 +109,8 @@ const isToday = (dateStr?: string): boolean => {
 };
 
 const sortByEntryTimeDesc = (a: Trade, b: Trade): number => {
-  const timeA = a.entry_time ? new Date(a.entry_time).getTime() : new Date(a.createdat).getTime();
-  const timeB = b.entry_time ? new Date(b.entry_time).getTime() : new Date(b.createdat).getTime();
+  const timeA = a.entry_time ? (parseServerTime(a.entry_time)?.getTime() || 0) : (parseServerTime(a.createdat)?.getTime() || 0);
+  const timeB = b.entry_time ? (parseServerTime(b.entry_time)?.getTime() || 0) : (parseServerTime(b.createdat)?.getTime() || 0);
   return timeB - timeA;
 };
 
@@ -333,25 +362,23 @@ const TradesPage: React.FC = () => {
               </div>
               <div className="flex-1 overflow-y-auto p-6 space-y-3">
                 <div className="grid grid-cols-2 gap-4">
-                  <div><span className="text-sm text-gray-500 dark:text-gray-400">Trade ID:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">#{viewingTrade.id}</span></div>
                   <div><span className="text-sm text-gray-500 dark:text-gray-400">Symbol:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{viewingTrade.symbol}</span></div>
                   <div><span className="text-sm text-gray-500 dark:text-gray-400">Direction:</span> <span className={`text-sm font-medium ${viewingTrade.direction === 'long' ? 'text-green-600' : 'text-red-600'}`}>{viewingTrade.direction}</span></div>
                   <div><span className="text-sm text-gray-500 dark:text-gray-400">Size:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{viewingTrade.size}</span></div>
+                  <div className="flex items-center gap-2"><span className="text-sm text-gray-500 dark:text-gray-400">Status:</span> {(() => { const isCompleted = !!viewingTrade.exitprice; return <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${isCompleted ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'}`}>{isCompleted ? 'Completed' : 'In Progress'}</span>; })()}</div>
                   <div><span className="text-sm text-gray-500 dark:text-gray-400">Entry Price:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{viewingTrade.entryprice}</span></div>
                   <div><span className="text-sm text-gray-500 dark:text-gray-400">Exit Price:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{viewingTrade.exitprice || '-'}</span></div>
                   <div><span className="text-sm text-gray-500 dark:text-gray-400">Stop Loss:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{viewingTrade.stop_loss || '-'}</span></div>
                   <div><span className="text-sm text-gray-500 dark:text-gray-400">Take Profit:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{viewingTrade.take_profit || '-'}</span></div>
-                  <div><span className="text-sm text-gray-500 dark:text-gray-400">Status:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{viewingTrade.exitprice ? 'Completed' : 'In Progress'}</span></div>
-                  <div><span className="text-sm text-gray-500 dark:text-gray-400">Entry Time:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{viewingTrade.entry_time ? new Date(viewingTrade.entry_time).toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '-'}</span></div>
-                  <div><span className="text-sm text-gray-500 dark:text-gray-400">Exit Time:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{viewingTrade.exit_time ? new Date(viewingTrade.exit_time).toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '-'}</span></div>
+                  <div><span className="text-sm text-gray-500 dark:text-gray-400">Entry Time:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{formatLocalTime(viewingTrade.entry_time)}</span></div>
+                  <div><span className="text-sm text-gray-500 dark:text-gray-400">Exit Time:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{formatLocalTime(viewingTrade.exit_time)}</span></div>
                   <div><span className="text-sm text-gray-500 dark:text-gray-400">Duration:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{formatDuration(viewingTrade.entry_time, viewingTrade.exit_time)}</span></div>
-                  <div><span className="text-sm text-gray-500 dark:text-gray-400">Result:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{(() => { const p = calculateTradePnL(viewingTrade); if (!viewingTrade.exitprice) return '-'; if (!p) return '-'; if (p.pnl > 0) return 'Profit'; if (p.pnl < 0) return 'Loss'; return 'Break Even'; })()}</span></div>
                   {(() => { const p = calculateTradePnL(viewingTrade); return p ? <div><span className="text-sm text-gray-500 dark:text-gray-400">P/L:</span> <span className={`text-sm font-semibold ${p.pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>{p.pnl >= 0 ? '+' : ''}{p.pnl.toFixed(2)} ({p.pnlPercent.toFixed(2)}%)</span></div> : null; })()}
                   {(() => { const tr = calculateTargetRR(viewingTrade); return tr != null ? <div><span className="text-sm text-gray-500 dark:text-gray-400">Target R/R:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">1:{tr.toFixed(1)}</span></div> : null; })()}
                   {(() => { const p = calculateTradePnL(viewingTrade); return p?.rr != null ? <div><span className="text-sm text-gray-500 dark:text-gray-400">Actual R/R:</span> <span className={`text-sm font-semibold ${p.rr >= 1 ? 'text-green-600' : 'text-red-600'}`}>1:{p.rr.toFixed(1)}</span></div> : null; })()}
-                  <div><span className="text-sm text-gray-500 dark:text-gray-400">Sentiment:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{viewingTrade.sentiment || '-'}</span></div>
-                  <div><span className="text-sm text-gray-500 dark:text-gray-400">Created At:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{viewingTrade.createdat ? new Date(viewingTrade.createdat).toLocaleString('zh-CN') : '-'}</span></div>
-                  <div className="col-span-2"><span className="text-sm text-gray-500 dark:text-gray-400">Updated At:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{viewingTrade.updatedat ? new Date(viewingTrade.updatedat).toLocaleString('zh-CN') : '-'}</span></div>
+                  <div><span className="text-sm text-gray-500 dark:text-gray-400">Created At:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{formatLocalTimeFull(viewingTrade.createdat)}</span></div>
+                  <div><span className="text-sm text-gray-500 dark:text-gray-400">Updated At:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{formatLocalTimeFull(viewingTrade.updatedat)}</span></div>
+                  <div className="flex items-center gap-2"><span className="text-sm text-gray-500 dark:text-gray-400">Result:</span> {(() => { const p = calculateTradePnL(viewingTrade); if (!viewingTrade.exitprice) return <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400">-</span>; if (!p) return <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400">-</span>; if (p.pnl > 0) return <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">Profit</span>; if (p.pnl < 0) return <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">Loss</span>; return <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300">Break Even</span>; })()}</div>
                 </div>
                 {viewingTrade.tags && viewingTrade.tags.length > 0 && (
                   <div>
@@ -480,7 +507,7 @@ const TradesPage: React.FC = () => {
                     : 'bg-white dark:bg-gray-800';
                   return (
                     <tr key={trade.id} className={rowBg}>
-                      <td className={`px-5 py-5 border-b border-gray-200 dark:border-gray-700 ${rowBg} text-sm`}>{trade.entry_time ? new Date(trade.entry_time).toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '-'}</td>
+                      <td className={`px-5 py-5 border-b border-gray-200 dark:border-gray-700 ${rowBg} text-sm`}>{formatLocalTime(trade.entry_time)}</td>
                       <td className={`px-5 py-5 border-b border-gray-200 dark:border-gray-700 ${rowBg} text-sm`}>{trade.symbol}</td>
                       <td className={`px-5 py-5 border-b border-gray-200 dark:border-gray-700 ${rowBg} text-sm`}>
                         <span className={trade.direction === 'long' ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}>{trade.direction}</span>

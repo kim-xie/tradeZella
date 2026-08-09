@@ -1,15 +1,29 @@
 import { pool } from '../db.js';
+import { types } from 'pg';
+
+// 让 PostgreSQL TIMESTAMP (without time zone) 字段返回原始字符串，避免 node-pg 二次转换为 UTC
+types.setTypeParser(types.TIMESTAMP, (val) => val);
+types.setTypeParser(types.TIMESTAMPTZ, (val) => val);
+
+// 生成本地时间 ISO 字符串（不带 Z 后缀），与前端 datetime-local 保持一致
+// 格式："2026-08-09T11:13:00.000"
+const localNowISO = () => {
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${String(d.getMilliseconds()).padStart(3, '0')}`;
+};
 
 export class TradeService {
   static async createTrade({ userId, symbol, direction, size, entryPrice, exitPrice, notes, tradeDate, tags, sentiment, screenshots, entryTime, exitTime, stopLoss, takeProfit, entryConditions }) {
     const client = await pool.connect();
     try {
       const toNull = (v) => (v === '' || v === undefined ? null : v);
+      const nowUtc = localNowISO();
       const result = await client.query(
-        `INSERT INTO trades (userId, symbol, direction, size, entryPrice, exitPrice, notes, trade_date, tags, sentiment, screenshots, entry_time, exit_time, stop_loss, take_profit, entry_conditions)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+        `INSERT INTO trades (userId, symbol, direction, size, entryPrice, exitPrice, notes, trade_date, tags, sentiment, screenshots, entry_time, exit_time, stop_loss, take_profit, entry_conditions, createdAt, updatedAt)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $17)
            RETURNING *`,
-        [userId, symbol, direction, size, entryPrice, toNull(exitPrice), toNull(notes), toNull(tradeDate), toNull(tags), toNull(sentiment), toNull(screenshots), toNull(entryTime), toNull(exitTime), toNull(stopLoss), toNull(takeProfit), toNull(entryConditions)]
+        [userId, symbol, direction, size, entryPrice, toNull(exitPrice), toNull(notes), toNull(tradeDate), toNull(tags), toNull(sentiment), toNull(screenshots), toNull(entryTime), toNull(exitTime), toNull(stopLoss), toNull(takeProfit), toNull(entryConditions), nowUtc]
       );
       return result.rows[0];
     } finally {
@@ -21,7 +35,13 @@ export class TradeService {
     const client = await pool.connect();
     try {
       const result = await client.query(
-        'SELECT id, userId, symbol, direction, size, entryPrice, exitPrice, notes, trade_date, tags, sentiment, screenshots, entry_time, exit_time, stop_loss, take_profit, entry_conditions, createdAt, updatedAt FROM trades WHERE userId = $1 ORDER BY createdAt DESC',
+        `SELECT id, userId, symbol, direction, size, entryPrice, exitPrice, notes, trade_date, tags, sentiment, screenshots,
+                TO_CHAR(entry_time, 'YYYY-MM-DD"T"HH24:MI:SS') AS entry_time,
+                TO_CHAR(exit_time, 'YYYY-MM-DD"T"HH24:MI:SS') AS exit_time,
+                stop_loss, take_profit, entry_conditions,
+                TO_CHAR(createdat, 'YYYY-MM-DD"T"HH24:MI:SS') AS createdat,
+                TO_CHAR(updatedat, 'YYYY-MM-DD"T"HH24:MI:SS') AS updatedat
+         FROM trades WHERE userId = $1 ORDER BY createdat DESC`,
         [userId]
       );
       return result.rows;
@@ -34,7 +54,13 @@ export class TradeService {
     const client = await pool.connect();
     try {
       const result = await client.query(
-        'SELECT id, userId, symbol, direction, size, entryPrice, exitPrice, notes, trade_date, tags, sentiment, screenshots, entry_time, exit_time, stop_loss, take_profit, entry_conditions, createdAt, updatedAt FROM trades WHERE id = $1 AND userId = $2',
+        `SELECT id, userId, symbol, direction, size, entryPrice, exitPrice, notes, trade_date, tags, sentiment, screenshots,
+                TO_CHAR(entry_time, 'YYYY-MM-DD"T"HH24:MI:SS') AS entry_time,
+                TO_CHAR(exit_time, 'YYYY-MM-DD"T"HH24:MI:SS') AS exit_time,
+                stop_loss, take_profit, entry_conditions,
+                TO_CHAR(createdat, 'YYYY-MM-DD"T"HH24:MI:SS') AS createdat,
+                TO_CHAR(updatedat, 'YYYY-MM-DD"T"HH24:MI:SS') AS updatedat
+         FROM trades WHERE id = $1 AND userId = $2`,
         [id, userId]
       );
       return result.rows[0];
@@ -87,12 +113,9 @@ export class TradeService {
         return existingTrade;
       }
 
-      values.push(id, userId);
+      values.push(localNowISO(), id, userId);
 
-      const sqlQuery = 'UPDATE trades SET ' + fields.join(', ') + ', updatedAt = CURRENT_TIMESTAMP WHERE id = $' + index + ' AND userid = $' + (index + 1) + ' RETURNING *';
-      console.log('=== UPDATE SQL ===');
-      console.log('SQL:', sqlQuery);
-      console.log('VALUES:', JSON.stringify(values, null, 2));
+      const sqlQuery = 'UPDATE trades SET ' + fields.join(', ') + ', updatedAt = $' + index + ' WHERE id = $' + (index + 1) + ' AND userid = $' + (index + 2) + ' RETURNING *';
 
       const result = await client.query(sqlQuery, values);
 

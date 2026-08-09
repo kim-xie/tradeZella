@@ -27,9 +27,11 @@ interface TradeDrawerProps {
 
 const toDatetimeLocal = (dateStr?: string) => {
     if (!dateStr) return '';
-    const d = new Date(dateStr);
-    const pad = (n: number) => String(n).padStart(2, '0');
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    // 后端返回的时间字符串视为本地时间（无时区）
+    // 直接截取前 16 位作为 datetime-local 值，避免任何 Date 转换导致时区偏移
+    // 支持格式："2026-08-09 11:13:00" / "2026-08-09T11:13:00" / "2026-08-09T11:13:00.000Z"
+    const normalized = dateStr.replace(' ', 'T');
+    return normalized.slice(0, 16);
 };
 
 const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, trade }) => {
@@ -41,7 +43,6 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, t
         entryPrice: 0,
         exitPrice: undefined,
         notes: '',
-        tradeDate: toDatetimeLocal(new Date().toISOString()),
         entryTime: toDatetimeLocal(new Date().toISOString()),
         exitTime: '',
         stopLoss: undefined,
@@ -79,7 +80,6 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, t
                 entryPrice: trade.entryprice,
                 exitPrice: trade.exitprice,
                 notes: trade.notes || '',
-                tradeDate: toDatetimeLocal(trade.createdat),
                 entryTime: toDatetimeLocal(trade.entry_time || trade.createdat),
                 exitTime: trade.exit_time ? toDatetimeLocal(trade.exit_time) : '',
                 stopLoss: trade.stop_loss,
@@ -95,7 +95,6 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, t
                 entryPrice: 0,
                 exitPrice: undefined,
                 notes: '',
-                tradeDate: toDatetimeLocal(new Date().toISOString()),
                 entryTime: toDatetimeLocal(new Date().toISOString()),
                 exitTime: '',
                 stopLoss: undefined,
@@ -270,6 +269,25 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, t
                 (cleanData as any)[key] = undefined;
             }
         });
+
+        // datetime-local 字符串格式为 "2026-08-09T11:13"（无时区、无秒）
+        // 补全秒为 "2026-08-09T11:13:00"，确保严格通过后端 isISO8601 校验
+        // 直接传给后端，PostgreSQL TIMESTAMP (without time zone) 字段原样存储
+        // 显示时原样返回，不做任何时区转换，避免 ±8 小时偏移
+        // 重要：空值必须为 undefined，不能是空字符串，否则 isISO8601 校验失败
+        if (cleanData.entryTime && typeof cleanData.entryTime === 'string' && cleanData.entryTime.length === 16) {
+            cleanData.entryTime = cleanData.entryTime + ':00';
+        }
+        if (cleanData.exitTime && typeof cleanData.exitTime === 'string' && cleanData.exitTime.length === 16) {
+            cleanData.exitTime = cleanData.exitTime + ':00';
+        }
+        // 双保险：确保空字符串转为 undefined
+        if (cleanData.entryTime === '' || cleanData.entryTime === null) {
+            cleanData.entryTime = undefined;
+        }
+        if (cleanData.exitTime === '' || cleanData.exitTime === null) {
+            cleanData.exitTime = undefined;
+        }
 
         try {
             if (isEditMode && trade) {
