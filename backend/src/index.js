@@ -1,18 +1,15 @@
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
-import { dirname, join, resolve } from 'path';
+import { dirname, resolve } from 'path';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const envPath = resolve(__dirname, '../.env');
-console.log('Loading .env from:', envPath);
-const result = dotenv.config({ path: envPath });
-if (result.error) {
-  console.error('Failed to load .env:', result.error);
-} else {
-  console.log('.env loaded successfully');
-  console.log('DB_HOST:', process.env.DB_HOST);
+// 本地开发加载 .env；生产环境（Render/Vercel）使用平台注入的 process.env，文件不存在时静默忽略
+const result = dotenv.config({ path: resolve(__dirname, '../.env') });
+if (result.error && process.env.NODE_ENV !== 'production') {
+  // 仅在非生产环境输出调试信息，避免日志噪声
+  console.log('[dotenv] No .env file found, using process.env directly');
 }
 
 import express from 'express';

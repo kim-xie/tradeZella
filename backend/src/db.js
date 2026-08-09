@@ -5,12 +5,8 @@ import { dirname, resolve } from 'path';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const envResult = dotenv.config({ path: resolve(__dirname, '../.env') });
-console.log('=== DB Config ===');
-console.log('.env error:', envResult.error);
-console.log('DB_HOST:', process.env.DB_HOST);
-console.log('DB_USER:', process.env.DB_USER);
-console.log('=================');
+// 本地开发加载 .env；生产环境使用平台注入的 process.env，文件不存在时静默忽略
+dotenv.config({ path: resolve(__dirname, '../.env') });
 
 import pkg from 'pg';
 import fs from 'fs';
