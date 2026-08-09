@@ -1,10 +1,20 @@
 import axios from 'axios';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
+// Vite环境变量在构建时静态替换，部署后修改无效
+// 开发环境：fallback 到本地 localhost
+// 生产环境（Vercel）：优先用环境变量，否则同源 /api 路径
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || (
+  import.meta.env.DEV ? 'http://localhost:5000/api' : '/api'
+);
 
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
 });
+
+// 调试用：构建后可在控制台确认实际使用的URL
+if (typeof window !== 'undefined') {
+  console.log('[API] Base URL:', API_BASE_URL);
+}
 
 // Response interceptor: auto-refresh token for sliding expiration
 apiClient.interceptors.response.use(
