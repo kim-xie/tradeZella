@@ -4,13 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { X } from 'lucide-react';
 import Button from '../components/common/Button';
-import { getUserTrades, deleteTrade } from '../services/api';
-
-// 用于拼接截图URL（去除末尾 /api 后缀）
-// 开发环境：http://localhost:5000
-// 生产环境：优先环境变量，否则同源（空字符串，拼接 /uploads 即同域请求）
-const _apiBase = import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? 'http://localhost:5000/api' : '/api');
-const API_BASE_URL = _apiBase.replace(/\/api$/, '');
+import { getUserTrades, deleteTrade, SERVER_BASE_URL as API_BASE_URL, getAssetUrl } from '../services/api';
 
 interface Trade {
   id: number;

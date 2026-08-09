@@ -3,8 +3,7 @@ import FeaturePageLayout from './FeaturePageLayout';
 import Button from '../../components/common/Button';
 import SEO from '../../components/common/SEO';
 import axios from 'axios';
-
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+import { SERVER_BASE_URL as API_BASE_URL } from '../../services/api';
 
 interface Trade {
   id: string;

@@ -2,8 +2,7 @@ import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import Button from '../components/common/Button';
 import axios from 'axios';
-
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+import { SERVER_BASE_URL as API_BASE_URL } from '../services/api';
 
 const ForgotPasswordPage: React.FC = () => {
   const [email, setEmail] = useState('');

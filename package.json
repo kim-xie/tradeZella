@@ -7,7 +7,7 @@
     "start:frontend": "vite",
     "start:backend": "nodemon backend/src/index.js",
     "dev": "concurrently \"npm run start:frontend\" \"npm run start:backend\"",
-    "build": "echo \"[Build] VITE_API_BASE_URL=$VITE_API_BASE_URL\" && vite build && node scripts/generate-sitemap.js",
+    "build": "vite build && node scripts/generate-sitemap.js",
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest",

@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import Button from './common/Button';
-import { createTrade, updateTrade, uploadScreenshot, CreateTradeData } from '../services/api';
+import { createTrade, updateTrade, uploadScreenshot, CreateTradeData, SERVER_BASE_URL as API_BASE_URL, getAssetUrl } from '../services/api';
 import { X, Upload, Trash2 } from 'lucide-react';
-
 interface Trade {
     id: number;
     symbol: string;
@@ -25,12 +24,6 @@ interface TradeDrawerProps {
     onSuccess: () => void;
     trade?: Trade | null;
 }
-
-// 用于拼接截图URL（去除末尾 /api 后缀）
-// 开发环境：http://localhost:5000
-// 生产环境：优先环境变量，否则同源（空字符串，拼接 /uploads 即同域请求）
-const _apiBase = import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? 'http://localhost:5000/api' : '/api');
-const API_BASE_URL = _apiBase.replace(/\/api$/, '');
 
 const toDatetimeLocal = (dateStr?: string) => {
     if (!dateStr) return '';

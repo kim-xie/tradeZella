@@ -3,8 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import Button from '../components/common/Button';
 import axios from 'axios';
 import { Eye, EyeOff } from 'lucide-react';
-
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+import { SERVER_BASE_URL as API_BASE_URL } from '../services/api';
 
 const SignupPage: React.FC = () => {
   const [name, setName] = useState('');
