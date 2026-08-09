@@ -48,6 +48,7 @@ apiClient.interceptors.response.use(
     const newToken = response.headers['x-new-token'];
     if (newToken) {
       localStorage.setItem('token', newToken);
+      window.dispatchEvent(new Event('auth-change'));
       console.log('Token refreshed (sliding expiration)');
     }
     return response;

@@ -31,6 +31,7 @@ const SignupPage: React.FC = () => {
       
       const response = await axios.post(`${API_BASE_URL}/api/auth/register`, { name, email, password });
       localStorage.setItem('token', response.data.token);
+      window.dispatchEvent(new Event('auth-change'));
       navigate('/');
     } catch (err: any) {
       setError(err.response?.data?.message || 'An error occurred.');

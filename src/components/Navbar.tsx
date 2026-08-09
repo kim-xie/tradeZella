@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { BookOpen, ChevronDown, Sun, Moon } from 'lucide-react';
 import Button from './common/Button';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useTheme } from './common/ThemeContext';
 
 const resourcesLinks = [
@@ -26,17 +26,39 @@ export default function Navbar() {
   const { theme, toggleTheme } = useTheme();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
+
+  // 检查 token 是否存在并同步状态
+  const syncAuthState = () => {
+    const token = localStorage.getItem('token');
+    setIsAuthenticated(!!token);
+  };
 
   useEffect(() => {
-    const token = localStorage.getItem('token');
-    if (token) {
-      setIsAuthenticated(true);
-    }
-  }, []);
+    // 首次挂载 + 路由变化时检查 token
+    syncAuthState();
+
+    // 监听应用内部发出的自定义事件（登录/注册/登出后主动触发）
+    const handleAuthChange = () => syncAuthState();
+    window.addEventListener('auth-change', handleAuthChange);
+
+    // 监听 storage 事件（其他标签页登录/登出时同步）
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === 'token') syncAuthState();
+    };
+    window.addEventListener('storage', handleStorage);
+
+    return () => {
+      window.removeEventListener('auth-change', handleAuthChange);
+      window.removeEventListener('storage', handleStorage);
+    };
+  }, [location.pathname]);
 
   const handleLogout = () => {
     localStorage.removeItem('token');
     setIsAuthenticated(false);
+    // 通知其他可能监听的组件
+    window.dispatchEvent(new Event('auth-change'));
     navigate('/');
   };
 
@@ -95,7 +117,6 @@ export default function Navbar() {
               )}
             </div>
             <Link to="/pricing" className="text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white">Pricing</Link>
-            <Link to="/broker-support" className="text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white">Broker Support</Link>
 
             {isAuthenticated ? (
               <>

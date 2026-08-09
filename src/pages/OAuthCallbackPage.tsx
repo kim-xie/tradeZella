@@ -11,6 +11,7 @@ const OAuthCallbackPage: React.FC = () => {
 
     if (token) {
       localStorage.setItem('token', token);
+      window.dispatchEvent(new Event('auth-change'));
       navigate('/');
     } else {
       // Handle error case, maybe redirect to login with an error message
