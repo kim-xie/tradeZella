@@ -1,0 +1,282 @@
+import React, { useState, useEffect } from 'react';
+import Button from './common/Button';
+import { createTrade, updateTrade, uploadScreenshot, CreateTradeData } from '../services/api';
+import { X, Upload, Trash2 } from 'lucide-react';
+
+interface Trade {
+    id: number;
+    symbol: string;
+    direction: 'long' | 'short';
+    size: number;
+    entryprice: number;
+    exitprice?: number;
+    notes?: string;
+    createdat: string;
+    screenshots?: string[];
+}
+
+interface TradeDrawerProps {
+    isOpen: boolean;
+    onClose: () => void;
+    onSuccess: () => void;
+    trade?: Trade | null;
+}
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL?.replace('/api', '') || 'http://localhost:5000';
+
+const toDatetimeLocal = (dateStr?: string) => {
+    if (!dateStr) return '';
+    const d = new Date(dateStr);
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
+
+const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, trade }) => {
+    const isEditMode = !!trade;
+    const [formData, setFormData] = useState<CreateTradeData>({
+        symbol: '',
+        direction: 'long',
+        size: 0,
+        entryPrice: 0,
+        exitPrice: undefined,
+        notes: '',
+        tradeDate: toDatetimeLocal(new Date().toISOString()),
+        screenshots: [],
+    });
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const [uploadingImage, setUploadingImage] = useState(false);
+
+    useEffect(() => {
+        if (trade) {
+            setFormData({
+                symbol: trade.symbol,
+                direction: trade.direction,
+                size: trade.size,
+                entryPrice: trade.entryprice,
+                exitPrice: trade.exitprice,
+                notes: trade.notes || '',
+                tradeDate: toDatetimeLocal(trade.createdat),
+                screenshots: trade.screenshots || [],
+            });
+        } else {
+            setFormData({
+                symbol: '',
+                direction: 'long',
+                size: 0,
+                entryPrice: 0,
+                exitPrice: undefined,
+                notes: '',
+                tradeDate: toDatetimeLocal(new Date().toISOString()),
+                screenshots: [],
+            });
+        }
+        setError(null);
+    }, [trade, isOpen]);
+
+    const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const files = e.target.files;
+        if (!files || files.length === 0) return;
+
+        const token = localStorage.getItem('token');
+        if (!token) {
+            setError('Please log in to upload images.');
+            return;
+        }
+
+        setUploadingImage(true);
+        try {
+            const uploadedUrls: string[] = [];
+            for (const file of Array.from(files)) {
+                const url = await uploadScreenshot(token, file);
+                uploadedUrls.push(url);
+            }
+            setFormData({
+                ...formData,
+                screenshots: [...(formData.screenshots || []), ...uploadedUrls],
+            });
+        } catch (err: any) {
+            setError(err.response?.data?.message || 'Failed to upload image.');
+        } finally {
+            setUploadingImage(false);
+            e.target.value = '';
+        }
+    };
+
+    const handleRemoveImage = (index: number) => {
+        setFormData({
+            ...formData,
+            screenshots: formData.screenshots?.filter((_, i) => i !== index),
+        });
+    };
+
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setLoading(true);
+        setError(null);
+
+        const token = localStorage.getItem('token');
+        if (!token) {
+            setError('Please log in to save the trade.');
+            setLoading(false);
+            return;
+        }
+
+        try {
+            if (isEditMode && trade) {
+                await updateTrade(token, trade.id, formData);
+            } else {
+                await createTrade(token, formData);
+            }
+            onSuccess();
+            onClose();
+        } catch (err: any) {
+            setError(err.response?.data?.message || `Failed to ${isEditMode ? 'update' : 'create'} trade.`);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    return (
+        <>
+            {/* Overlay */}
+            <div
+                className={`fixed inset-0 z-40 bg-black transition-opacity duration-300 ${isOpen ? 'opacity-50' : 'opacity-0 pointer-events-none'
+                    }`}
+                onClick={onClose}
+            />
+
+            {/* Drawer */}
+            <div
+                className={`fixed top-0 right-0 z-50 h-full w-full max-w-md bg-white dark:bg-gray-800 shadow-2xl transform transition-transform duration-300 ease-in-out ${isOpen ? 'translate-x-0' : 'translate-x-full'
+                    }`}
+            >
+                <div className="flex flex-col h-full">
+                    {/* Header */}
+                    <div className="flex justify-between items-center p-4 border-b dark:border-gray-700">
+                        <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+                            {isEditMode ? 'Edit Trade' : 'Add New Trade'}
+                        </h2>
+                        <button
+                            onClick={onClose}
+                            className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                        >
+                            <X size={24} />
+                        </button>
+                    </div>
+
+                    {/* Form (scrollable) */}
+                    <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-4 space-y-4">
+                        {error && (
+                            <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 px-3 py-2 rounded-md text-sm">
+                                {error}
+                            </div>
+                        )}
+
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Symbol</label>
+                            <input
+                                type="text"
+                                required
+                                value={formData.symbol}
+                                onChange={(e) => setFormData({ ...formData, symbol: e.target.value.toUpperCase() })}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-purple-500 focus:border-purple-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                                placeholder="e.g., AAPL"
+                            />
+                        </div>
+
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Direction</label>
+                            <select
+                                required
+                                value={formData.direction}
+                                onChange={(e) => setFormData({ ...formData, direction: e.target.value as CreateTradeData['direction'] })}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-purple-500 focus:border-purple-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                            >
+                                <option value="long">Long</option>
+                                <option value="short">Short</option>
+                            </select>
+                        </div>
+
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Size</label>
+                            <input
+                                type="number"
+                                required
+                                min="0"
+                                step="0.01"
+                                value={formData.size}
+                                onChange={(e) => setFormData({ ...formData, size: parseFloat(e.target.value) })}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-purple-500 focus:border-purple-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                            />
+                        </div>
+
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Entry Price</label>
+                            <input
+                                type="number"
+                                required
+                                min="0"
+                                step="0.01"
+                                value={formData.entryPrice}
+                                onChange={(e) => setFormData({ ...formData, entryPrice: parseFloat(e.target.value) })}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-purple-500 focus:border-purple-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                            />
+                        </div>
+
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                Exit Price (Optional)
+                            </label>
+                            <input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={formData.exitPrice || ''}
+                                onChange={(e) =>
+                                    setFormData({ ...formData, exitPrice: e.target.value ? parseFloat(e.target.value) : undefined })
+                                }
+                                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-purple-500 focus:border-purple-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                            />
+                        </div>
+
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Trade Date & Time</label>
+                            <input
+                                type="datetime-local"
+                                value={formData.tradeDate}
+                                onChange={(e) => setFormData({ ...formData, tradeDate: e.target.value })}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-purple-500 focus:border-purple-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                            />
+                        </div>
+
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                Notes (Optional)
+                            </label>
+                            <textarea
+                                value={formData.notes || ''}
+                                onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                                rows={4}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-purple-500 focus:border-purple-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                                placeholder="Add any notes about this trade..."
+                            />
+                        </div>
+                    </form>
+
+                    {/* Footer */}
+                    <div className="flex justify-end space-x-3 p-4 border-t dark:border-gray-700">
+                        <Button variant="gradient" onClick={onClose} disabled={loading}>
+                            Cancel
+                        </Button>
+                        <Button variant="primary" disabled={loading} onClick={handleSubmit}>
+                            {loading ? 'Saving...' : isEditMode ? 'Update Trade' : 'Add Trade'}
+                        </Button>
+                    </div>
+                </div>
+            </div>
+        </>
+    );
+};
+
+export default TradeDrawer;
