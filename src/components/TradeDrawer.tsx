@@ -542,11 +542,13 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, t
                             })()}
                             {(() => {
                                 const actualRR = calculateActualRR();
+                                const pnl = calculatePnL();
                                 if (actualRR) {
+                                    const isProfit = (pnl?.pnl ?? 0) >= 0;
                                     return (
                                         <div className="flex justify-between items-center">
                                             <span className="text-sm font-medium text-gray-600 dark:text-gray-400">Actual R/R</span>
-                                            <span className={`text-sm font-semibold ${actualRR >= 1 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>1 : {actualRR.toFixed(2)}</span>
+                                            <span className={`text-sm font-semibold ${isProfit ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>1 : {Math.abs(actualRR).toFixed(2)}</span>
                                         </div>
                                     );
                                 }
