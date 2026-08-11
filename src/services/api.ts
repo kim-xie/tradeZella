@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { uploadImage } from './cloudinary';
 
 // ============================================================
 // 全局唯一的环境变量与 URL 计算中心
@@ -182,7 +183,6 @@ export const uploadScreenshot = async (token: string, file: File) => {
   // 直接上传到 Cloudinary，不再走后端
   // token 参数保留向后兼容，但 Cloudinary 直传不需要
   try {
-    const { uploadImage } = await import('./cloudinary');
     return await uploadImage(file);
   } catch (error) {
     console.error('Error uploading screenshot to Cloudinary:', error);

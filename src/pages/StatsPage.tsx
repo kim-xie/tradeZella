@@ -14,6 +14,8 @@ interface Trade {
     exit_time?: string;
     stop_loss?: number;
     take_profit?: number;
+    leverage?: number;
+    manual_pnl?: number | null;
 }
 
 interface DayStats {
@@ -41,10 +43,15 @@ const getDurationMinutes = (trade: Trade): number | null => {
 
 const calculateTradePnL = (trade: Trade): number => {
     if (!trade.exitprice || !trade.entryprice || trade.size <= 0) return 0;
+    // 优先使用手动输入的最终盈利
+    if (trade.manual_pnl !== undefined && trade.manual_pnl !== null && !isNaN(trade.manual_pnl)) {
+        return trade.manual_pnl;
+    }
+    const leverage = trade.leverage && trade.leverage >= 1 ? trade.leverage : 1;
     const diff = trade.direction === 'long'
         ? trade.exitprice - trade.entryprice
         : trade.entryprice - trade.exitprice;
-    return diff * trade.size;
+    return diff * trade.size * leverage;
 };
 
 const calculateRR = (trade: Trade): number | null => {
