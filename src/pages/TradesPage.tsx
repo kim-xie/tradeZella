@@ -26,6 +26,8 @@ interface Trade {
   take_profit?: number;
   entry_conditions?: string[];
   rating?: number;
+  leverage?: number;
+  manual_pnl?: number;
 }
 
 const formatDuration = (entryTime?: string, exitTime?: string): string => {
@@ -44,22 +46,37 @@ const formatDuration = (entryTime?: string, exitTime?: string): string => {
   return parts.join(' ');
 };
 
-const calculateTradePnL = (trade: Trade): { pnl: number; pnlPercent: number; rr: number | null; targetRR: number | null } | null => {
+const calculateTradePnL = (trade: Trade): { pnl: number; pnlPercent: number; rr: number | null; targetRR: number | null; isManual: boolean } | null => {
   if (!trade.exitprice || !trade.entryprice || trade.size <= 0) return null;
+  const leverage = trade.leverage && trade.leverage >= 1 ? trade.leverage : 1;
+  // 优先使用手动输入的 PnL
+  if (trade.manual_pnl !== undefined && trade.manual_pnl !== null && !isNaN(trade.manual_pnl)) {
+    const cost = trade.entryprice * trade.size;
+    const pnlPercent = cost > 0 ? (trade.manual_pnl / cost) * 100 : 0;
+    let rr: number | null = null;
+    if (trade.stop_loss && trade.entryprice) {
+      const riskPerUnit = Math.abs(trade.entryprice - trade.stop_loss);
+      if (riskPerUnit > 0) {
+        const maxRisk = riskPerUnit * trade.size;
+        rr = trade.manual_pnl / maxRisk;
+      }
+    }
+    return { pnl: trade.manual_pnl, pnlPercent, rr, targetRR: null, isManual: true };
+  }
   const diff = trade.direction === 'long'
     ? trade.exitprice - trade.entryprice
     : trade.entryprice - trade.exitprice;
-  const pnl = diff * trade.size;
-  const pnlPercent = (diff / trade.entryprice) * 100;
+  const pnl = diff * trade.size * leverage;
+  const pnlPercent = (diff / trade.entryprice) * 100 * leverage;
   let rr: number | null = null;
   if (trade.stop_loss && trade.entryprice) {
     const riskPerUnit = Math.abs(trade.entryprice - trade.stop_loss);
     if (riskPerUnit > 0) {
-      const maxRisk = riskPerUnit * trade.size;
+      const maxRisk = riskPerUnit * trade.size * leverage;
       rr = pnl / maxRisk;
     }
   }
-  return { pnl, pnlPercent, rr, targetRR: null };
+  return { pnl, pnlPercent, rr, targetRR: null, isManual: false };
 };
 
 const calculateTargetRR = (trade: Trade): number | null => {
@@ -365,7 +382,7 @@ const TradesPage: React.FC = () => {
                 <div className="grid grid-cols-2 gap-4">
                   <div><span className="text-sm text-gray-500 dark:text-gray-400">Symbol:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{viewingTrade.symbol}</span></div>
                   <div><span className="text-sm text-gray-500 dark:text-gray-400">Direction:</span> <span className={`text-sm font-medium ${viewingTrade.direction === 'long' ? 'text-green-600' : 'text-red-600'}`}>{viewingTrade.direction}</span></div>
-                  <div><span className="text-sm text-gray-500 dark:text-gray-400">Size:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{viewingTrade.size}</span></div>
+                  <div><span className="text-sm text-gray-500 dark:text-gray-400">Size:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{viewingTrade.size} * {(viewingTrade.leverage && viewingTrade.leverage >= 1 ? viewingTrade.leverage : 1)}x</span></div>
                   <div className="flex items-center gap-2"><span className="text-sm text-gray-500 dark:text-gray-400">Status:</span> {(() => { const isCompleted = !!viewingTrade.exitprice; return <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${isCompleted ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'}`}>{isCompleted ? 'Completed' : 'In Progress'}</span>; })()}</div>
                   <div><span className="text-sm text-gray-500 dark:text-gray-400">Entry Price:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{viewingTrade.entryprice}</span></div>
                   <div><span className="text-sm text-gray-500 dark:text-gray-400">Exit Price:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{viewingTrade.exitprice || '-'}</span></div>
@@ -374,7 +391,7 @@ const TradesPage: React.FC = () => {
                   <div><span className="text-sm text-gray-500 dark:text-gray-400">Entry Time:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{formatLocalTime(viewingTrade.entry_time)}</span></div>
                   <div><span className="text-sm text-gray-500 dark:text-gray-400">Exit Time:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{formatLocalTime(viewingTrade.exit_time)}</span></div>
                   <div><span className="text-sm text-gray-500 dark:text-gray-400">Duration:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{formatDuration(viewingTrade.entry_time, viewingTrade.exit_time)}</span></div>
-                  {(() => { const p = calculateTradePnL(viewingTrade); return p ? <div><span className="text-sm text-gray-500 dark:text-gray-400">P/L:</span> <span className={`text-sm font-semibold ${p.pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>{p.pnl >= 0 ? '+' : ''}{p.pnl.toFixed(2)} ({p.pnlPercent.toFixed(2)}%)</span></div> : null; })()}
+                  {(() => { const p = calculateTradePnL(viewingTrade); return p ? <div><span className="text-sm text-gray-500 dark:text-gray-400">P/L:{p.isManual ? ' (manual)' : ''}</span> <span className={`text-sm font-semibold ${p.pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>{p.pnl >= 0 ? '+' : ''}{p.pnl.toFixed(2)} ({p.pnlPercent.toFixed(2)}%)</span></div> : null; })()}
                   {(() => { const tr = calculateTargetRR(viewingTrade); return tr != null ? <div><span className="text-sm text-gray-500 dark:text-gray-400">Target R/R:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">1:{tr.toFixed(1)}</span></div> : null; })()}
                   {(() => { const p = calculateTradePnL(viewingTrade); return p?.rr != null ? <div><span className="text-sm text-gray-500 dark:text-gray-400">Actual R/R:</span> <span className={`text-sm font-semibold ${p.pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>1:{Math.abs(p.rr).toFixed(1)}</span></div> : null; })()}
                   <div><span className="text-sm text-gray-500 dark:text-gray-400">Created At:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{formatLocalTimeFull(viewingTrade.createdat)}</span></div>

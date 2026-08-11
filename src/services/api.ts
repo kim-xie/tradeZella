@@ -133,6 +133,7 @@ export interface CreateTradeData {
   screenshots?: string[];
   entryConditions?: string[];
   rating?: number;
+  manualPnl?: number;
 }
 
 export const createTrade = async (token: string, tradeData: CreateTradeData) => {
@@ -178,18 +179,13 @@ export const deleteTrade = async (token: string, tradeId: number) => {
 };
 
 export const uploadScreenshot = async (token: string, file: File) => {
-  const formData = new FormData();
-  formData.append('file', file);
+  // 直接上传到 Cloudinary，不再走后端
+  // token 参数保留向后兼容，但 Cloudinary 直传不需要
   try {
-    const response = await apiClient.post('/trades/screenshots', formData, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'multipart/form-data',
-      },
-    });
-    return response.data.data.url;
+    const { uploadImage } = await import('./cloudinary');
+    return await uploadImage(file);
   } catch (error) {
-    console.error('Error uploading screenshot:', error);
+    console.error('Error uploading screenshot to Cloudinary:', error);
     throw error;
   }
 };

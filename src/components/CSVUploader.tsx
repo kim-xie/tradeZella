@@ -48,7 +48,7 @@ const CSVUploader: React.FC<CSVUploaderProps> = ({ onUploadSuccess }) => {
           Authorization: `Bearer ${token}`,
         },
       });
-      
+
       setSuccessMessage(response.data.message || 'Upload successful!');
       onUploadSuccess(); // Callback to refresh the parent component's data
     } catch (err: any) {
