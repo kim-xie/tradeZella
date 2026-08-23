@@ -133,8 +133,10 @@ export interface CreateTradeData {
   sentiment?: string;
   screenshots?: string[];
   entryConditions?: string[];
-  rating?: number;
+  rating?: number | null;
   manualPnl?: number;
+  session?: 'Asia' | 'Europe' | 'US';
+  leverage?: number;
 }
 
 export const createTrade = async (token: string, tradeData: CreateTradeData) => {

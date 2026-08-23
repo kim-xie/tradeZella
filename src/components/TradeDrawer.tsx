@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import Button from './common/Button';
-import { createTrade, updateTrade, uploadScreenshot, CreateTradeData, SERVER_BASE_URL as API_BASE_URL, getAssetUrl } from '../services/api';
-import { X, Upload, Trash2, Star } from 'lucide-react';
+import { createTrade, updateTrade, uploadScreenshot, CreateTradeData, SERVER_BASE_URL as API_BASE_URL } from '../services/api';
+import { X, Upload, Trash2, Star, ChevronLeft, ChevronRight } from 'lucide-react';
+import DateTimePicker from './common/DateTimePicker';
 interface Trade {
     id: number;
     symbol: string;
@@ -19,6 +20,7 @@ interface Trade {
     rating?: number;
     leverage?: number;
     manual_pnl?: number;
+    session?: 'Asia' | 'Europe' | 'US';
 }
 
 interface TradeDrawerProps {
@@ -37,6 +39,12 @@ const toDatetimeLocal = (dateStr?: string) => {
     return normalized.slice(0, 16);
 };
 
+const nowLocalISO = (): string => {
+    const d = new Date();
+    const pad = (n: number) => (n < 10 ? `0${n}` : String(n));
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
+
 const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, trade }) => {
     const isEditMode = !!trade;
     const [formData, setFormData] = useState<CreateTradeData>({
@@ -46,7 +54,7 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, t
         entryPrice: 0,
         exitPrice: undefined,
         notes: '',
-        entryTime: toDatetimeLocal(new Date().toISOString()),
+        entryTime: nowLocalISO(),
         exitTime: '',
         stopLoss: undefined,
         takeProfit: undefined,
@@ -55,13 +63,14 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, t
         rating: 0,
         leverage: 1,
         manualPnl: undefined,
+        session: undefined,
     });
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [entryTimeError, setEntryTimeError] = useState<string>('');
     const [exitTimeError, setExitTimeError] = useState<string>('');
     const [uploadingImage, setUploadingImage] = useState(false);
-    const [lightboxImage, setLightboxImage] = useState<string | null>(null);
+    const [lightboxImage, setLightboxImage] = useState<{ urls: string[]; index: number } | null>(null);
 
     const ENTRY_CONDITION_OPTIONS = [
         'CHOCH', 'BOS', 'OB', 'MB', 'FVG', 'Sweep Liquidity', 'Breakout', 'Pullback', 'Reversal',
@@ -95,6 +104,7 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, t
                 rating: trade.rating || 0,
                 leverage: trade.leverage || 1,
                 manualPnl: (trade as any).manual_pnl,
+                session: (trade as any).session,
             });
         } else {
             setFormData({
@@ -104,7 +114,7 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, t
                 entryPrice: 0,
                 exitPrice: undefined,
                 notes: '',
-                entryTime: toDatetimeLocal(new Date().toISOString()),
+                entryTime: nowLocalISO(),
                 exitTime: '',
                 stopLoss: undefined,
                 takeProfit: undefined,
@@ -113,10 +123,26 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, t
                 rating: 0,
                 leverage: 1,
                 manualPnl: undefined,
+                session: undefined,
             });
         }
         setError(null);
     }, [trade, isOpen]);
+
+    useEffect(() => {
+        if (!lightboxImage) return;
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') {
+                setLightboxImage(null);
+            } else if (e.key === 'ArrowLeft' && lightboxImage.urls.length > 1) {
+                setLightboxImage({ ...lightboxImage, index: (lightboxImage.index - 1 + lightboxImage.urls.length) % lightboxImage.urls.length });
+            } else if (e.key === 'ArrowRight' && lightboxImage.urls.length > 1) {
+                setLightboxImage({ ...lightboxImage, index: (lightboxImage.index + 1) % lightboxImage.urls.length });
+            }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [lightboxImage]);
 
     // Calculate profit/loss (PnL = price diff × size × leverage)
     // If manualPnl is set, it overrides the auto-calculated value
@@ -197,8 +223,7 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, t
         });
     };
 
-    const now = new Date();
-    const nowLocal = toDatetimeLocal(now.toISOString());
+    const nowLocal = nowLocalISO();
 
     const validateEntryTime = (value: string) => {
         setFormData(prev => ({ ...prev, entryTime: value }));
@@ -307,9 +332,9 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, t
         if (cleanData.exitTime === '' || cleanData.exitTime === null) {
             cleanData.exitTime = undefined;
         }
-        // rating 为 0 表示未评分，转为 undefined 让后端 optional 跳过校验
+        // rating 为 0 表示未评分，发送 null 让后端将 rating 列更新为 NULL（编辑时支持 Clear）
         if (!cleanData.rating) {
-            cleanData.rating = undefined;
+            cleanData.rating = null;
         }
         // leverage 小于 1 或空则不发，后端用默认值 1
         if (!cleanData.leverage || cleanData.leverage < 1) {
@@ -400,6 +425,26 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, t
                                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-purple-500 focus:border-purple-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
                                 placeholder="e.g., AAPL"
                             />
+                        </div>
+
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Session</label>
+                            <div className="flex flex-wrap gap-2">
+                                {(['Asia', 'Europe', 'US'] as const).map((option) => {
+                                    const selected = formData.session === option;
+                                    return (
+                                        <button
+                                            key={option}
+                                            type="button"
+                                            onClick={() => setFormData({ ...formData, session: selected ? undefined : option })}
+                                            className={`px-3 py-1.5 text-xs rounded-full border transition-colors ${selected ? 'bg-purple-600 text-white border-purple-600' : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:border-purple-400'}`}
+                                        >
+                                            {option} session
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                            <p className="mt-1 text-xs text-gray-400">Tag this trade with its trading market session (optional)</p>
                         </div>
 
                         <div>
@@ -532,25 +577,25 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, t
                         <div className="grid grid-cols-2 gap-4">
                             <div className="min-w-0">
                                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Entry Time</label>
-                                <input
-                                    type="datetime-local"
-                                    max={nowLocal}
+                                <DateTimePicker
                                     value={formData.entryTime || ''}
-                                    onChange={(e) => validateEntryTime(e.target.value)}
-                                    className={`w-full px-2 py-2 border rounded-md focus:outline-none focus:ring-purple-500 focus:border-purple-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white text-sm ${entryTimeError ? 'border-red-500' : 'border-gray-300'}`}
+                                    onChange={(v) => validateEntryTime(v)}
+                                    max={nowLocal}
+                                    error={entryTimeError}
+                                    placeholder="Select entry time"
+                                    className="w-full"
                                 />
-                                {entryTimeError && <p className="mt-1 text-xs text-red-500">{entryTimeError}</p>}
                             </div>
                             <div className="min-w-0">
                                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Exit Time</label>
-                                <input
-                                    type="datetime-local"
-                                    max={nowLocal}
+                                <DateTimePicker
                                     value={formData.exitTime || ''}
-                                    onChange={(e) => validateExitTime(e.target.value)}
-                                    className={`w-full px-2 py-2 border rounded-md focus:outline-none focus:ring-purple-500 focus:border-purple-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white text-sm ${exitTimeError ? 'border-red-500' : 'border-gray-300'}`}
+                                    onChange={(v) => validateExitTime(v)}
+                                    max={nowLocal}
+                                    error={exitTimeError}
+                                    placeholder="Select exit time"
+                                    className="w-full"
                                 />
-                                {exitTimeError && <p className="mt-1 text-xs text-red-500">{exitTimeError}</p>}
                             </div>
                         </div>
 
@@ -621,48 +666,50 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, t
                             })()}
                         </div>
 
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                Rating (Optional)
-                            </label>
-                            <div className="flex items-center gap-1">
-                                {[1, 2, 3, 4, 5].map((star) => {
-                                    const filled = (formData.rating || 0) >= star;
-                                    return (
+                        {isEditMode && (
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                    Rating (Optional)
+                                </label>
+                                <div className="flex items-center gap-1">
+                                    {[1, 2, 3, 4, 5].map((star) => {
+                                        const filled = (formData.rating || 0) >= star;
+                                        return (
+                                            <button
+                                                key={star}
+                                                type="button"
+                                                onClick={() => {
+                                                    const current = formData.rating || 0;
+                                                    setFormData({
+                                                        ...formData,
+                                                        rating: current === star ? 0 : star,
+                                                    });
+                                                }}
+                                                className="p-1 hover:scale-110 transition-transform"
+                                                title={`${star} star${star > 1 ? 's' : ''}`}
+                                            >
+                                                <Star
+                                                    size={24}
+                                                    className={filled
+                                                        ? 'text-yellow-400 fill-yellow-400'
+                                                        : 'text-gray-300 dark:text-gray-600'}
+                                                />
+                                            </button>
+                                        );
+                                    })}
+                                    {(formData.rating || 0) > 0 && (
                                         <button
-                                            key={star}
                                             type="button"
-                                            onClick={() => {
-                                                const current = formData.rating || 0;
-                                                setFormData({
-                                                    ...formData,
-                                                    rating: current === star ? 0 : star,
-                                                });
-                                            }}
-                                            className="p-1 hover:scale-110 transition-transform"
-                                            title={`${star} star${star > 1 ? 's' : ''}`}
+                                            onClick={() => setFormData({ ...formData, rating: 0 })}
+                                            className="ml-2 text-xs text-gray-400 hover:text-red-500"
                                         >
-                                            <Star
-                                                size={24}
-                                                className={filled
-                                                    ? 'text-yellow-400 fill-yellow-400'
-                                                    : 'text-gray-300 dark:text-gray-600'}
-                                            />
+                                            Clear
                                         </button>
-                                    );
-                                })}
-                                {(formData.rating || 0) > 0 && (
-                                    <button
-                                        type="button"
-                                        onClick={() => setFormData({ ...formData, rating: 0 })}
-                                        className="ml-2 text-xs text-gray-400 hover:text-red-500"
-                                    >
-                                        Clear
-                                    </button>
-                                )}
+                                    )}
+                                </div>
+                                <p className="mt-1 text-xs text-gray-400">Rate this trade from 1 to 5 stars</p>
                             </div>
-                            <p className="mt-1 text-xs text-gray-400">Rate this trade from 1 to 5 stars</p>
-                        </div>
+                        )}
 
                         <div>
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -709,7 +756,10 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, t
                                             <img
                                                 src={url.startsWith('http') ? url : `${API_BASE_URL}${url}`}
                                                 alt={`Screenshot ${index + 1}`}
-                                                onClick={() => setLightboxImage(url.startsWith('http') ? url : `${API_BASE_URL}${url}`)}
+                                                onClick={() => setLightboxImage({
+                                                    urls: (formData.screenshots || []).map(u => u.startsWith('http') ? u : `${API_BASE_URL}${u}`),
+                                                    index
+                                                })}
                                                 className="w-full h-20 object-cover rounded-md cursor-pointer hover:opacity-80 transition-opacity"
                                             />
                                             <button
@@ -747,12 +797,39 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, t
                     <button
                         type="button"
                         onClick={() => setLightboxImage(null)}
-                        className="absolute top-4 right-4 bg-white/20 hover:bg-white/30 text-white rounded-full p-2 transition-colors"
+                        className="absolute top-4 right-4 bg-white/20 hover:bg-white/30 text-white rounded-full p-2 transition-colors z-10"
                     >
                         <X size={24} />
                     </button>
+                    {lightboxImage.urls.length > 1 && (
+                        <>
+                            <button
+                                type="button"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    setLightboxImage({ ...lightboxImage, index: (lightboxImage.index - 1 + lightboxImage.urls.length) % lightboxImage.urls.length });
+                                }}
+                                className="absolute left-4 top-1/2 -translate-y-1/2 bg-white/20 hover:bg-white/30 text-white rounded-full p-2 transition-colors z-10"
+                            >
+                                <ChevronLeft size={24} />
+                            </button>
+                            <button
+                                type="button"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    setLightboxImage({ ...lightboxImage, index: (lightboxImage.index + 1) % lightboxImage.urls.length });
+                                }}
+                                className="absolute right-4 top-1/2 -translate-y-1/2 bg-white/20 hover:bg-white/30 text-white rounded-full p-2 transition-colors z-10"
+                            >
+                                <ChevronRight size={24} />
+                            </button>
+                            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 text-white text-sm bg-white/20 px-3 py-1 rounded-full z-10">
+                                {lightboxImage.index + 1} / {lightboxImage.urls.length}
+                            </div>
+                        </>
+                    )}
                     <img
-                        src={lightboxImage}
+                        src={lightboxImage.urls[lightboxImage.index]}
                         alt="Screenshot preview"
                         onClick={(e) => e.stopPropagation()}
                         className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"

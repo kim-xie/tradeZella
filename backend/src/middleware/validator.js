@@ -35,6 +35,7 @@ export const tradeValidationRules = () => {
     body('entryConditions.*').isString().withMessage('Each entry condition must be a string'),
     body('rating').optional({ nullable: true }).isInt({ min: 1, max: 5 }).withMessage('Rating must be an integer between 1 and 5'),
     body('manualPnl').optional({ nullable: true }).isFloat().withMessage('Manual PnL must be a number'),
+    body('session').optional({ nullable: true }).isIn(['Asia', 'Europe', 'US']).withMessage('Session must be one of "Asia", "Europe", "US"'),
   ];
 };
 
@@ -59,6 +60,7 @@ export const updateTradeValidationRules = () => {
     body('entryConditions.*').optional().isString().withMessage('Each entry condition must be a string'),
     body('rating').optional({ nullable: true }).isInt({ min: 1, max: 5 }).withMessage('Rating must be an integer between 1 and 5'),
     body('manualPnl').optional({ nullable: true }).isFloat().withMessage('Manual PnL must be a number'),
+    body('session').optional({ nullable: true }).isIn(['Asia', 'Europe', 'US']).withMessage('Session must be one of "Asia", "Europe", "US"'),
   ];
 };
 

@@ -146,6 +146,16 @@ const StatsPage: React.FC = () => {
         return cells;
     }, [currentDate]);
 
+    const calendarRows = useMemo<(string | null)[][]>(() => {
+        const padded = [...calendarDays];
+        while (padded.length % 7 !== 0) padded.push(null);
+        const rows: (string | null)[][] = [];
+        for (let i = 0; i < padded.length; i += 7) {
+            rows.push(padded.slice(i, i + 7));
+        }
+        return rows;
+    }, [calendarDays]);
+
     const summaryStats = useMemo(() => {
         const now = new Date();
         const filterByPeriod = (start: Date) => {
@@ -219,45 +229,72 @@ const StatsPage: React.FC = () => {
                     </div>
                 </div>
 
-                <div className="grid grid-cols-7 gap-1 mb-1">
+                <div className="grid grid-cols-8 gap-1 mb-1">
                     {WEEKDAYS.map((day) => (
                         <div key={day} className="text-center text-xs font-semibold text-gray-500 dark:text-gray-400 py-2">{day}</div>
                     ))}
+                    <div className="text-center text-xs font-semibold text-gray-500 dark:text-gray-400 py-2">Week</div>
                 </div>
 
-                <div className="grid grid-cols-7 gap-1">
-                    {calendarDays.map((dateStr, idx) => {
-                        if (!dateStr) return <div key={idx} className="min-h-[110px]" />;
-                        const dayTrades = tradesByDay[dateStr] || [];
-                        const stats = computeStats(dayTrades);
-                        const dayNum = parseInt(dateStr.split('-')[2], 10);
-                        const hasData = dayTrades.length > 0;
-                        const todayStr = new Date().toISOString().substring(0, 10);
-                        const isTodayCell = dateStr === todayStr;
+                <div className="grid grid-cols-8 gap-1">
+                    {calendarRows.flatMap((row, rowIdx) => {
+                        const weekTrades = row.filter((d): d is string => !!d).flatMap((d) => tradesByDay[d] || []);
+                        const weekStats = computeStats(weekTrades);
+                        const weekHasData = weekTrades.length > 0;
 
-                        return (
-                            <div key={idx} className={`min-h-[110px] p-2 rounded-md border text-xs ${hasData ? (stats.pnl >= 0 ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800' : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800') : 'border-gray-200 dark:border-gray-700'} ${isTodayCell ? 'ring-2 ring-purple-500' : ''}`}>
-                                <div className="flex justify-between items-center mb-1">
-                                    <span className={`font-bold ${isTodayCell ? 'text-purple-600 dark:text-purple-400' : 'text-gray-700 dark:text-gray-300'}`}>{dayNum}</span>
-                                    {hasData && <span className="text-gray-400">{stats.count}T</span>}
+                        const dayCells = row.map((dateStr, idx) => {
+                            if (!dateStr) return <div key={`empty-${rowIdx}-${idx}`} className="min-h-[110px]" />;
+                            const dayTrades = tradesByDay[dateStr] || [];
+                            const stats = computeStats(dayTrades);
+                            const dayNum = parseInt(dateStr.split('-')[2], 10);
+                            const hasData = dayTrades.length > 0;
+                            const todayStr = new Date().toISOString().substring(0, 10);
+                            const isTodayCell = dateStr === todayStr;
+
+                            return (
+                                <div key={`day-${dateStr}`} className={`min-h-[110px] p-2 rounded-md border text-xs ${hasData ? (stats.pnl >= 0 ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800' : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800') : 'border-gray-200 dark:border-gray-700'} ${isTodayCell ? 'ring-2 ring-purple-500' : ''}`}>
+                                    <div className="flex justify-between items-center mb-1">
+                                        <span className={`font-bold ${isTodayCell ? 'text-purple-600 dark:text-purple-400' : 'text-gray-700 dark:text-gray-300'}`}>{dayNum}</span>
+                                        {hasData && <span className="text-gray-400">{stats.count}T</span>}
+                                    </div>
+                                    {hasData && (
+                                        <div className="space-y-0.5">
+                                            <div className={`font-semibold ${stats.pnl >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>{stats.pnl >= 0 ? '+' : ''}{stats.pnl.toFixed(2)}</div>
+                                            <div className="text-gray-500 dark:text-gray-400">Win: {stats.winRate.toFixed(0)}%</div>
+                                            <div className="text-gray-500 dark:text-gray-400">R/R: 1:{stats.avgRR.toFixed(1)}</div>
+                                            <div className="text-gray-500 dark:text-gray-400">W:{formatDurationShort(stats.avgWinDuration)}</div>
+                                            <div className="text-gray-500 dark:text-gray-400">L:{formatDurationShort(stats.avgLossDuration)}</div>
+                                        </div>
+                                    )}
                                 </div>
-                                {hasData && (
+                            );
+                        });
+
+                        const weekCell = (
+                            <div key={`week-${rowIdx}`} className={`min-h-[110px] p-2 rounded-md border text-xs ${weekHasData ? (weekStats.pnl >= 0 ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800' : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800') : 'border-gray-200 dark:border-gray-700'}`}>
+                                <div className="flex justify-between items-center mb-1">
+                                    <span className="font-bold text-gray-700 dark:text-gray-300">This Week</span>
+                                    {weekHasData && <span className="text-gray-400">{weekStats.count}T</span>}
+                                </div>
+                                {weekHasData && (
                                     <div className="space-y-0.5">
-                                        <div className={`font-semibold ${stats.pnl >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>{stats.pnl >= 0 ? '+' : ''}{stats.pnl.toFixed(2)}</div>
-                                        <div className="text-gray-500 dark:text-gray-400">Win: {stats.winRate.toFixed(0)}%</div>
-                                        <div className="text-gray-500 dark:text-gray-400">R/R: 1:{stats.avgRR.toFixed(1)}</div>
-                                        <div className="text-gray-500 dark:text-gray-400">W:{formatDurationShort(stats.avgWinDuration)} L:{formatDurationShort(stats.avgLossDuration)}</div>
+                                        <div className={`font-semibold ${weekStats.pnl >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>{weekStats.pnl >= 0 ? '+' : ''}{weekStats.pnl.toFixed(2)}</div>
+                                        <div className="text-gray-500 dark:text-gray-400">Win: {weekStats.winRate.toFixed(0)}%</div>
+                                        <div className="text-gray-500 dark:text-gray-400">R/R: 1:{weekStats.avgRR.toFixed(1)}</div>
+                                        <div className="text-gray-500 dark:text-gray-400">W:{formatDurationShort(weekStats.avgWinDuration)}</div>
+                                        <div className="text-gray-500 dark:text-gray-400">L:{formatDurationShort(weekStats.avgLossDuration)}</div>
                                     </div>
                                 )}
                             </div>
                         );
+
+                        return [...dayCells, weekCell];
                     })}
                 </div>
             </div>
 
             {/* Summary Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                <StatCard title="This Week" stats={summaryStats.week} />
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 <StatCard title="This Month" stats={summaryStats.month} />
                 <StatCard title="This Year" stats={summaryStats.year} />
                 <StatCard title="All Time" stats={summaryStats.all} />

@@ -1,10 +1,10 @@
-import CSVUploader from '../components/CSVUploader';
 import TradeDrawer from '../components/TradeDrawer';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { X, Star } from 'lucide-react';
+import { X, Star, ChevronLeft, ChevronRight } from 'lucide-react';
 import Button from '../components/common/Button';
-import { getUserTrades, deleteTrade, SERVER_BASE_URL as API_BASE_URL, getAssetUrl } from '../services/api';
+import Select from '../components/common/Select';
+import { getUserTrades, deleteTrade, SERVER_BASE_URL as API_BASE_URL } from '../services/api';
 
 interface Trade {
   id: number;
@@ -28,6 +28,7 @@ interface Trade {
   rating?: number;
   leverage?: number;
   manual_pnl?: number;
+  session?: 'Asia' | 'Europe' | 'US';
 }
 
 const formatDuration = (entryTime?: string, exitTime?: string): string => {
@@ -140,13 +141,14 @@ const TradesPage: React.FC = () => {
   const [editingTrade, setEditingTrade] = useState<Trade | null>(null);
   const [viewingTrade, setViewingTrade] = useState<Trade | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
-  const [lightboxImage, setLightboxImage] = useState<string | null>(null);
+  const [lightboxImage, setLightboxImage] = useState<{ urls: string[]; index: number } | null>(null);
   const [searchSymbol, setSearchSymbol] = useState('');
   const [searchEntryDateStart, setSearchEntryDateStart] = useState('');
   const [searchEntryDateEnd, setSearchEntryDateEnd] = useState('');
   const [searchStatus, setSearchStatus] = useState('');
   const [searchDirection, setSearchDirection] = useState('');
   const [searchResult, setSearchResult] = useState('');
+  const [searchSession, setSearchSession] = useState('');
   const [quickFilter, setQuickFilter] = useState('');
   const navigate = useNavigate();
 
@@ -171,6 +173,7 @@ const TradesPage: React.FC = () => {
     setSearchStatus('');
     setSearchDirection('');
     setSearchResult('');
+    setSearchSession('');
     setQuickFilter('');
   };
 
@@ -245,6 +248,49 @@ const TradesPage: React.FC = () => {
     fetchTrades();
   }, []);
 
+  useEffect(() => {
+    if (!lightboxImage) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setLightboxImage(null);
+      } else if (e.key === 'ArrowLeft' && lightboxImage.urls.length > 1) {
+        setLightboxImage({ ...lightboxImage, index: (lightboxImage.index - 1 + lightboxImage.urls.length) % lightboxImage.urls.length });
+      } else if (e.key === 'ArrowRight' && lightboxImage.urls.length > 1) {
+        setLightboxImage({ ...lightboxImage, index: (lightboxImage.index + 1) % lightboxImage.urls.length });
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [lightboxImage]);
+
+  const filteredTrades = useMemo(() => {
+    return trades.filter((trade) => {
+      if (searchSymbol && !trade.symbol.toLowerCase().includes(searchSymbol.toLowerCase())) return false;
+      if (searchEntryDateStart || searchEntryDateEnd) {
+        const entryDate = trade.entry_time || trade.createdat;
+        if (!entryDate) return false;
+        const entryDateStr = entryDate.substring(0, 10);
+        if (searchEntryDateStart && entryDateStr < searchEntryDateStart) return false;
+        if (searchEntryDateEnd && entryDateStr > searchEntryDateEnd) return false;
+      }
+      if (searchStatus) {
+        const isCompleted = !!trade.exitprice;
+        if (searchStatus === 'completed' && !isCompleted) return false;
+        if (searchStatus === 'in_progress' && isCompleted) return false;
+      }
+      if (searchDirection && trade.direction !== searchDirection) return false;
+      if (searchSession && trade.session !== searchSession) return false;
+      if (searchResult) {
+        if (!trade.exitprice) return false;
+        const pnlValue = calculateTradePnL(trade)?.pnl || 0;
+        if (searchResult === 'profit' && pnlValue <= 0) return false;
+        if (searchResult === 'loss' && pnlValue >= 0) return false;
+        if (searchResult === 'breakeven' && pnlValue !== 0) return false;
+      }
+      return true;
+    });
+  }, [trades, searchSymbol, searchEntryDateStart, searchEntryDateEnd, searchStatus, searchDirection, searchSession, searchResult]);
+
   if (loading && trades.length === 0) {
     return (
       <div className="fixed inset-0 flex flex-col items-center justify-center">
@@ -279,38 +325,58 @@ const TradesPage: React.FC = () => {
           />
         </div>
         <div className="min-w-[140px]">
-          <select
+          <Select
             value={searchStatus}
-            onChange={(e) => setSearchStatus(e.target.value)}
-            className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-purple-500 focus:border-purple-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-          >
-            <option value="">All Status</option>
-            <option value="completed">Completed</option>
-            <option value="in_progress">In Progress</option>
-          </select>
+            onChange={setSearchStatus}
+            placeholder="All Status"
+            options={[
+              { value: '', label: 'All Status' },
+              { value: 'completed', label: 'Completed' },
+              { value: 'in_progress', label: 'In Progress' },
+            ]}
+            className="w-full"
+          />
         </div>
         <div className="min-w-[140px]">
-          <select
+          <Select
             value={searchDirection}
-            onChange={(e) => setSearchDirection(e.target.value)}
-            className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-purple-500 focus:border-purple-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-          >
-            <option value="">All Direction</option>
-            <option value="long">Long</option>
-            <option value="short">Short</option>
-          </select>
+            onChange={setSearchDirection}
+            placeholder="All Direction"
+            options={[
+              { value: '', label: 'All Direction' },
+              { value: 'long', label: 'Long' },
+              { value: 'short', label: 'Short' },
+            ]}
+            className="w-full"
+          />
         </div>
         <div className="min-w-[140px]">
-          <select
+          <Select
             value={searchResult}
-            onChange={(e) => setSearchResult(e.target.value)}
-            className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-purple-500 focus:border-purple-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-          >
-            <option value="">All Result</option>
-            <option value="profit">Profit</option>
-            <option value="loss">Loss</option>
-            <option value="breakeven">Break Even</option>
-          </select>
+            onChange={setSearchResult}
+            placeholder="All Result"
+            options={[
+              { value: '', label: 'All Result' },
+              { value: 'profit', label: 'Profit' },
+              { value: 'loss', label: 'Loss' },
+              { value: 'breakeven', label: 'Break Even' },
+            ]}
+            className="w-full"
+          />
+        </div>
+        <div className="min-w-[140px]">
+          <Select
+            value={searchSession}
+            onChange={setSearchSession}
+            placeholder="All Sessions"
+            options={[
+              { value: '', label: 'All Sessions' },
+              { value: 'Asia', label: 'Asia' },
+              { value: 'Europe', label: 'Europe' },
+              { value: 'US', label: 'US' },
+            ]}
+            className="w-full"
+          />
         </div>
         {/* Quick Date Filters - Radio Style */}
         <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
@@ -396,6 +462,7 @@ const TradesPage: React.FC = () => {
                   {(() => { const p = calculateTradePnL(viewingTrade); return p?.rr != null ? <div><span className="text-sm text-gray-500 dark:text-gray-400">Actual R/R:</span> <span className={`text-sm font-semibold ${p.pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>1:{Math.abs(p.rr).toFixed(1)}</span></div> : null; })()}
                   <div><span className="text-sm text-gray-500 dark:text-gray-400">Created At:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{formatLocalTimeFull(viewingTrade.createdat)}</span></div>
                   <div><span className="text-sm text-gray-500 dark:text-gray-400">Updated At:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{formatLocalTimeFull(viewingTrade.updatedat)}</span></div>
+                  <div><span className="text-sm text-gray-500 dark:text-gray-400">Session:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{viewingTrade.session || '-'}</span></div>
                   <div className="flex items-center gap-3 flex-wrap">
                     <span className="text-sm text-gray-500 dark:text-gray-400">Result:</span>
                     {(() => { const p = calculateTradePnL(viewingTrade); if (!viewingTrade.exitprice) return <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400">-</span>; if (!p) return <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400">-</span>; if (p.pnl > 0) return <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">Profit</span>; if (p.pnl < 0) return <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">Loss</span>; return <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300">Break Even</span>; })()}</div>
@@ -438,7 +505,10 @@ const TradesPage: React.FC = () => {
                             key={i}
                             src={fullUrl}
                             alt={`Screenshot ${i + 1}`}
-                            onClick={() => setLightboxImage(fullUrl)}
+                            onClick={() => setLightboxImage({
+                              urls: viewingTrade.screenshots!.map(u => u.startsWith('http') ? u : `${API_BASE_URL}${u}`),
+                              index: i
+                            })}
                             className="w-full h-20 object-cover rounded-md cursor-pointer hover:opacity-80 transition-opacity"
                           />
                         );
@@ -461,13 +531,38 @@ const TradesPage: React.FC = () => {
           onClick={() => setLightboxImage(null)}
         >
           <button
-            className="absolute top-4 right-4 text-white hover:text-gray-300 bg-gray-800/50 hover:bg-gray-800/70 rounded-full p-2"
+            className="absolute top-4 right-4 text-white hover:text-gray-300 bg-gray-800/50 hover:bg-gray-800/70 rounded-full p-2 z-10"
             onClick={() => setLightboxImage(null)}
           >
             <X size={24} />
           </button>
+          {lightboxImage.urls.length > 1 && (
+            <>
+              <button
+                className="absolute left-4 top-1/2 -translate-y-1/2 text-white hover:text-gray-300 bg-gray-800/50 hover:bg-gray-800/70 rounded-full p-2 z-10"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setLightboxImage({ ...lightboxImage, index: (lightboxImage.index - 1 + lightboxImage.urls.length) % lightboxImage.urls.length });
+                }}
+              >
+                <ChevronLeft size={24} />
+              </button>
+              <button
+                className="absolute right-4 top-1/2 -translate-y-1/2 text-white hover:text-gray-300 bg-gray-800/50 hover:bg-gray-800/70 rounded-full p-2 z-10"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setLightboxImage({ ...lightboxImage, index: (lightboxImage.index + 1) % lightboxImage.urls.length });
+                }}
+              >
+                <ChevronRight size={24} />
+              </button>
+              <div className="absolute bottom-4 left-1/2 -translate-x-1/2 text-white text-sm bg-gray-800/50 px-3 py-1 rounded-full z-10">
+                {lightboxImage.index + 1} / {lightboxImage.urls.length}
+              </div>
+            </>
+          )}
           <img
-            src={lightboxImage}
+            src={lightboxImage.urls[lightboxImage.index]}
             alt="Screenshot"
             onClick={(e) => e.stopPropagation()}
             className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
@@ -475,12 +570,19 @@ const TradesPage: React.FC = () => {
         </div>
       )}
 
+      <div className="flex items-center justify-between mb-3 px-1">
+        <div className="text-sm text-gray-600 dark:text-gray-400">
+          Showing <span className="font-semibold text-gray-900 dark:text-white">{filteredTrades.length}</span> of <span className="font-semibold text-gray-900 dark:text-white">{trades.length}</span> trade{trades.length === 1 ? '' : 's'}
+        </div>
+      </div>
+
       <div className="bg-white dark:bg-gray-800 shadow-md rounded-lg overflow-x-auto">
         <table className="min-w-full leading-normal whitespace-nowrap">
           <thead>
             <tr>
               <th className="px-5 py-3 border-b-2 border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-700 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider">Entry Time</th>
               <th className="px-5 py-3 border-b-2 border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-700 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider">Symbol</th>
+              <th className="px-5 py-3 border-b-2 border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-700 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider">Session</th>
               <th className="px-5 py-3 border-b-2 border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-700 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider">Direction</th>
               <th className="px-5 py-3 border-b-2 border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-700 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider">Result</th>
               <th className="px-5 py-3 border-b-2 border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-700 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider">Size</th>
@@ -494,30 +596,6 @@ const TradesPage: React.FC = () => {
           </thead>
           <tbody className="text-gray-900 dark:text-white">
             {(() => {
-              const filteredTrades = trades.filter((trade) => {
-                if (searchSymbol && !trade.symbol.toLowerCase().includes(searchSymbol.toLowerCase())) return false;
-                if (searchEntryDateStart || searchEntryDateEnd) {
-                  const entryDate = trade.entry_time || trade.createdat;
-                  if (!entryDate) return false;
-                  const entryDateStr = entryDate.substring(0, 10);
-                  if (searchEntryDateStart && entryDateStr < searchEntryDateStart) return false;
-                  if (searchEntryDateEnd && entryDateStr > searchEntryDateEnd) return false;
-                }
-                if (searchStatus) {
-                  const isCompleted = !!trade.exitprice;
-                  if (searchStatus === 'completed' && !isCompleted) return false;
-                  if (searchStatus === 'in_progress' && isCompleted) return false;
-                }
-                if (searchDirection && trade.direction !== searchDirection) return false;
-                if (searchResult) {
-                  if (!trade.exitprice) return false;
-                  const pnlValue = calculateTradePnL(trade).pnl;
-                  if (searchResult === 'profit' && pnlValue <= 0) return false;
-                  if (searchResult === 'loss' && pnlValue >= 0) return false;
-                  if (searchResult === 'breakeven' && pnlValue !== 0) return false;
-                }
-                return true;
-              });
               if (filteredTrades.length > 0) {
                 return filteredTrades.map((trade) => {
                   const pnl = calculateTradePnL(trade);
@@ -532,6 +610,11 @@ const TradesPage: React.FC = () => {
                       <td className={`px-5 py-5 border-b border-gray-200 dark:border-gray-700 ${rowBg} text-sm`}>{formatLocalTime(trade.entry_time)}</td>
                       <td className={`px-5 py-5 border-b border-gray-200 dark:border-gray-700 ${rowBg} text-sm`}>{trade.symbol}</td>
                       <td className={`px-5 py-5 border-b border-gray-200 dark:border-gray-700 ${rowBg} text-sm`}>
+                        {trade.session ? (
+                          <span className="inline-block px-2 py-0.5 text-xs font-medium rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">{trade.session}</span>
+                        ) : '-'}
+                      </td>
+                      <td className={`px-5 py-5 border-b border-gray-200 dark:border-gray-700 ${rowBg} text-sm`}>
                         <span className={trade.direction === 'long' ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}>{trade.direction}</span>
                       </td>
                       <td className={`px-5 py-5 border-b border-gray-200 dark:border-gray-700 ${rowBg} text-sm`}>
@@ -539,7 +622,7 @@ const TradesPage: React.FC = () => {
                           if (!trade.exitprice) {
                             return <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-gray-200 dark:bg-gray-600 text-gray-500 dark:text-gray-300" title="In Progress">–</span>;
                           }
-                          const pnlValue = calculateTradePnL(trade).pnl;
+                          const pnlValue = calculateTradePnL(trade)?.pnl || 0;
                           if (pnlValue > 0) {
                             return <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 font-bold" title="Profit">↑</span>;
                           }
@@ -592,7 +675,7 @@ const TradesPage: React.FC = () => {
               }
               return (
                 <tr>
-                  <td colSpan={11} className="text-center py-10 text-gray-500 dark:text-gray-400">No trades found.</td>
+                  <td colSpan={12} className="text-center py-10 text-gray-500 dark:text-gray-400">No trades found.</td>
                 </tr>
               );
             })()}
