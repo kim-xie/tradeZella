@@ -29,6 +29,7 @@ interface Trade {
   leverage?: number;
   manual_pnl?: number;
   session?: 'Asia' | 'Europe' | 'US';
+  final_trigger?: 'takeProfit' | 'stopLoss';
 }
 
 const formatDuration = (entryTime?: string, exitTime?: string): string => {
@@ -86,6 +87,23 @@ const calculateTargetRR = (trade: Trade): number | null => {
   const reward = Math.abs(trade.take_profit - trade.entryprice);
   if (risk === 0) return null;
   return reward / risk;
+};
+
+type ExitMethodType = 'takeProfit' | 'stopLoss' | 'manual';
+const calculateExitMethod = (trade: Trade): ExitMethodType | null => {
+  if (trade.exitprice == null || trade.stop_loss == null || trade.take_profit == null) return null;
+  const exit = trade.exitprice;
+  const sl = trade.stop_loss;
+  const tp = trade.take_profit;
+  if (trade.direction === 'long') {
+    if (exit >= tp) return 'takeProfit';
+    if (exit <= sl) return 'stopLoss';
+    return 'manual';
+  } else {
+    if (exit <= tp) return 'takeProfit';
+    if (exit >= sl) return 'stopLoss';
+    return 'manual';
+  }
 };
 
 // 后端返回的时间字符串视为本地时间（无时区），直接字符串处理避免时区偏移
@@ -148,7 +166,7 @@ const TradesPage: React.FC = () => {
   const [searchStatus, setSearchStatus] = useState('');
   const [searchDirection, setSearchDirection] = useState('');
   const [searchResult, setSearchResult] = useState('');
-  const [searchSession, setSearchSession] = useState('');
+  const [searchExitMethod, setSearchExitMethod] = useState('');
   const [quickFilter, setQuickFilter] = useState('');
   const navigate = useNavigate();
 
@@ -173,7 +191,7 @@ const TradesPage: React.FC = () => {
     setSearchStatus('');
     setSearchDirection('');
     setSearchResult('');
-    setSearchSession('');
+    setSearchExitMethod('');
     setQuickFilter('');
   };
 
@@ -279,7 +297,10 @@ const TradesPage: React.FC = () => {
         if (searchStatus === 'in_progress' && isCompleted) return false;
       }
       if (searchDirection && trade.direction !== searchDirection) return false;
-      if (searchSession && trade.session !== searchSession) return false;
+      if (searchExitMethod) {
+        const method = calculateExitMethod(trade);
+        if (!method || method !== searchExitMethod) return false;
+      }
       if (searchResult) {
         if (!trade.exitprice) return false;
         const pnlValue = calculateTradePnL(trade)?.pnl || 0;
@@ -289,7 +310,7 @@ const TradesPage: React.FC = () => {
       }
       return true;
     });
-  }, [trades, searchSymbol, searchEntryDateStart, searchEntryDateEnd, searchStatus, searchDirection, searchSession, searchResult]);
+  }, [trades, searchSymbol, searchEntryDateStart, searchEntryDateEnd, searchStatus, searchDirection, searchExitMethod, searchResult]);
 
   if (loading && trades.length === 0) {
     return (
@@ -366,14 +387,14 @@ const TradesPage: React.FC = () => {
         </div>
         <div className="min-w-[140px]">
           <Select
-            value={searchSession}
-            onChange={setSearchSession}
-            placeholder="All Sessions"
+            value={searchExitMethod}
+            onChange={setSearchExitMethod}
+            placeholder="All Exit Methods"
             options={[
-              { value: '', label: 'All Sessions' },
-              { value: 'Asia', label: 'Asia' },
-              { value: 'Europe', label: 'Europe' },
-              { value: 'US', label: 'US' },
+              { value: '', label: 'All Exit Methods' },
+              { value: 'takeProfit', label: 'Take Profit' },
+              { value: 'stopLoss', label: 'Stop Loss' },
+              { value: 'manual', label: 'Manual' },
             ]}
             className="w-full"
           />
@@ -448,7 +469,7 @@ const TradesPage: React.FC = () => {
                 <div className="grid grid-cols-2 gap-4">
                   <div><span className="text-sm text-gray-500 dark:text-gray-400">Symbol:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{viewingTrade.symbol}</span></div>
                   <div><span className="text-sm text-gray-500 dark:text-gray-400">Direction:</span> <span className={`text-sm font-medium ${viewingTrade.direction === 'long' ? 'text-green-600' : 'text-red-600'}`}>{viewingTrade.direction}</span></div>
-                  <div><span className="text-sm text-gray-500 dark:text-gray-400">Size:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{viewingTrade.size} * {(viewingTrade.leverage && viewingTrade.leverage >= 1 ? viewingTrade.leverage : 1)}x</span></div>
+                  <div><span className="text-sm text-gray-500 dark:text-gray-400">Size:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{viewingTrade.size}</span></div>
                   <div className="flex items-center gap-2"><span className="text-sm text-gray-500 dark:text-gray-400">Status:</span> {(() => { const isCompleted = !!viewingTrade.exitprice; return <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${isCompleted ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'}`}>{isCompleted ? 'Completed' : 'In Progress'}</span>; })()}</div>
                   <div><span className="text-sm text-gray-500 dark:text-gray-400">Entry Price:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{viewingTrade.entryprice}</span></div>
                   <div><span className="text-sm text-gray-500 dark:text-gray-400">Exit Price:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{viewingTrade.exitprice || '-'}</span></div>
@@ -463,6 +484,8 @@ const TradesPage: React.FC = () => {
                   <div><span className="text-sm text-gray-500 dark:text-gray-400">Created At:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{formatLocalTimeFull(viewingTrade.createdat)}</span></div>
                   <div><span className="text-sm text-gray-500 dark:text-gray-400">Updated At:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{formatLocalTimeFull(viewingTrade.updatedat)}</span></div>
                   <div><span className="text-sm text-gray-500 dark:text-gray-400">Session:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{viewingTrade.session || '-'}</span></div>
+                  {(() => { const method = calculateExitMethod(viewingTrade); if (!method) return <div><span className="text-sm text-gray-500 dark:text-gray-400">Exit Method:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">-</span></div>; const styles: Record<ExitMethodType, string> = { takeProfit: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400', stopLoss: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400', manual: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400' }; const labels: Record<ExitMethodType, string> = { takeProfit: 'Take Profit', stopLoss: 'Stop Loss', manual: 'Manual' }; return <div className="flex items-center gap-2"><span className="text-sm text-gray-500 dark:text-gray-400">Exit Method:</span><span className={`inline-block px-2 py-0.5 text-xs font-medium rounded-full ${styles[method]}`}>{labels[method]}</span></div>; })()}
+                  {(() => { const ft = viewingTrade.final_trigger; if (!ft) return <div><span className="text-sm text-gray-500 dark:text-gray-400">Final Trigger:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">-</span></div>; const ftStyles: Record<'takeProfit' | 'stopLoss', string> = { takeProfit: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400', stopLoss: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' }; const ftLabels: Record<'takeProfit' | 'stopLoss', string> = { takeProfit: 'Take Profit', stopLoss: 'Stop Loss' }; return <div className="flex items-center gap-2"><span className="text-sm text-gray-500 dark:text-gray-400">Final Trigger:</span><span className={`inline-block px-2 py-0.5 text-xs font-medium rounded-full ${ftStyles[ft]}`}>{ftLabels[ft]}</span></div>; })()}
                   <div className="flex items-center gap-3 flex-wrap">
                     <span className="text-sm text-gray-500 dark:text-gray-400">Result:</span>
                     {(() => { const p = calculateTradePnL(viewingTrade); if (!viewingTrade.exitprice) return <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400">-</span>; if (!p) return <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400">-</span>; if (p.pnl > 0) return <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">Profit</span>; if (p.pnl < 0) return <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">Loss</span>; return <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300">Break Even</span>; })()}</div>
@@ -582,10 +605,9 @@ const TradesPage: React.FC = () => {
             <tr>
               <th className="px-5 py-3 border-b-2 border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-700 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider">Entry Time</th>
               <th className="px-5 py-3 border-b-2 border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-700 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider">Symbol</th>
-              <th className="px-5 py-3 border-b-2 border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-700 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider">Session</th>
               <th className="px-5 py-3 border-b-2 border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-700 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider">Direction</th>
-              <th className="px-5 py-3 border-b-2 border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-700 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider">Result</th>
-              <th className="px-5 py-3 border-b-2 border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-700 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider">Size</th>
+              <th className="px-5 py-3 border-b-2 border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-700 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider">Exit Method</th>
+              <th className="px-5 py-3 border-b-2 border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-700 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider">Final Trigger</th>
               <th className="px-5 py-3 border-b-2 border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-700 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider">Duration</th>
               <th className="px-5 py-3 border-b-2 border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-700 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider">P/L</th>
               <th className="px-5 py-3 border-b-2 border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-700 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider">Actual R/R</th>
@@ -610,29 +632,40 @@ const TradesPage: React.FC = () => {
                       <td className={`px-5 py-5 border-b border-gray-200 dark:border-gray-700 ${rowBg} text-sm`}>{formatLocalTime(trade.entry_time)}</td>
                       <td className={`px-5 py-5 border-b border-gray-200 dark:border-gray-700 ${rowBg} text-sm`}>{trade.symbol}</td>
                       <td className={`px-5 py-5 border-b border-gray-200 dark:border-gray-700 ${rowBg} text-sm`}>
-                        {trade.session ? (
-                          <span className="inline-block px-2 py-0.5 text-xs font-medium rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">{trade.session}</span>
-                        ) : '-'}
-                      </td>
-                      <td className={`px-5 py-5 border-b border-gray-200 dark:border-gray-700 ${rowBg} text-sm`}>
                         <span className={trade.direction === 'long' ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}>{trade.direction}</span>
                       </td>
                       <td className={`px-5 py-5 border-b border-gray-200 dark:border-gray-700 ${rowBg} text-sm`}>
                         {(() => {
-                          if (!trade.exitprice) {
-                            return <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-gray-200 dark:bg-gray-600 text-gray-500 dark:text-gray-300" title="In Progress">–</span>;
-                          }
-                          const pnlValue = calculateTradePnL(trade)?.pnl || 0;
-                          if (pnlValue > 0) {
-                            return <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 font-bold" title="Profit">↑</span>;
-                          }
-                          if (pnlValue < 0) {
-                            return <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 font-bold" title="Loss">↓</span>;
-                          }
-                          return <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-500" title="Break Even">=</span>;
+                          const method = calculateExitMethod(trade);
+                          if (!method) return <span className="text-gray-400">-</span>;
+                          const styles: Record<ExitMethodType, string> = {
+                            takeProfit: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
+                            stopLoss: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+                            manual: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
+                          };
+                          const labels: Record<ExitMethodType, string> = {
+                            takeProfit: 'Take Profit',
+                            stopLoss: 'Stop Loss',
+                            manual: 'Manual',
+                          };
+                          return <span className={`inline-block px-2 py-0.5 text-xs font-medium rounded-full ${styles[method]}`}>{labels[method]}</span>;
                         })()}
                       </td>
-                      <td className={`px-5 py-5 border-b border-gray-200 dark:border-gray-700 ${rowBg} text-sm`}>{trade.size}</td>
+                      <td className={`px-5 py-5 border-b border-gray-200 dark:border-gray-700 ${rowBg} text-sm`}>
+                        {(() => {
+                          const ft = trade.final_trigger;
+                          if (!ft) return <span className="text-gray-400">-</span>;
+                          const ftStyles: Record<'takeProfit' | 'stopLoss', string> = {
+                            takeProfit: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
+                            stopLoss: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+                          };
+                          const ftLabels: Record<'takeProfit' | 'stopLoss', string> = {
+                            takeProfit: 'Take Profit',
+                            stopLoss: 'Stop Loss',
+                          };
+                          return <span className={`inline-block px-2 py-0.5 text-xs font-medium rounded-full ${ftStyles[ft]}`}>{ftLabels[ft]}</span>;
+                        })()}
+                      </td>
                       <td className={`px-5 py-5 border-b border-gray-200 dark:border-gray-700 ${rowBg} text-sm`}>{formatDuration(trade.entry_time, trade.exit_time)}</td>
                       <td className={`px-5 py-5 border-b border-gray-200 dark:border-gray-700 ${rowBg} text-sm`}>
                         {pnl ? (
@@ -675,7 +708,7 @@ const TradesPage: React.FC = () => {
               }
               return (
                 <tr>
-                  <td colSpan={12} className="text-center py-10 text-gray-500 dark:text-gray-400">No trades found.</td>
+                  <td colSpan={11} className="text-center py-10 text-gray-500 dark:text-gray-400">No trades found.</td>
                 </tr>
               );
             })()}

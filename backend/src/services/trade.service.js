@@ -14,16 +14,16 @@ const localNowISO = () => {
 };
 
 export class TradeService {
-  static async createTrade({ userId, symbol, direction, size, entryPrice, exitPrice, notes, tradeDate, tags, sentiment, screenshots, entryTime, exitTime, stopLoss, takeProfit, entryConditions, rating, manualPnl, session }) {
+  static async createTrade({ userId, symbol, direction, size, entryPrice, exitPrice, notes, tradeDate, tags, sentiment, screenshots, entryTime, exitTime, stopLoss, takeProfit, entryConditions, rating, manualPnl, session, finalTrigger }) {
     const client = await pool.connect();
     try {
       const toNull = (v) => (v === '' || v === undefined ? null : v);
       const nowUtc = localNowISO();
       const result = await client.query(
-        `INSERT INTO trades (userId, symbol, direction, size, entryPrice, exitPrice, notes, trade_date, tags, sentiment, screenshots, entry_time, exit_time, stop_loss, take_profit, entry_conditions, rating, manual_pnl, session, createdAt, updatedAt)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+        `INSERT INTO trades (userId, symbol, direction, size, entryPrice, exitPrice, notes, trade_date, tags, sentiment, screenshots, entry_time, exit_time, stop_loss, take_profit, entry_conditions, rating, manual_pnl, session, final_trigger, createdAt, updatedAt)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
            RETURNING *`,
-        [userId, symbol, direction, size, entryPrice, toNull(exitPrice), toNull(notes), toNull(tradeDate), toNull(tags), toNull(sentiment), toNull(screenshots), toNull(entryTime), toNull(exitTime), toNull(stopLoss), toNull(takeProfit), toNull(entryConditions), toNull(rating), toNull(manualPnl), toNull(session), nowUtc, nowUtc]
+        [userId, symbol, direction, size, entryPrice, toNull(exitPrice), toNull(notes), toNull(tradeDate), toNull(tags), toNull(sentiment), toNull(screenshots), toNull(entryTime), toNull(exitTime), toNull(stopLoss), toNull(takeProfit), toNull(entryConditions), toNull(rating), toNull(manualPnl), toNull(session), toNull(finalTrigger), nowUtc, nowUtc]
       );
       return result.rows[0];
     } finally {
@@ -38,7 +38,7 @@ export class TradeService {
         `SELECT id, userId, symbol, direction, size, entryPrice, exitPrice, notes, trade_date, tags, sentiment, screenshots,
                 TO_CHAR(entry_time, 'YYYY-MM-DD"T"HH24:MI:SS') AS entry_time,
                 TO_CHAR(exit_time, 'YYYY-MM-DD"T"HH24:MI:SS') AS exit_time,
-                stop_loss, take_profit, entry_conditions, rating, manual_pnl, session,
+                stop_loss, take_profit, entry_conditions, rating, manual_pnl, session, final_trigger,
                 TO_CHAR(createdat, 'YYYY-MM-DD"T"HH24:MI:SS') AS createdat,
                 TO_CHAR(updatedat, 'YYYY-MM-DD"T"HH24:MI:SS') AS updatedat
          FROM trades WHERE userId = $1 ORDER BY createdat DESC`,
@@ -57,7 +57,7 @@ export class TradeService {
         `SELECT id, userId, symbol, direction, size, entryPrice, exitPrice, notes, trade_date, tags, sentiment, screenshots,
                 TO_CHAR(entry_time, 'YYYY-MM-DD"T"HH24:MI:SS') AS entry_time,
                 TO_CHAR(exit_time, 'YYYY-MM-DD"T"HH24:MI:SS') AS exit_time,
-                stop_loss, take_profit, entry_conditions, rating, manual_pnl, session,
+                stop_loss, take_profit, entry_conditions, rating, manual_pnl, session, final_trigger,
                 TO_CHAR(createdat, 'YYYY-MM-DD"T"HH24:MI:SS') AS createdat,
                 TO_CHAR(updatedat, 'YYYY-MM-DD"T"HH24:MI:SS') AS updatedat
          FROM trades WHERE id = $1 AND userId = $2`,
@@ -96,6 +96,7 @@ export class TradeService {
         rating: 'rating',
         manualPnl: 'manual_pnl',
         session: 'session',
+        finalTrigger: 'final_trigger',
       };
 
       const fields = [];

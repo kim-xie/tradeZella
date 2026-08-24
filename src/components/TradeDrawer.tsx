@@ -21,6 +21,7 @@ interface Trade {
     leverage?: number;
     manual_pnl?: number;
     session?: 'Asia' | 'Europe' | 'US';
+    final_trigger?: 'takeProfit' | 'stopLoss';
 }
 
 interface TradeDrawerProps {
@@ -64,6 +65,7 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, t
         leverage: 1,
         manualPnl: undefined,
         session: undefined,
+        finalTrigger: undefined,
     });
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -105,6 +107,7 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, t
                 leverage: trade.leverage || 1,
                 manualPnl: (trade as any).manual_pnl,
                 session: (trade as any).session,
+                finalTrigger: (trade as any).final_trigger,
             });
         } else {
             setFormData({
@@ -124,6 +127,7 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, t
                 leverage: 1,
                 manualPnl: undefined,
                 session: undefined,
+                finalTrigger: undefined,
             });
         }
         setError(null);
@@ -144,22 +148,28 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, t
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [lightboxImage]);
 
-    // Calculate profit/loss (PnL = price diff × size × leverage)
-    // If manualPnl is set, it overrides the auto-calculated value
-    const calculatePnL = (): { pnl: number; pnlPercent: number; isManual: boolean } | null => {
+    // Auto P/L: 始终基于进出场价格与 size × leverage 计算，不受 manualPnl 影响
+    const calculateAutoPnL = (): { pnl: number; pnlPercent: number } | null => {
         if (!formData.exitPrice || !formData.entryPrice || formData.size <= 0) return null;
         const leverage = formData.leverage && formData.leverage >= 1 ? formData.leverage : 1;
-        if (formData.manualPnl !== undefined && formData.manualPnl !== null && !isNaN(formData.manualPnl)) {
-            const cost = formData.entryPrice * formData.size;
-            const pnlPercent = cost > 0 ? (formData.manualPnl / cost) * 100 : 0;
-            return { pnl: formData.manualPnl, pnlPercent, isManual: true };
-        }
         const diff = formData.direction === 'long'
             ? formData.exitPrice - formData.entryPrice
             : formData.entryPrice - formData.exitPrice;
         const pnl = diff * formData.size * leverage;
         const pnlPercent = (diff / formData.entryPrice) * 100 * leverage;
-        return { pnl, pnlPercent, isManual: false };
+        return { pnl, pnlPercent };
+    };
+
+    // Final P/L: manual 优先，否则回落到 Auto P/L（供 Actual R/R 计算使用）
+    const calculatePnL = (): { pnl: number; pnlPercent: number; isManual: boolean } | null => {
+        if (!formData.exitPrice || !formData.entryPrice || formData.size <= 0) return null;
+        if (formData.manualPnl !== undefined && formData.manualPnl !== null && !isNaN(formData.manualPnl)) {
+            const cost = formData.entryPrice * formData.size;
+            const pnlPercent = cost > 0 ? (formData.manualPnl / cost) * 100 : 0;
+            return { pnl: formData.manualPnl, pnlPercent, isManual: true };
+        }
+        const auto = calculateAutoPnL()!;
+        return { ...auto, isManual: false };
     };
 
     // Calculate target risk-reward ratio
@@ -414,13 +424,7 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, t
                                 value={formData.symbol}
                                 onChange={(e) => {
                                     const newSymbol = e.target.value.toUpperCase();
-                                    // 从 localStorage 读取该品种上次使用的 leverage
-                                    const savedLeverage = localStorage.getItem(`leverage_${newSymbol}`);
-                                    setFormData({
-                                        ...formData,
-                                        symbol: newSymbol,
-                                        leverage: savedLeverage ? parseFloat(savedLeverage) : formData.leverage,
-                                    });
+                                    setFormData({ ...formData, symbol: newSymbol });
                                 }}
                                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-purple-500 focus:border-purple-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
                                 placeholder="e.g., AAPL"
@@ -469,7 +473,7 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, t
                             <p className="mt-1 text-xs text-gray-400">Please select at least one entry condition</p>
                         </div>
 
-                        <div className="grid grid-cols-3 gap-3">
+                        <div className="grid grid-cols-2 gap-3">
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Direction</label>
                                 <select
@@ -493,25 +497,6 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, t
                                     onChange={(e) => setFormData({ ...formData, size: parseFloat(e.target.value) })}
                                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-purple-500 focus:border-purple-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
                                 />
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Leverage (×)</label>
-                                <input
-                                    type="number"
-                                    min="1"
-                                    step="1"
-                                    value={formData.leverage ?? 1}
-                                    onChange={(e) => {
-                                        const newLeverage = e.target.value ? parseFloat(e.target.value) : 1;
-                                        setFormData({ ...formData, leverage: newLeverage });
-                                        // 按品种保存 leverage，下次输入同一 symbol 时自动回填
-                                        if (formData.symbol) {
-                                            localStorage.setItem(`leverage_${formData.symbol}`, String(newLeverage));
-                                        }
-                                    }}
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-purple-500 focus:border-purple-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-                                />
-                                {/* <p className="mt-1 text-xs text-gray-400">Each symbol remembers its own leverage. PnL = diff × size × leverage.</p> */}
                             </div>
                         </div>
 
@@ -574,6 +559,34 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, t
                             </div>
                         </div>
 
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Final P/L</label>
+                            <input
+                                type="number"
+                                step="0.01"
+                                value={(() => {
+                                    if (formData.manualPnl !== undefined && formData.manualPnl !== null && !isNaN(formData.manualPnl)) {
+                                        return formData.manualPnl;
+                                    }
+                                    const auto = calculateAutoPnL();
+                                    return auto ? auto.pnl : '';
+                                })()}
+                                onChange={(e) => {
+                                    const val = e.target.value;
+                                    setFormData({ ...formData, manualPnl: val === '' ? undefined : parseFloat(val) });
+                                }}
+                                placeholder="Auto"
+                                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-purple-500 focus:border-purple-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                            />
+                            <p className="mt-1 text-xs text-gray-400">
+                                {(() => {
+                                    const auto = calculateAutoPnL();
+                                    if (!auto) return `Leverage: ${formData.leverage ?? 1}x`;
+                                    return `Auto: ${auto.pnl >= 0 ? '+' : ''}${auto.pnl.toFixed(2)} (${auto.pnlPercent.toFixed(2)}%) | Leverage: ${formData.leverage ?? 1}x`;
+                                })()}
+                            </p>
+                        </div>
+
                         <div className="grid grid-cols-2 gap-4">
                             <div className="min-w-0">
                                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Entry Time</label>
@@ -613,26 +626,14 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, t
                                 })()}
                             </div>
                             {(() => {
-                                const autoPnl = calculatePnL();
+                                const autoPnl = calculateAutoPnL();
                                 if (autoPnl) {
-                                    const isManual = autoPnl.isManual;
                                     return (
-                                        <div className="space-y-1">
-                                            <div className="flex justify-between items-center">
-                                                <span className="text-sm font-medium text-gray-600 dark:text-gray-400">Profit / Loss {isManual && <span className="text-xs text-yellow-500">(manual)</span>}</span>
-                                                <input
-                                                    type="number"
-                                                    step="0.01"
-                                                    value={formData.manualPnl !== undefined && formData.manualPnl !== null && !isNaN(formData.manualPnl) ? formData.manualPnl : ''}
-                                                    onChange={(e) => {
-                                                        const val = e.target.value;
-                                                        setFormData({ ...formData, manualPnl: val === '' ? undefined : parseFloat(val) });
-                                                    }}
-                                                    placeholder={`${autoPnl.pnl >= 0 ? '+' : ''}${autoPnl.pnl.toFixed(2)}`}
-                                                    className="w-32 px-2 py-1 text-sm text-right border border-gray-300 rounded focus:outline-none focus:ring-purple-500 focus:border-purple-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-                                                />
-                                            </div>
-                                            <p className="text-xs text-gray-400 text-right">Auto: {autoPnl.pnl >= 0 ? '+' : ''}{autoPnl.pnl.toFixed(2)} ({autoPnl.pnlPercent.toFixed(2)}%)</p>
+                                        <div className="flex justify-between items-center">
+                                            <span className="text-sm font-medium text-gray-600 dark:text-gray-400">Auto P/L</span>
+                                            <span className={`text-sm font-semibold ${autoPnl.pnl >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                                                {autoPnl.pnl >= 0 ? '+' : ''}{autoPnl.pnl.toFixed(2)} ({autoPnl.pnlPercent.toFixed(2)}%)
+                                            </span>
                                         </div>
                                     );
                                 }
@@ -710,6 +711,32 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, t
                                 <p className="mt-1 text-xs text-gray-400">Rate this trade from 1 to 5 stars</p>
                             </div>
                         )}
+
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                Final Trigger (Optional)
+                            </label>
+                            <div className="flex flex-wrap gap-2">
+                                {(['takeProfit', 'stopLoss'] as const).map((option) => {
+                                    const selected = formData.finalTrigger === option;
+                                    const activeStyles = option === 'takeProfit'
+                                        ? 'bg-green-600 text-white border-green-600'
+                                        : 'bg-red-600 text-white border-red-600';
+                                    const label = option === 'takeProfit' ? 'Take Profit' : 'Stop Loss';
+                                    return (
+                                        <button
+                                            key={option}
+                                            type="button"
+                                            onClick={() => setFormData({ ...formData, finalTrigger: selected ? undefined : option })}
+                                            className={`px-3 py-1.5 text-xs rounded-full border transition-colors ${selected ? activeStyles : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:border-purple-400'}`}
+                                        >
+                                            {label}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                            <p className="mt-1 text-xs text-gray-400">Mark whether the trade finally triggered take profit or stop loss</p>
+                        </div>
 
                         <div>
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">

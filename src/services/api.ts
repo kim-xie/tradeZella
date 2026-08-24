@@ -137,6 +137,7 @@ export interface CreateTradeData {
   manualPnl?: number;
   session?: 'Asia' | 'Europe' | 'US';
   leverage?: number;
+  finalTrigger?: 'takeProfit' | 'stopLoss';
 }
 
 export const createTrade = async (token: string, tradeData: CreateTradeData) => {
