@@ -458,8 +458,8 @@ const TradesPage: React.FC = () => {
                   <div><span className="text-sm text-gray-500 dark:text-gray-400">Exit Time:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{formatLocalTime(viewingTrade.exit_time)}</span></div>
                   <div><span className="text-sm text-gray-500 dark:text-gray-400">Duration:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{formatDuration(viewingTrade.entry_time, viewingTrade.exit_time)}</span></div>
                   {(() => { const p = calculateTradePnL(viewingTrade); return p ? <div><span className="text-sm text-gray-500 dark:text-gray-400">P/L:{p.isManual ? ' (manual)' : ''}</span> <span className={`text-sm font-semibold ${p.pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>{p.pnl >= 0 ? '+' : ''}{p.pnl.toFixed(2)} ({p.pnlPercent.toFixed(2)}%)</span></div> : null; })()}
-                  {(() => { const tr = calculateTargetRR(viewingTrade); return tr != null ? <div><span className="text-sm text-gray-500 dark:text-gray-400">Target R/R:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">1:{tr.toFixed(1)}</span></div> : null; })()}
-                  {(() => { const p = calculateTradePnL(viewingTrade); return p?.rr != null ? <div><span className="text-sm text-gray-500 dark:text-gray-400">Actual R/R:</span> <span className={`text-sm font-semibold ${p.pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>1:{Math.abs(p.rr).toFixed(1)}</span></div> : null; })()}
+                  {(() => { const tr = calculateTargetRR(viewingTrade); return tr != null ? <div><span className="text-sm text-gray-500 dark:text-gray-400">Target R/R:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{tr.toFixed(1)}</span></div> : null; })()}
+                  {(() => { const p = calculateTradePnL(viewingTrade); return p?.rr != null ? <div><span className="text-sm text-gray-500 dark:text-gray-400">Actual R/R:</span> <span className={`text-sm font-semibold ${p.pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>{Math.abs(p.rr).toFixed(1)}</span></div> : null; })()}
                   <div><span className="text-sm text-gray-500 dark:text-gray-400">Created At:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{formatLocalTimeFull(viewingTrade.createdat)}</span></div>
                   <div><span className="text-sm text-gray-500 dark:text-gray-400">Updated At:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{formatLocalTimeFull(viewingTrade.updatedat)}</span></div>
                   <div><span className="text-sm text-gray-500 dark:text-gray-400">Session:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{viewingTrade.session || '-'}</span></div>
@@ -643,7 +643,7 @@ const TradesPage: React.FC = () => {
                       </td>
                       <td className={`px-5 py-5 border-b border-gray-200 dark:border-gray-700 ${rowBg} text-sm`}>
                         {pnl?.rr != null ? (
-                          <span className={`font-semibold ${pnl.rr >= 1 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>1:{pnl.rr.toFixed(1)}</span>
+                          <span className={`font-semibold ${pnl.rr >= 1 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>{pnl.rr.toFixed(1)}</span>
                         ) : '-'}
                       </td>
                       <td className={`px-5 py-5 border-b border-gray-200 dark:border-gray-700 ${rowBg} text-sm`}>

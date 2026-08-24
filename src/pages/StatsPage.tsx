@@ -204,7 +204,7 @@ const StatsPage: React.FC = () => {
                 <div><span className="text-gray-500 dark:text-gray-400">P/L: </span><span className={`font-semibold ${stats.pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>{stats.pnl >= 0 ? '+' : ''}{stats.pnl.toFixed(2)}</span></div>
                 <div><span className="text-gray-500 dark:text-gray-400">Trades: </span><span className="font-semibold text-gray-900 dark:text-white">{stats.count}</span></div>
                 <div><span className="text-gray-500 dark:text-gray-400">Win Rate: </span><span className="font-semibold text-gray-900 dark:text-white">{stats.winRate.toFixed(1)}%</span></div>
-                <div><span className="text-gray-500 dark:text-gray-400">Avg R/R: </span><span className="font-semibold text-gray-900 dark:text-white">1:{stats.avgRR.toFixed(1)}</span></div>
+                <div><span className="text-gray-500 dark:text-gray-400">Avg R/R: </span><span className="font-semibold text-gray-900 dark:text-white">{stats.avgRR.toFixed(1)}</span></div>
                 <div><span className="text-gray-500 dark:text-gray-400">Win Time: </span><span className="font-semibold text-gray-900 dark:text-white">{formatDurationShort(stats.avgWinDuration)}</span></div>
                 <div><span className="text-gray-500 dark:text-gray-400">Loss Time: </span><span className="font-semibold text-gray-900 dark:text-white">{formatDurationShort(stats.avgLossDuration)}</span></div>
             </div>
@@ -261,7 +261,7 @@ const StatsPage: React.FC = () => {
                                         <div className="space-y-0.5">
                                             <div className={`font-semibold ${stats.pnl >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>{stats.pnl >= 0 ? '+' : ''}{stats.pnl.toFixed(2)}</div>
                                             <div className="text-gray-500 dark:text-gray-400">Win: {stats.winRate.toFixed(0)}%</div>
-                                            <div className="text-gray-500 dark:text-gray-400">R/R: 1:{stats.avgRR.toFixed(1)}</div>
+                                            <div className="text-gray-500 dark:text-gray-400">R/R: {stats.avgRR.toFixed(1)}</div>
                                             <div className="text-gray-500 dark:text-gray-400">W:{formatDurationShort(stats.avgWinDuration)}</div>
                                             <div className="text-gray-500 dark:text-gray-400">L:{formatDurationShort(stats.avgLossDuration)}</div>
                                         </div>
@@ -280,7 +280,7 @@ const StatsPage: React.FC = () => {
                                     <div className="space-y-0.5">
                                         <div className={`font-semibold ${weekStats.pnl >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>{weekStats.pnl >= 0 ? '+' : ''}{weekStats.pnl.toFixed(2)}</div>
                                         <div className="text-gray-500 dark:text-gray-400">Win: {weekStats.winRate.toFixed(0)}%</div>
-                                        <div className="text-gray-500 dark:text-gray-400">R/R: 1:{weekStats.avgRR.toFixed(1)}</div>
+                                        <div className="text-gray-500 dark:text-gray-400">R/R: {weekStats.avgRR.toFixed(1)}</div>
                                         <div className="text-gray-500 dark:text-gray-400">W:{formatDurationShort(weekStats.avgWinDuration)}</div>
                                         <div className="text-gray-500 dark:text-gray-400">L:{formatDurationShort(weekStats.avgLossDuration)}</div>
                                     </div>

@@ -21,9 +21,9 @@ export class TradeService {
       const nowUtc = localNowISO();
       const result = await client.query(
         `INSERT INTO trades (userId, symbol, direction, size, entryPrice, exitPrice, notes, trade_date, tags, sentiment, screenshots, entry_time, exit_time, stop_loss, take_profit, entry_conditions, rating, manual_pnl, session, createdAt, updatedAt)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $19, $20)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
            RETURNING *`,
-        [userId, symbol, direction, size, entryPrice, toNull(exitPrice), toNull(notes), toNull(tradeDate), toNull(tags), toNull(sentiment), toNull(screenshots), toNull(entryTime), toNull(exitTime), toNull(stopLoss), toNull(takeProfit), toNull(entryConditions), toNull(rating), toNull(manualPnl), toNull(session), nowUtc]
+        [userId, symbol, direction, size, entryPrice, toNull(exitPrice), toNull(notes), toNull(tradeDate), toNull(tags), toNull(sentiment), toNull(screenshots), toNull(entryTime), toNull(exitTime), toNull(stopLoss), toNull(takeProfit), toNull(entryConditions), toNull(rating), toNull(manualPnl), toNull(session), nowUtc, nowUtc]
       );
       return result.rows[0];
     } finally {
