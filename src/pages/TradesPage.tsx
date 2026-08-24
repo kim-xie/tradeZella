@@ -337,7 +337,7 @@ const TradesPage: React.FC = () => {
             className="w-full"
           />
         </div>
-        <div className="min-w-[140px]">
+        {/* <div className="min-w-[140px]">
           <Select
             value={searchDirection}
             onChange={setSearchDirection}
@@ -349,7 +349,7 @@ const TradesPage: React.FC = () => {
             ]}
             className="w-full"
           />
-        </div>
+        </div> */}
         <div className="min-w-[140px]">
           <Select
             value={searchResult}
