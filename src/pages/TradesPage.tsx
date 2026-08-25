@@ -630,16 +630,10 @@ const TradesPage: React.FC = () => {
                   const pnl = calculateTradePnL(trade);
                   const targetRR = calculateTargetRR(trade);
                   const isCompleted = !!trade.exitprice;
-                  const todayEntry = isToday(trade.entry_time || trade.createdat);
                   const rowBg = 'bg-white dark:bg-gray-800';
                   return (
                     <tr key={trade.id} className={rowBg}>
-                      <td className={`px-5 py-5 border-b border-gray-200 dark:border-gray-700 ${rowBg} text-sm`}>
-                        <div className="flex items-center gap-2">
-                          {todayEntry && <span className="inline-block w-2 h-2 rounded-full bg-purple-500" title="Today"></span>}
-                          <span>{formatLocalTime(trade.entry_time)}</span>
-                        </div>
-                      </td>
+                      <td className={`px-5 py-5 border-b border-gray-200 dark:border-gray-700 ${rowBg} text-sm`}>{formatLocalTime(trade.entry_time)}</td>
                       <td className={`px-5 py-5 border-b border-gray-200 dark:border-gray-700 ${rowBg} text-sm`}>{trade.symbol}</td>
                       <td className={`px-5 py-5 border-b border-gray-200 dark:border-gray-700 ${rowBg} text-sm`}>
                         <span className={trade.direction === 'long' ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}>{trade.direction}</span>

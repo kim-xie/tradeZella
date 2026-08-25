@@ -422,6 +422,51 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, t
                 onClick={onClose}
             />
 
+            {/* Error modal */}
+            {error && (
+                <div
+                    className="fixed inset-0 z-[60] flex items-center justify-center px-4 bg-black/50 dark:bg-black/60"
+                    onClick={() => setError(null)}
+                >
+                    <div
+                        className="w-full max-w-md bg-white dark:bg-gray-800 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 overflow-hidden"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div className="flex items-start justify-between px-5 py-4 border-b border-gray-200 dark:border-gray-700">
+                            <div className="flex items-center gap-3">
+                                <div className="flex items-center justify-center w-10 h-10 rounded-full bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+                                </div>
+                                <div>
+                                    <h3 className="text-base font-semibold text-gray-900 dark:text-white">An error occurred</h3>
+                                    <p className="text-xs text-gray-500 dark:text-gray-400">Could not save your trade</p>
+                                </div>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setError(null)}
+                                className="p-1 rounded-md text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+                                aria-label="Close error dialog"
+                            >
+                                <X size={18} />
+                            </button>
+                        </div>
+                        <div className="px-5 py-4 text-sm leading-relaxed text-gray-700 dark:text-gray-300 break-words">
+                            {error}
+                        </div>
+                        <div className="flex justify-end gap-2 px-5 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50">
+                            <button
+                                type="button"
+                                onClick={() => setError(null)}
+                                className="inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 dark:bg-red-600 dark:hover:bg-red-700 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-1 dark:focus:ring-offset-gray-800 transition-colors"
+                            >
+                                Close
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* Drawer */}
             <div
                 className={`fixed top-0 right-0 z-50 h-full w-full max-w-2xl bg-white dark:bg-gray-800 shadow-2xl transform transition-transform duration-300 ease-in-out ${isOpen ? 'translate-x-0' : 'translate-x-full'
@@ -443,11 +488,6 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, t
 
                     {/* Form (scrollable) */}
                     <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-4 space-y-4">
-                        {error && (
-                            <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 px-3 py-2 rounded-md text-sm">
-                                {error}
-                            </div>
-                        )}
 
                         <div>
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Symbol</label>
