@@ -712,7 +712,7 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, t
                             </div>
                         )}
 
-                        <div>
+                             {isEditMode && (<div>
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                                 Final Trigger (Optional)
                             </label>
@@ -736,7 +736,7 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, t
                                 })}
                             </div>
                             <p className="mt-1 text-xs text-gray-400">Mark whether the trade finally triggered take profit or stop loss</p>
-                        </div>
+                        </div>)}
 
                         <div>
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
