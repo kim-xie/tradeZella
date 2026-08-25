@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import Button from './common/Button';
 import { createTrade, updateTrade, uploadScreenshot, CreateTradeData, SERVER_BASE_URL as API_BASE_URL } from '../services/api';
-import { X, Upload, Trash2, Star, ChevronLeft, ChevronRight } from 'lucide-react';
+import { X, Upload, Trash2, Star, ChevronLeft, ChevronRight, ChevronDown } from 'lucide-react';
 import DateTimePicker from './common/DateTimePicker';
+import Select from './common/Select';
 interface Trade {
     id: number;
     symbol: string;
@@ -29,6 +30,7 @@ interface TradeDrawerProps {
     onClose: () => void;
     onSuccess: () => void;
     trade?: Trade | null;
+    availableSymbols?: string[];
 }
 
 const toDatetimeLocal = (dateStr?: string) => {
@@ -46,7 +48,7 @@ const nowLocalISO = (): string => {
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 };
 
-const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, trade }) => {
+const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, trade, availableSymbols }) => {
     const isEditMode = !!trade;
     const [formData, setFormData] = useState<CreateTradeData>({
         symbol: '',
@@ -73,9 +75,40 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, t
     const [exitTimeError, setExitTimeError] = useState<string>('');
     const [uploadingImage, setUploadingImage] = useState(false);
     const [lightboxImage, setLightboxImage] = useState<{ urls: string[]; index: number } | null>(null);
+    const [symbolSuggestions, setSymbolSuggestions] = useState<string[]>([]);
+    const [showSymbolDropdown, setShowSymbolDropdown] = useState(false);
+    const symbolInputRef = useRef<HTMLInputElement>(null);
+    const symbolDropdownRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        if (!isOpen) return;
+        const symbols = new Set<string>();
+        (availableSymbols || []).forEach((s) => { if (s) symbols.add(s); });
+        setSymbolSuggestions(Array.from(symbols).sort());
+    }, [isOpen, availableSymbols]);
+
+    useEffect(() => {
+        if (!showSymbolDropdown) return;
+        const handleClick = (e: MouseEvent) => {
+            if (
+                symbolDropdownRef.current && !symbolDropdownRef.current.contains(e.target as Node) &&
+                symbolInputRef.current && !symbolInputRef.current.contains(e.target as Node)
+            ) {
+                setShowSymbolDropdown(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClick);
+        return () => document.removeEventListener('mousedown', handleClick);
+    }, [showSymbolDropdown]);
+
+    const filteredSymbolSuggestions = useMemo(() => {
+        const current = formData.symbol.trim().toUpperCase();
+        if (!current) return symbolSuggestions;
+        return symbolSuggestions.filter((s) => s.includes(current) && s !== current);
+    }, [symbolSuggestions, formData.symbol]);
 
     const ENTRY_CONDITION_OPTIONS = [
-        'CHOCH', 'BOS', 'OB', 'MB', 'FVG', 'Sweep Liquidity', 'Breakout', 'Pullback', 'Reversal',
+        'CHOCH', 'BOS', 'OB', 'MB', 'FVG', 'Sweep Liquidity', 'Breakout', 'Pullback', 'Reject', 'Reversal',
         'Support', 'Resistance', 'UPTrend', 'DownTrend'
     ];
 
@@ -418,17 +451,51 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, t
 
                         <div>
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Symbol</label>
-                            <input
-                                type="text"
-                                required
-                                value={formData.symbol}
-                                onChange={(e) => {
-                                    const newSymbol = e.target.value.toUpperCase();
-                                    setFormData({ ...formData, symbol: newSymbol });
-                                }}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-purple-500 focus:border-purple-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-                                placeholder="e.g., AAPL"
-                            />
+                            <div className="relative" ref={symbolDropdownRef}>
+                                <input
+                                    ref={symbolInputRef}
+                                    type="text"
+                                    required
+                                    value={formData.symbol}
+                                    onChange={(e) => {
+                                        const newSymbol = e.target.value.toUpperCase();
+                                        setFormData({ ...formData, symbol: newSymbol });
+                                        setShowSymbolDropdown(true);
+                                    }}
+                                    onFocus={() => setShowSymbolDropdown(true)}
+                                    className="w-full pl-3 pr-9 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-purple-500 focus:border-purple-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                                    placeholder="BTCUSD"
+                                    autoComplete="off"
+                                />
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setShowSymbolDropdown((v) => !v);
+                                        symbolInputRef.current?.focus();
+                                    }}
+                                    className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+                                    tabIndex={-1}
+                                >
+                                    <ChevronDown size={16} />
+                                </button>
+                                {showSymbolDropdown && filteredSymbolSuggestions.length > 0 && (
+                                    <div className="absolute z-20 mt-1 w-full bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-md shadow-lg py-1 max-h-60 overflow-auto">
+                                        {filteredSymbolSuggestions.map((s) => (
+                                            <button
+                                                key={s}
+                                                type="button"
+                                                onClick={() => {
+                                                    setFormData({ ...formData, symbol: s });
+                                                    setShowSymbolDropdown(false);
+                                                }}
+                                                className="w-full text-left px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-purple-50 dark:hover:bg-gray-600 transition-colors"
+                                            >
+                                                {s}
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
                         </div>
 
                         <div>
@@ -476,15 +543,16 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, t
                         <div className="grid grid-cols-2 gap-3">
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Direction</label>
-                                <select
-                                    required
+                                <Select
                                     value={formData.direction}
-                                    onChange={(e) => setFormData({ ...formData, direction: e.target.value as CreateTradeData['direction'] })}
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-purple-500 focus:border-purple-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-                                >
-                                    <option value="long">Long</option>
-                                    <option value="short">Short</option>
-                                </select>
+                                    onChange={(v) => setFormData({ ...formData, direction: v as CreateTradeData['direction'] })}
+                                    options={[
+                                        { value: 'long', label: 'Long' },
+                                        { value: 'short', label: 'Short' },
+                                    ]}
+                                    placeholder="Select Direction"
+                                    className="w-full"
+                                />
                             </div>
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Size</label>
@@ -712,7 +780,7 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, t
                             </div>
                         )}
 
-                             {isEditMode && (<div>
+                        {isEditMode && (<div>
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                                 Final Trigger (Optional)
                             </label>

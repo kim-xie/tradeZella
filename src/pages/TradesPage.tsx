@@ -312,6 +312,12 @@ const TradesPage: React.FC = () => {
     });
   }, [trades, searchSymbol, searchEntryDateStart, searchEntryDateEnd, searchStatus, searchDirection, searchExitMethod, searchResult]);
 
+  const availableSymbols = useMemo(() => {
+    const symbols = new Set<string>();
+    trades.forEach((t) => { if (t.symbol) symbols.add(t.symbol); });
+    return Array.from(symbols).sort();
+  }, [trades]);
+
   if (loading && trades.length === 0) {
     return (
       <div className="fixed inset-0 flex flex-col items-center justify-center">
@@ -434,6 +440,7 @@ const TradesPage: React.FC = () => {
         onClose={() => setIsDrawerOpen(false)}
         onSuccess={fetchTrades}
         trade={editingTrade}
+        availableSymbols={availableSymbols}
       />
 
       {deletingId !== null && (
@@ -624,12 +631,15 @@ const TradesPage: React.FC = () => {
                   const targetRR = calculateTargetRR(trade);
                   const isCompleted = !!trade.exitprice;
                   const todayEntry = isToday(trade.entry_time || trade.createdat);
-                  const rowBg = todayEntry
-                    ? 'bg-purple-100 dark:bg-purple-900/40'
-                    : 'bg-white dark:bg-gray-800';
+                  const rowBg = 'bg-white dark:bg-gray-800';
                   return (
                     <tr key={trade.id} className={rowBg}>
-                      <td className={`px-5 py-5 border-b border-gray-200 dark:border-gray-700 ${rowBg} text-sm`}>{formatLocalTime(trade.entry_time)}</td>
+                      <td className={`px-5 py-5 border-b border-gray-200 dark:border-gray-700 ${rowBg} text-sm`}>
+                        <div className="flex items-center gap-2">
+                          {todayEntry && <span className="inline-block w-2 h-2 rounded-full bg-purple-500" title="Today"></span>}
+                          <span>{formatLocalTime(trade.entry_time)}</span>
+                        </div>
+                      </td>
                       <td className={`px-5 py-5 border-b border-gray-200 dark:border-gray-700 ${rowBg} text-sm`}>{trade.symbol}</td>
                       <td className={`px-5 py-5 border-b border-gray-200 dark:border-gray-700 ${rowBg} text-sm`}>
                         <span className={trade.direction === 'long' ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}>{trade.direction}</span>
