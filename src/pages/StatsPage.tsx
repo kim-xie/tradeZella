@@ -262,8 +262,8 @@ const StatsPage: React.FC = () => {
                                             <div className={`font-semibold ${stats.pnl >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>{stats.pnl >= 0 ? '+' : ''}{stats.pnl.toFixed(2)}</div>
                                             <div className="text-gray-500 dark:text-gray-400">Win: {stats.winRate.toFixed(0)}%</div>
                                             <div className="text-gray-500 dark:text-gray-400">R/R: {stats.avgRR.toFixed(1)}</div>
-                                            <div className="text-gray-500 dark:text-gray-400">W:{formatDurationShort(stats.avgWinDuration)}</div>
-                                            <div className="text-gray-500 dark:text-gray-400">L:{formatDurationShort(stats.avgLossDuration)}</div>
+                                            <div className="text-gray-500 dark:text-gray-400">W: {formatDurationShort(stats.avgWinDuration)}</div>
+                                            <div className="text-gray-500 dark:text-gray-400">L: {formatDurationShort(stats.avgLossDuration)}</div>
                                         </div>
                                     )}
                                 </div>
@@ -281,8 +281,8 @@ const StatsPage: React.FC = () => {
                                         <div className={`font-semibold ${weekStats.pnl >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>{weekStats.pnl >= 0 ? '+' : ''}{weekStats.pnl.toFixed(2)}</div>
                                         <div className="text-gray-500 dark:text-gray-400">Win: {weekStats.winRate.toFixed(0)}%</div>
                                         <div className="text-gray-500 dark:text-gray-400">R/R: {weekStats.avgRR.toFixed(1)}</div>
-                                        <div className="text-gray-500 dark:text-gray-400">W:{formatDurationShort(weekStats.avgWinDuration)}</div>
-                                        <div className="text-gray-500 dark:text-gray-400">L:{formatDurationShort(weekStats.avgLossDuration)}</div>
+                                        <div className="text-gray-500 dark:text-gray-400">W: {formatDurationShort(weekStats.avgWinDuration)}</div>
+                                        <div className="text-gray-500 dark:text-gray-400">L: {formatDurationShort(weekStats.avgLossDuration)}</div>
                                     </div>
                                 )}
                             </div>

@@ -186,13 +186,11 @@ const TradesPage: React.FC = () => {
 
   const handleReset = () => {
     setSearchSymbol('');
-    setSearchEntryDateStart('');
-    setSearchEntryDateEnd('');
     setSearchStatus('');
     setSearchDirection('');
     setSearchResult('');
     setSearchExitMethod('');
-    setQuickFilter('');
+    handleQuickFilter('today');
   };
 
   const handleQuickFilter = (filter: string) => {
