@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { X, Star, ChevronLeft, ChevronRight } from 'lucide-react';
 import Button from '../components/common/Button';
 import Select from '../components/common/Select';
-import { getUserTrades, deleteTrade, SERVER_BASE_URL as API_BASE_URL } from '../services/api';
+import { getUserTrades, SERVER_BASE_URL as API_BASE_URL } from '../services/api';
 
 interface Trade {
   id: number;
@@ -158,7 +158,7 @@ const TradesPage: React.FC = () => {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [editingTrade, setEditingTrade] = useState<Trade | null>(null);
   const [viewingTrade, setViewingTrade] = useState<Trade | null>(null);
-  const [deletingId, setDeletingId] = useState<number | null>(null);
+
   const [lightboxImage, setLightboxImage] = useState<{ urls: string[]; index: number } | null>(null);
   const [searchSymbol, setSearchSymbol] = useState('');
   const [searchEntryDateStart, setSearchEntryDateStart] = useState('');
@@ -220,27 +220,6 @@ const TradesPage: React.FC = () => {
     setQuickFilter(filter);
   };
 
-  const handleDeleteClick = async (tradeId: number) => {
-    setDeletingId(tradeId);
-  };
-
-  const confirmDelete = async () => {
-    if (!deletingId) return;
-    const token = localStorage.getItem('token');
-    if (!token) {
-      setError('Please log in to delete a trade.');
-      setDeletingId(null);
-      return;
-    }
-    try {
-      await deleteTrade(token, deletingId);
-      fetchTrades();
-    } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to delete trade.');
-    } finally {
-      setDeletingId(null);
-    }
-  };
 
   const fetchTrades = async () => {
     try {
@@ -439,22 +418,11 @@ const TradesPage: React.FC = () => {
         isOpen={isDrawerOpen}
         onClose={() => setIsDrawerOpen(false)}
         onSuccess={fetchTrades}
+        onDelete={fetchTrades}
         trade={editingTrade}
         availableSymbols={availableSymbols}
       />
 
-      {deletingId !== null && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 max-w-sm mx-4">
-            <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">Delete Trade</h3>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">Are you sure you want to delete this trade? This action cannot be undone.</p>
-            <div className="flex justify-end space-x-3">
-              <Button variant="gradient" onClick={() => setDeletingId(null)}>Cancel</Button>
-              <Button variant="primary" onClick={confirmDelete} className="bg-red-600 hover:bg-red-700">Delete</Button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {viewingTrade && (
         <>
@@ -703,7 +671,6 @@ const TradesPage: React.FC = () => {
                         <div className="flex items-center justify-start">
                           <Button variant="primary" className="mx-1 text-xs w-16 py-1 px-0 flex items-center justify-center" onClick={() => handleDetailClick(trade)}>Detail</Button>
                           <Button variant="primary" className="mx-1 text-xs w-16 py-1 px-0 flex items-center justify-center" onClick={() => handleEditClick(trade)}>Edit</Button>
-                          <Button variant="gradient" className="mx-1 text-xs w-16 py-1 px-0 flex items-center justify-center bg-red-600 hover:bg-red-700" onClick={() => handleDeleteClick(trade.id)}>Delete</Button>
                         </div>
                       </td>
                     </tr>

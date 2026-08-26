@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import Button from './common/Button';
-import { createTrade, updateTrade, uploadScreenshot, CreateTradeData, SERVER_BASE_URL as API_BASE_URL } from '../services/api';
+import { createTrade, updateTrade, uploadScreenshot, deleteTrade, CreateTradeData, SERVER_BASE_URL as API_BASE_URL } from '../services/api';
 import { X, Upload, Trash2, Star, ChevronLeft, ChevronRight, ChevronDown } from 'lucide-react';
 import DateTimePicker from './common/DateTimePicker';
 import Select from './common/Select';
@@ -29,6 +29,7 @@ interface TradeDrawerProps {
     isOpen: boolean;
     onClose: () => void;
     onSuccess: () => void;
+    onDelete?: () => void;
     trade?: Trade | null;
     availableSymbols?: string[];
 }
@@ -48,7 +49,7 @@ const nowLocalISO = (): string => {
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 };
 
-const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, trade, availableSymbols }) => {
+const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, onDelete, trade, availableSymbols }) => {
     const isEditMode = !!trade;
     const [formData, setFormData] = useState<CreateTradeData>({
         symbol: '',
@@ -71,6 +72,8 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, t
     });
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+    const [deleting, setDeleting] = useState(false);
     const [entryTimeError, setEntryTimeError] = useState<string>('');
     const [exitTimeError, setExitTimeError] = useState<string>('');
     const [uploadingImage, setUploadingImage] = useState(false);
@@ -912,14 +915,79 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, t
                     </form>
 
                     {/* Footer */}
-                    <div className="flex justify-end space-x-3 p-4 border-t dark:border-gray-700">
-                        <Button variant="gradient" onClick={onClose} disabled={loading}>
-                            Cancel
-                        </Button>
-                        <Button variant="primary" disabled={loading} onClick={handleSubmit}>
-                            {loading ? 'Saving...' : isEditMode ? 'Update Trade' : 'Add Trade'}
-                        </Button>
+                    <div className="flex items-center justify-between p-4 border-t dark:border-gray-700">
+                        <div>
+                            {isEditMode && (
+                                <button
+                                    type="button"
+                                    onClick={() => setShowDeleteConfirm(true)}
+                                    disabled={loading || deleting}
+                                    className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-red-600 hover:text-white hover:bg-red-600 dark:text-red-400 dark:hover:text-white dark:hover:bg-red-600 border border-red-200 dark:border-red-800 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-1 dark:focus:ring-offset-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    <Trash2 size={14} />
+                                    Delete Trade
+                                </button>
+                            )}
+                        </div>
+                        <div className="flex space-x-3">
+                            <Button variant="gradient" onClick={onClose} disabled={loading || deleting}>
+                                Cancel
+                            </Button>
+                            <Button variant="primary" disabled={loading || deleting} onClick={handleSubmit}>
+                                {loading ? 'Saving...' : isEditMode ? 'Update Trade' : 'Add Trade'}
+                            </Button>
+                        </div>
                     </div>
+
+                    {/* Delete confirmation */}
+                    {showDeleteConfirm && (
+                        <div
+                            className="absolute inset-0 z-40 flex items-center justify-center px-4 bg-black/50 dark:bg-black/60 backdrop-blur-sm"
+                            onClick={() => !deleting && setShowDeleteConfirm(false)}
+                        >
+                            <div
+                                className="w-full max-w-md bg-white dark:bg-gray-800 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 overflow-hidden"
+                                onClick={(e) => e.stopPropagation()}
+                            >
+                                <div className="px-5 py-4 border-b border-gray-200 dark:border-gray-700">
+                                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Delete Trade</h3>
+                                    <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Are you sure you want to delete this trade? This action cannot be undone.</p>
+                                </div>
+                                <div className="flex justify-end gap-2 px-5 py-4 bg-gray-50 dark:bg-gray-900/50 border-t border-gray-200 dark:border-gray-700">
+                                    <Button variant="gradient" onClick={() => setShowDeleteConfirm(false)} disabled={deleting}>
+                                        Cancel
+                                    </Button>
+                                    <Button
+                                        variant="primary"
+                                        className="bg-red-600 hover:bg-red-700"
+                                        disabled={deleting}
+                                        onClick={async () => {
+                                            if (!trade) return;
+                                            const token = localStorage.getItem('token');
+                                            if (!token) {
+                                                setError('Please log in to delete a trade.');
+                                                setShowDeleteConfirm(false);
+                                                return;
+                                            }
+                                            try {
+                                                setDeleting(true);
+                                                await deleteTrade(token, trade.id);
+                                                onDelete?.();
+                                                onClose();
+                                            } catch (err: any) {
+                                                setError(err.response?.data?.message || 'Failed to delete trade.');
+                                            } finally {
+                                                setDeleting(false);
+                                                setShowDeleteConfirm(false);
+                                            }
+                                        }}
+                                    >
+                                        {deleting ? 'Deleting...' : 'Delete'}
+                                    </Button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </div>
             </div>
 
