@@ -167,7 +167,7 @@ const TradesPage: React.FC = () => {
   const [searchDirection, setSearchDirection] = useState('');
   const [searchResult, setSearchResult] = useState('');
   const [searchExitMethod, setSearchExitMethod] = useState('');
-  const [quickFilter, setQuickFilter] = useState('');
+  const [quickFilter, setQuickFilter] = useState('today');
   const navigate = useNavigate();
 
   const handleAddClick = () => {
@@ -297,14 +297,14 @@ const TradesPage: React.FC = () => {
     return Array.from(symbols).sort();
   }, [trades]);
 
-  if (loading && trades.length === 0) {
-    return (
-      <div className="fixed inset-0 flex flex-col items-center justify-center">
-        <div className="w-12 h-12 border-4 border-gray-200 dark:border-gray-700 border-t-purple-600 rounded-full animate-spin"></div>
-        <p className="mt-4 text-sm text-gray-500 dark:text-gray-400">Loading trades...</p>
-      </div>
-    );
-  }
+  // if (loading && trades.length === 0) {
+  //   return (
+  //     <div className="fixed inset-0 flex flex-col items-center justify-center">
+  //       <div className="w-12 h-12 border-4 border-gray-200 dark:border-gray-700 border-t-purple-600 rounded-full animate-spin"></div>
+  //       <p className="mt-4 text-sm text-gray-500 dark:text-gray-400">Loading trades...</p>
+  //     </div>
+  //   );
+  // }
 
   if (error && trades.length === 0) {
     return <div className="container mx-auto p-4 text-red-500">{error}</div>;

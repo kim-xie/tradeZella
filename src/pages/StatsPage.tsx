@@ -189,12 +189,12 @@ const StatsPage: React.FC = () => {
     };
     const goToday = () => setCurrentDate(new Date());
 
-    if (loading) return (
-        <div className="fixed inset-0 flex flex-col items-center justify-center">
-            <div className="w-12 h-12 border-4 border-gray-200 dark:border-gray-700 border-t-purple-600 rounded-full animate-spin"></div>
-            <p className="mt-4 text-sm text-gray-500 dark:text-gray-400">Loading statistics...</p>
-        </div>
-    );
+    // if (loading) return (
+    //     <div className="fixed inset-0 flex flex-col items-center justify-center">
+    //         <div className="w-12 h-12 border-4 border-gray-200 dark:border-gray-700 border-t-purple-600 rounded-full animate-spin"></div>
+    //         <p className="mt-4 text-sm text-gray-500 dark:text-gray-400">Loading statistics...</p>
+    //     </div>
+    // );
     if (error) return <div className="container mx-auto p-4 text-red-500">{error}</div>;
 
     const StatCard = ({ title, stats }: { title: string; stats: DayStats }) => (
