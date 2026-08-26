@@ -242,6 +242,7 @@ const TradesPage: React.FC = () => {
   }
 
   useEffect(() => {
+    handleQuickFilter(quickFilter);
     fetchTrades();
   }, []);
 
