@@ -90,6 +90,7 @@ const calculateTargetRR = (trade: Trade): number | null => {
 };
 
 type ExitMethodType = 'takeProfit' | 'stopLoss' | 'manual';
+const SENTIMENT_EMOJI: Record<string, string> = { Nervous: '😰', Uneasy: '😟', Neutral: '😐', Composed: '😌', Zen: '🧘' };
 const calculateExitMethod = (trade: Trade): ExitMethodType | null => {
   if (trade.exitprice == null || trade.stop_loss == null || trade.take_profit == null) return null;
   const exit = trade.exitprice;
@@ -240,7 +241,23 @@ const TradesPage: React.FC = () => {
   }
 
   useEffect(() => {
-    handleQuickFilter(quickFilter);
+    const params = new URLSearchParams(window.location.search);
+    const start = params.get('start');
+    const end = params.get('end');
+    const quick = params.get('quick');
+    if (start && end) {
+      setSearchEntryDateStart(start);
+      setSearchEntryDateEnd(end);
+      setQuickFilter('');
+    } else if (quick === 'month' || quick === 'year') {
+      handleQuickFilter(quick);
+    } else if (quick === 'all') {
+      setSearchEntryDateStart('');
+      setSearchEntryDateEnd('');
+      setQuickFilter('');
+    } else {
+      handleQuickFilter(quickFilter);
+    }
     fetchTrades();
   }, []);
 
@@ -458,6 +475,7 @@ const TradesPage: React.FC = () => {
                   <div><span className="text-sm text-gray-500 dark:text-gray-400">Created At:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{formatLocalTimeFull(viewingTrade.createdat)}</span></div>
                   <div><span className="text-sm text-gray-500 dark:text-gray-400">Updated At:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{formatLocalTimeFull(viewingTrade.updatedat)}</span></div>
                   <div><span className="text-sm text-gray-500 dark:text-gray-400">Session:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{viewingTrade.session || '-'}</span></div>
+                  <div><span className="text-sm text-gray-500 dark:text-gray-400">Entry Sentiment:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{viewingTrade.sentiment ? `${SENTIMENT_EMOJI[viewingTrade.sentiment] || ''} ${viewingTrade.sentiment}` : '-'}</span></div>
                   {(() => { const method = calculateExitMethod(viewingTrade); if (!method) return <div><span className="text-sm text-gray-500 dark:text-gray-400">Exit Method:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">-</span></div>; const styles: Record<ExitMethodType, string> = { takeProfit: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400', stopLoss: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400', manual: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400' }; const labels: Record<ExitMethodType, string> = { takeProfit: 'Take Profit', stopLoss: 'Stop Loss', manual: 'Manual' }; return <div className="flex items-center gap-2"><span className="text-sm text-gray-500 dark:text-gray-400">Exit Method:</span><span className={`inline-block px-2 py-0.5 text-xs font-medium rounded-full ${styles[method]}`}>{labels[method]}</span></div>; })()}
                   {(() => { const ft = viewingTrade.final_trigger; if (!ft) return <div><span className="text-sm text-gray-500 dark:text-gray-400">Final Trigger:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">-</span></div>; const ftStyles: Record<'takeProfit' | 'stopLoss', string> = { takeProfit: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400', stopLoss: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' }; const ftLabels: Record<'takeProfit' | 'stopLoss', string> = { takeProfit: 'Take Profit', stopLoss: 'Stop Loss' }; return <div className="flex items-center gap-2"><span className="text-sm text-gray-500 dark:text-gray-400">Final Trigger:</span><span className={`inline-block px-2 py-0.5 text-xs font-medium rounded-full ${ftStyles[ft]}`}>{ftLabels[ft]}</span></div>; })()}
                   <div className="flex items-center gap-3 flex-wrap">

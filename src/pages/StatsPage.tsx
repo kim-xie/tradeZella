@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import Button from '../components/common/Button';
 import { getUserTrades } from '../services/api';
 
@@ -98,6 +99,7 @@ const formatDurationShort = (minutes: number): string => {
 };
 
 const StatsPage: React.FC = () => {
+    const navigate = useNavigate();
     const [trades, setTrades] = useState<Trade[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -197,8 +199,11 @@ const StatsPage: React.FC = () => {
     // );
     if (error) return <div className="container mx-auto p-4 text-red-500">{error}</div>;
 
-    const StatCard = ({ title, stats }: { title: string; stats: DayStats }) => (
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-4 border border-gray-200 dark:border-gray-700">
+    const StatCard = ({ title, stats, onClick }: { title: string; stats: DayStats; onClick?: () => void }) => (
+        <div
+            onClick={onClick}
+            className={`bg-white dark:bg-gray-800 rounded-lg shadow-sm p-4 border border-gray-200 dark:border-gray-700 ${onClick ? 'cursor-pointer transition-all hover:border-purple-400 dark:hover:border-purple-500 hover:shadow-md' : ''}`}
+        >
             <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3 pb-2 border-b dark:border-gray-700">{title}</h3>
             <div className="grid grid-cols-2 gap-2 text-xs">
                 <div><span className="text-gray-500 dark:text-gray-400">P/L: </span><span className={`font-semibold ${stats.pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>{stats.pnl >= 0 ? '+' : ''}{stats.pnl.toFixed(2)}</span></div>
@@ -238,7 +243,8 @@ const StatsPage: React.FC = () => {
 
                 <div className="grid grid-cols-8 gap-1">
                     {calendarRows.flatMap((row, rowIdx) => {
-                        const weekTrades = row.filter((d): d is string => !!d).flatMap((d) => tradesByDay[d] || []);
+                        const weekDateStrs = row.filter((d): d is string => !!d);
+                        const weekTrades = weekDateStrs.flatMap((d) => tradesByDay[d] || []);
                         const weekStats = computeStats(weekTrades);
                         const weekHasData = weekTrades.length > 0;
 
@@ -252,7 +258,12 @@ const StatsPage: React.FC = () => {
                             const isTodayCell = dateStr === todayStr;
 
                             return (
-                                <div key={`day-${dateStr}`} className={`min-h-[110px] p-2 rounded-md border text-xs ${hasData ? (stats.pnl >= 0 ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800' : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800') : 'border-gray-200 dark:border-gray-700'} ${isTodayCell ? 'ring-2 ring-purple-500' : ''}`}>
+                                <div
+                                    key={`day-${dateStr}`}
+                                    onClick={() => navigate(`/trades?start=${dateStr}&end=${dateStr}`)}
+                                    title="View trades for this day"
+                                    className={`min-h-[110px] p-2 rounded-md border text-xs cursor-pointer transition-all hover:scale-[1.02] hover:shadow-md ${hasData ? (stats.pnl >= 0 ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800' : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800') : 'border-gray-200 dark:border-gray-700'} ${isTodayCell ? 'ring-2 ring-purple-500' : ''}`}
+                                >
                                     <div className="flex justify-between items-center mb-1">
                                         <span className={`font-bold ${isTodayCell ? 'text-purple-600 dark:text-purple-400' : 'text-gray-700 dark:text-gray-300'}`}>{dayNum}</span>
                                         {hasData && <span className="text-gray-400">{stats.count}T</span>}
@@ -270,8 +281,15 @@ const StatsPage: React.FC = () => {
                             );
                         });
 
+                        const weekStart = weekDateStrs[0];
+                        const weekEnd = weekDateStrs[weekDateStrs.length - 1];
                         const weekCell = (
-                            <div key={`week-${rowIdx}`} className={`min-h-[110px] p-2 rounded-md border text-xs ${weekHasData ? (weekStats.pnl >= 0 ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800' : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800') : 'border-gray-200 dark:border-gray-700'}`}>
+                            <div
+                                key={`week-${rowIdx}`}
+                                onClick={() => { if (weekStart && weekEnd) navigate(`/trades?start=${weekStart}&end=${weekEnd}`); }}
+                                title="View trades for this week"
+                                className={`min-h-[110px] p-2 rounded-md border text-xs cursor-pointer transition-all hover:scale-[1.02] hover:shadow-md ${weekHasData ? (weekStats.pnl >= 0 ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800' : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800') : 'border-gray-200 dark:border-gray-700'}`}
+                            >
                                 <div className="flex justify-between items-center mb-1">
                                     <span className="font-bold text-gray-700 dark:text-gray-300">WK</span>
                                     {weekHasData && <span className="text-gray-400">{weekStats.count}T</span>}
@@ -295,9 +313,9 @@ const StatsPage: React.FC = () => {
 
             {/* Summary Cards */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                <StatCard title="This Month" stats={summaryStats.month} />
-                <StatCard title="This Year" stats={summaryStats.year} />
-                <StatCard title="All Time" stats={summaryStats.all} />
+                <StatCard title="This Month" stats={summaryStats.month} onClick={() => navigate('/trades?quick=month')} />
+                <StatCard title="This Year" stats={summaryStats.year} onClick={() => navigate('/trades?quick=year')} />
+                <StatCard title="All Time" stats={summaryStats.all} onClick={() => navigate('/trades?quick=all')} />
             </div>
         </div>
     );

@@ -49,6 +49,14 @@ const nowLocalISO = (): string => {
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 };
 
+const SENTIMENT_OPTIONS = [
+    { value: 'Nervous', label: 'Nervous', emoji: '😰', selectedClass: 'bg-red-600 text-white border-red-600' },
+    { value: 'Uneasy', label: 'Uneasy', emoji: '😟', selectedClass: 'bg-orange-500 text-white border-orange-500' },
+    { value: 'Neutral', label: 'Neutral', emoji: '😐', selectedClass: 'bg-gray-600 text-white border-gray-600' },
+    { value: 'Composed', label: 'Composed', emoji: '😌', selectedClass: 'bg-blue-600 text-white border-blue-600' },
+    { value: 'Zen', label: 'Zen', emoji: '🧘', selectedClass: 'bg-green-600 text-white border-green-600' },
+];
+
 const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, onDelete, trade, availableSymbols }) => {
     const isEditMode = !!trade;
     const [formData, setFormData] = useState<CreateTradeData>({
@@ -69,6 +77,7 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, o
         manualPnl: undefined,
         session: undefined,
         finalTrigger: undefined,
+        sentiment: undefined,
     });
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -144,6 +153,7 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, o
                 manualPnl: (trade as any).manual_pnl,
                 session: (trade as any).session,
                 finalTrigger: (trade as any).final_trigger,
+                sentiment: (trade as any).sentiment,
             });
         } else {
             setFormData({
@@ -164,6 +174,7 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, o
                 manualPnl: undefined,
                 session: undefined,
                 finalTrigger: undefined,
+                sentiment: undefined,
             });
         }
         setError(null);
@@ -559,6 +570,26 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, o
                                 })}
                             </div>
                             <p className="mt-1 text-xs text-gray-400">Tag this trade with its trading market session (optional)</p>
+                        </div>
+
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Entry Sentiment</label>
+                            <div className="flex flex-wrap gap-2">
+                                {SENTIMENT_OPTIONS.map((option) => {
+                                    const selected = formData.sentiment === option.value;
+                                    return (
+                                        <button
+                                            key={option.value}
+                                            type="button"
+                                            onClick={() => setFormData({ ...formData, sentiment: selected ? undefined : option.value })}
+                                            className={`px-3 py-1.5 text-xs rounded-full border transition-colors ${selected ? option.selectedClass : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:border-purple-400'}`}
+                                        >
+                                            {option.emoji} {option.label}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                            <p className="mt-1 text-xs text-gray-400">How did you feel when entering this trade, from Nervous to Zen (optional)</p>
                         </div>
 
                         <div>
