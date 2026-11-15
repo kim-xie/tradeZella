@@ -1,28 +1,29 @@
 import React, { useState, useEffect } from 'react';
-import { BookOpen, ChevronDown, Sun, Moon } from 'lucide-react';
+import { 
+  Activity, Sun, Moon, RefreshCw, BarChart2, 
+  TrendingUp, BookOpen, Layers, LogOut, Calendar
+} from 'lucide-react';
 import Button from './common/Button';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useTheme } from './common/ThemeContext';
 
-const resourcesLinks = [
-  { label: 'Blog', href: '/blog' },
-  { label: 'Help Center', href: '/help' },
-  { label: 'Documentation', href: '/docs' },
-  { label: 'Community Forum', href: '/community' },
-];
+interface NavItem {
+  label: string;
+  href: string;
+  icon: React.ElementType;
+  altMatch?: string;
+}
 
-const featuresLinks = [
-  { label: 'Automated Journaling', href: '/features/journaling' },
-  { label: 'Trade Analysis', href: '/features/analysis' },
-  { label: 'Reporting', href: '/features/reporting' },
-  { label: 'Playbooks', href: '/features/playbooks' },
-  { label: 'Backtesting', href: '/features/backtesting' },
-  { label: 'Broker Integration', href: '/features/broker-integration' },
+const NAV_ITEMS: NavItem[] = [
+  { label: '仪表盘', href: '/', icon: BarChart2 },
+  { label: '交易明细', href: '/trades', icon: Layers },
+  { label: '交易日历', href: '/calendar', icon: Calendar, altMatch: '/stats' },
+  { label: 'K线回测', href: '/features/backtesting', icon: TrendingUp },
+  { label: '实盘同步', href: '/features/broker-integration', icon: RefreshCw },
+  { label: '新手教程', href: '/tutorial', icon: BookOpen, altMatch: '/guide' },
 ];
 
 export default function Navbar() {
-  const [isResourcesOpen, setIsResourcesOpen] = useState(false);
-  const [isFeaturesOpen, setIsFeaturesOpen] = useState(false);
   const { theme, toggleTheme } = useTheme();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const navigate = useNavigate();
@@ -35,14 +36,11 @@ export default function Navbar() {
   };
 
   useEffect(() => {
-    // 首次挂载 + 路由变化时检查 token
     syncAuthState();
 
-    // 监听应用内部发出的自定义事件（登录/注册/登出后主动触发）
     const handleAuthChange = () => syncAuthState();
     window.addEventListener('auth-change', handleAuthChange);
 
-    // 监听 storage 事件（其他标签页登录/登出时同步）
     const handleStorage = (e: StorageEvent) => {
       if (e.key === 'token') syncAuthState();
     };
@@ -57,85 +55,94 @@ export default function Navbar() {
   const handleLogout = () => {
     localStorage.removeItem('token');
     setIsAuthenticated(false);
-    // 通知其他可能监听的组件
     window.dispatchEvent(new Event('auth-change'));
     navigate('/');
   };
 
-  const toggleResources = () => {
-    setIsResourcesOpen(!isResourcesOpen);
-    setIsFeaturesOpen(false);
-  };
-
-  const toggleFeatures = () => {
-    setIsFeaturesOpen(!isFeaturesOpen);
-    setIsResourcesOpen(false);
-  };
+  const isActive = (path: string) => location.pathname === path;
 
   return (
-    <nav className="fixed top-0 left-0 right-0 bg-white dark:bg-gray-800 z-50 border-b border-gray-100 dark:border-gray-700">
+    <nav className="fixed top-0 left-0 right-0 z-40 backdrop-blur-xl bg-white/85 dark:bg-[#0b0f19]/90 border-b border-gray-200/80 dark:border-white/10 transition-colors duration-200 shadow-xs">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center h-16">
-          <div className="flex items-center">
-            <BookOpen className="h-8 w-8 text-purple-600" />
-            <span className="ml-2 text-xl font-bold dark:text-white">TradeZella</span>
+          {/* Brand Logo & MT5 Live Pulse */}
+          <div className="flex items-center space-x-3">
+            <Link to="/" className="flex items-center space-x-2.5 group">
+              <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-purple-600 via-indigo-600 to-cyan-400 flex items-center justify-center text-white shadow-[0_0_12px_rgba(147,51,234,0.35)] group-hover:scale-105 transition-transform duration-200">
+                <Activity className="w-4 h-4" />
+              </div>
+              <span className="text-lg font-black tracking-tight text-gray-950 dark:text-white font-sans flex items-center space-x-1">
+                <span>Trade<span className="text-emerald-500 dark:text-emerald-400">Zen</span></span>
+              </span>
+            </Link>
+
+            {/* Live Status Chip */}
+            <div className="hidden lg:flex items-center space-x-1.5 px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 text-[10px] font-mono font-medium text-emerald-700 dark:text-emerald-400">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+              </span>
+              <span>MT5 直连</span>
+            </div>
           </div>
 
-          <div className="hidden md:flex items-center space-x-8">
-            <div className="relative group">
-              <button
-                className="flex items-center text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white"
-                onClick={toggleResources}
-              >
-                Resources <ChevronDown className="ml-1 h-4 w-4" />
-              </button>
-              {isResourcesOpen && (
-                <div className="absolute left-0 mt-2 w-48 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg z-10">
-                  {resourcesLinks.map((link, index) => (
-                    <Link key={index} to={link.href} className="block px-4 py-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700">
-                      {link.label}
-                    </Link>
-                  ))}
-                </div>
-              )}
-            </div>
-            <div className="relative group">
-              <button
-                className="flex items-center text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white"
-                onClick={toggleFeatures}
-              >
-                Features <ChevronDown className="ml-1 h-4 w-4" />
-              </button>
-              {isFeaturesOpen && (
-                <div className="absolute left-0 mt-2 w-48 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg z-10">
-                  {featuresLinks.map((link, index) => (
-                    <Link key={index} to={link.href} className="block px-4 py-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700">
-                      {link.label}
-                    </Link>
-                  ))}
-                </div>
-              )}
-            </div>
-            <Link to="/pricing" className="text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white">Pricing</Link>
+          {/* Navigation Links: Consistent styling across all items */}
+          <div className="hidden md:flex items-center space-x-1 lg:space-x-1.5 text-sm font-medium">
+            {NAV_ITEMS.map((item) => {
+              const Icon = item.icon;
+              const isCurrentActive = isActive(item.href) || (item.altMatch && isActive(item.altMatch));
+              return (
+                <Link
+                  key={item.href}
+                  to={item.href}
+                  className={`px-3 py-1.5 rounded-lg transition-all flex items-center space-x-1.5 ${
+                    isCurrentActive
+                      ? 'bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 font-bold shadow-2xs'
+                      : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-navy-800'
+                  }`}
+                >
+                  <Icon className={`w-4 h-4 ${isCurrentActive ? 'text-purple-600 dark:text-purple-400' : 'text-gray-400 dark:text-gray-500'}`} />
+                  <span>{item.label}</span>
+                </Link>
+              );
+            })}
+          </div>
+
+          {/* Right Actions: Theme + Auth */}
+          <div className="flex items-center space-x-2.5">
+            <button 
+              onClick={toggleTheme} 
+              data-testid="theme-switcher" 
+              className="p-2 rounded-xl text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-navy-800 border border-gray-200 dark:border-white/10 transition-colors"
+              title="切换明暗主题"
+            >
+              {theme === 'light' ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4 text-amber-400" />}
+            </button>
 
             {isAuthenticated ? (
-              <>
-                <Link to="/" className="text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white">Dashboard</Link>
-                <Link to="/trades" className="text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white">My Trades</Link>
-                <Button variant="secondary" onClick={handleLogout}>Logout</Button>
-              </>
+              <button 
+                onClick={handleLogout}
+                className="px-3 py-1.5 rounded-xl text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-red-50 dark:hover:bg-red-950/40 hover:text-red-600 dark:hover:text-red-400 border border-gray-200 dark:border-white/10 transition-colors flex items-center space-x-1.5"
+              >
+                <LogOut className="w-4 h-4" />
+                <span>退出</span>
+              </button>
             ) : (
-              <>
-                <Link to="/login" className="text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white">Log In</Link>
-                <Link to="/signup">
-                  <Button variant="gradient">Get Started &gt;</Button>
+              <div className="flex items-center space-x-2">
+                <Link 
+                  to="/login" 
+                  className="px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-purple-600 dark:hover:text-purple-400"
+                >
+                  登录
                 </Link>
-              </>
+                <Link to="/signup">
+                  <Button variant="gradient" className="text-sm px-3.5 py-1.5 shadow-sm">
+                    免费体验 &gt;
+                  </Button>
+                </Link>
+              </div>
             )}
           </div>
-          <button onClick={toggleTheme} data-testid="theme-switcher" className="p-2 rounded-full text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700">
-            {theme === 'light' ? <Moon className="h-6 w-6" /> : <Sun className="h-6 w-6" />}
-          </button>
         </div>
       </div>
     </nav>

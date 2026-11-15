@@ -7,42 +7,44 @@ import { motion } from 'framer-motion';
 
 const plans = [
   {
-    name: 'Basic',
+    name: '基础版 (Basic)',
     price: '$19',
-    description: 'Ideal for beginners.',
+    description: '适合刚起步建立个人交易体系的初级交易员。',
     features: [
-      'Access to basic features',
-      'Limited trade journaling',
-      'Basic reporting',
+      '基础交易日志与标签记录',
+      '月度与周度日历统计',
+      '标准盈亏与胜率分析',
+      '社区与知识库访问权限',
     ],
     buttonVariant: 'primary',
     link: '/signup',
   },
   {
-    name: 'Pro',
+    name: '进阶版 (Pro)',
     price: '$49',
-    description: 'For serious traders.',
+    description: '专为严守纪律、追求稳定盈利的进阶交易员打造。',
     features: [
-      'Access to all features',
-      'Unlimited trade journaling',
-      'Advanced reporting',
-      'Playbooks',
+      '无限制交易记录与导入',
+      'MT5 / MT4 / 交易所直连同步',
+      '知行合一情绪状态与纪律评分',
+      '多维度时段与标的量化统计',
+      '战法策略库 (Playbooks)',
     ],
     buttonVariant: 'gradient',
     recommended: true,
     link: '/signup',
   },
   {
-    name: 'Premium',
+    name: '大师版 (Premium)',
     price: '$99',
-    description: 'For professional traders.',
+    description: '为职业交易员与量化复盘大师打造的终极武器库。',
     features: [
-      'Access to all features',
-      'Unlimited trade journaling',
-      'Advanced reporting',
-      'Playbooks',
-      'Backtesting',
-      'Priority support',
+      '包含 Pro 版全部功能',
+      'TradingView 级逐根 K 线历史回放',
+      '策略回测与多周期验证',
+      'MFE / MAE 最大潜力与回撤分析',
+      '专业投研报表导出与打印',
+      'VIP 专属交易圈子与优先支持',
     ],
     buttonVariant: 'primary',
     link: '/signup',
@@ -54,8 +56,8 @@ export default function PricingPage() {
     <div className="py-24 bg-gray-50 dark:bg-navy-900">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <SectionHeading
-          title="Pricing"
-          description="Choose the plan that's right for you. We offer flexible subscription options to meet your needs."
+          title="方案与定价"
+          description="选择最适合您交易进阶阶段的方案。灵活的订阅模式，助您知行合一、实现稳定复利。"
           centered
         />
 
@@ -71,14 +73,14 @@ export default function PricingPage() {
               {plan.recommended && (
                 <div className="absolute top-0 -translate-y-1/2 left-1/2 -translate-x-1/2">
                   <span className="bg-purple-600 text-white px-3 py-1 text-sm font-semibold tracking-wide rounded-full uppercase">
-                    Most Popular
+                    最受欢迎
                   </span>
                 </div>
               )}
               <h3 className="text-2xl font-bold text-center dark:text-white">{plan.name}</h3>
               <p className="mt-2 text-gray-600 dark:text-gray-400 text-center h-12">{plan.description}</p>
               <p className="mt-6 text-5xl font-bold text-center dark:text-white">
-                {plan.price}<span className="text-lg font-medium text-gray-500 dark:text-gray-400">/month</span>
+                {plan.price}<span className="text-lg font-medium text-gray-500 dark:text-gray-400">/月</span>
               </p>
               <ul className="mt-8 space-y-4 flex-grow">
                 {plan.features.map((feature) => (
@@ -91,7 +93,7 @@ export default function PricingPage() {
               <div className="mt-8">
                 <Link to={plan.link}>
                   <Button variant={plan.buttonVariant as 'primary' | 'gradient'} className="w-full">
-                    Get Started
+                    立即开启体验
                   </Button>
                 </Link>
               </div>

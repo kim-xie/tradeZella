@@ -4,65 +4,49 @@ import LegalPageLayout from '../components/common/LegalPageLayout';
 export default function TermsPage() {
   return (
     <LegalPageLayout
-      title="Terms of Service"
-      description="Last Updated: September 18, 2025"
+      title="服务条款 (Terms of Service)"
+      description="最近更新日期：2026年"
     >
-      <h2>1. Acceptance of Terms</h2>
-      <p>By accessing or using TradeZella ("the Platform"), you agree to be bound by these Terms of Service ("Terms"). If you do not agree, do not use the Platform.</p>
+      <h2>1. 条款确认与接纳</h2>
+      <p>在访问或使用 TradeZen（“本平台”）前，请仔细阅读本服务条款（“条款”）。访问或使用本平台即代表您同意接受本条款的全部约束。如您不同意，请停止使用本平台。</p>
 
-      <h2>2. Eligibility</h2>
-      <p>You must be at least 18 years old and have the legal authority to enter into this agreement.</p>
+      <h2>2. 用户资格</h2>
+      <p>您必须年满 18 周岁，且具备完全的民事行为能力以缔结本协议。</p>
 
-      <h2>3. User Accounts</h2>
-      <p>You are responsible for:</p>
+      <h2>3. 用户账户与安全</h2>
+      <p>您需对以下事项承担全部责任：</p>
       <ul>
-        <li>Maintaining the confidentiality of your login credentials</li>
-        <li>All activity under your account</li>
+        <li>妥善保管您的登录账号与密码凭证的安全与保密性</li>
+        <li>以您的账户身份在平台上进行的一切操作与数据上传</li>
       </ul>
-      <p>We may suspend or terminate accounts that violate these Terms.</p>
+      <p>对于存在违规、恶意爬取或滥用系统行为的账户，TradeZen 保留暂停或永久终止服务的权利。</p>
 
-      <h2>4. Services Provided</h2>
-      <p>TradeZella provides trading journal, community forum, and analytics services. We may modify or discontinue features at any time.</p>
+      <h2>4. 平台提供的服务</h2>
+      <p>TradeZen 为交易员提供交易日志、量化数据透视、策略回测、战法库及社群服务。我们保留随时改进、更新或调整平台功能的权利。</p>
 
-      <h2>5. User Responsibilities</h2>
-      <p>You agree not to:</p>
+      <h2>5. 用户合规守则</h2>
+      <p>您同意并承诺绝不：</p>
       <ul>
-        <li>Use the platform for unlawful activities</li>
-        <li>Attempt to access restricted systems</li>
-        <li>Upload harmful or misleading content</li>
-        <li>Reverse-engineer any part of the platform</li>
+        <li>将本平台用于任何非法洗钱、违规交易或侵权行为</li>
+        <li>尝试未授权访问受限系统或干扰平台服务器正常运行</li>
+        <li>逆向破解、反编译或盗用本平台的量化算法与代码架构</li>
       </ul>
 
-      <h2>6. Payments & Fees</h2>
-      <p>Prices, taxes, and payment terms are displayed at checkout. All charges are final unless stated otherwise.</p>
+      <h2>6. 费用与订阅条款</h2>
+      <p>所有订阅套餐费用及周期均明确展示于收银结算界面。除法律法规强制要求外，所有已生效的订阅扣费均不可退还。</p>
 
-      <h2>7. Intellectual Property</h2>
-      <p>All content, branding, design, and software belong to TradeZella. You may not copy, redistribute, or modify without written approval.</p>
+      <h2>7. 知识产权保护</h2>
+      <p>TradeZen 的全部商标、视觉设计、图表组件、算法与技术系统归 TradeZen 所有。未经书面明确授权，严禁任何形式的抄袭、爬取或商业性再分发。</p>
 
-      <h2>8. Third-Party Services</h2>
-      <p>We may integrate with third-party services. Their terms govern your use of those services.</p>
+      <h2>8. 投资风险免责声明</h2>
+      <p><strong>重要提示：</strong>金融市场（外汇、股票、加密货币、期货及差价合约）交易具有极高风险，可能导致本金的全部损失。TradeZen 提供的所有数据统计、AI 复盘分析与回测结果仅作为交易员个人的复盘学习辅助工具，绝不构成任何投资建议或投资咨询意见。</p>
 
-      <h2>9. Disclaimer of Warranties</h2>
-      <p>The platform is provided "as-is" and "as available." We do not guarantee uninterrupted or error-free service.</p>
+      <h2>9. 责任限制</h2>
+      <p>在适用法律允许的最大限度内，TradeZen 概不对任何因使用或无法使用本平台而导致的间接损失、利润损失或交易滑点负责。</p>
 
-      <h2>10. Limitation of Liability</h2>
-      <p>TradeZella is not liable for:</p>
-      <ul>
-        <li>Loss of revenue</li>
-        <li>Loss of data</li>
-        <li>Indirect or consequential damages</li>
-      </ul>
-      <p>Maximum liability = amount you paid to us within the last 12 months.</p>
-
-      <h2>11. Termination</h2>
-      <p>We may suspend or terminate your access for any violation of these Terms.</p>
-
-      <h2>12. Governing Law</h2>
-      <p>These Terms are governed by the laws of the State of California, without regard to conflict-of-law rules.</p>
-
-      <h2>13. Contact</h2>
-      <p>For questions:<br />
-      📩 support@tradezella.com</p>
+      <h2>10. 联系方式</h2>
+      <p>如有任何关于本条款的疑问，请联系官方服务邮箱：<br />
+      📩 support@tradezen.app</p>
     </LegalPageLayout>
   );
 }

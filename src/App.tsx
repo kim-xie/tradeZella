@@ -11,7 +11,6 @@ import Reports from './components/sections/Reports';
 import Playbooks from './components/sections/Playbooks';
 import Backtesting from './components/Backtesting';
 import Newsletter from './components/Newsletter';
-import Footer from './components/footer/Footer';
 import AboutPage from './pages/AboutPage';
 import CareersPage from './pages/CareersPage';
 import PressPage from './pages/PressPage';
@@ -19,15 +18,12 @@ import BlogPage from './pages/BlogPage';
 import ContactPage from './pages/ContactPage';
 import FAQPage from './pages/FAQPage';
 import HelpPage from './pages/HelpPage';
-import ReturnsPage from './pages/ReturnsPage';
 import TermsPage from './pages/TermsPage';
 import PrivacyPage from './pages/PrivacyPage';
 import CookiesPage from './pages/CookiesPage';
 import AccessibilityPage from './pages/AccessibilityPage';
 import CommunityPage from './pages/CommunityPage';
 import PartnersPage from './pages/PartnersPage';
-import StoresPage from './pages/StoresPage';
-import GiftCardsPage from './pages/GiftCardsPage';
 import PricingPage from './pages/PricingPage';
 import BrokerSupportPage from './pages/BrokerSupportPage';
 import AutomatedJournalingPage from './pages/features/AutomatedJournalingPage';
@@ -44,6 +40,7 @@ import ResetPasswordPage from './pages/ResetPasswordPage';
 import TradesPage from './pages/TradesPage';
 import StatsPage from './pages/StatsPage';
 import DashboardPage from './pages/DashboardPage';
+import TutorialPage from './pages/TutorialPage';
 import { LoadingProvider, useLoading } from './components/common/LoadingContext';
 import { ThemeProvider } from './components/common/ThemeContext';
 
@@ -51,11 +48,9 @@ function AppContent() {
   const { isLoading, setIsLoading } = useLoading();
   const location = useLocation();
 
-  const hideFooterRoutes = ['/trades', '/stats', '/login', '/signup', '/forgot-password'];
-
   useEffect(() => {
     setIsLoading(true);
-    const timer = setTimeout(() => setIsLoading(false), 500); // Simulate loading
+    const timer = setTimeout(() => setIsLoading(false), 120);
     return () => clearTimeout(timer);
   }, [location.pathname, setIsLoading]);
 
@@ -69,12 +64,12 @@ function AppContent() {
           <Route path="/home" element={
             <>
               <Helmet>
-                <title>TradeZella - Trading Journal & Community Platform</title>
-                <meta name="description" content="The ultimate trading journal and community platform. Track your trades, analyze performance, and connect with fellow traders to improve your profitability." />
-                <meta property="og:title" content="TradeZella - Trading Journal & Community Platform" />
-                <meta property="og:description" content="The ultimate trading journal and community platform. Track your trades, analyze performance, and connect with fellow traders to improve your profitability." />
-                <meta property="og:url" content="https://tradezella.com/" />
-                <link rel="canonical" href="https://tradezella.com/" />
+                <title>TradeZen - 知行合一 交易管理与复盘系统</title>
+                <meta name="description" content="TradeZen 是专为交易者打造的交易管理大师平台。集成交易日志、知行纪律与情绪分析、多维数据统计、逐根K线复盘与实盘直连同步。" />
+                <meta property="og:title" content="TradeZen - 知行合一 交易管理与复盘系统" />
+                <meta property="og:description" content="TradeZen 是专为交易者打造的交易管理大师平台。集成交易日志、知行纪律与情绪分析、多维数据统计、逐根K线复盘与实盘直连同步。" />
+                <meta property="og:url" content="https://tradezen.app/" />
+                <link rel="canonical" href="https://tradezen.app/" />
               </Helmet>
               <Hero />
               <Stats />
@@ -93,15 +88,12 @@ function AppContent() {
           <Route path="/contact" element={<ContactPage />} />
           <Route path="/faq" element={<FAQPage />} />
           <Route path="/help" element={<HelpPage />} />
-          <Route path="/returns" element={<ReturnsPage />} />
           <Route path="/terms" element={<TermsPage />} />
           <Route path="/privacy" element={<PrivacyPage />} />
           <Route path="/cookies" element={<CookiesPage />} />
           <Route path="/accessibility" element={<AccessibilityPage />} />
           <Route path="/community" element={<CommunityPage />} />
           <Route path="/partners" element={<PartnersPage />} />
-          <Route path="/stores" element={<StoresPage />} />
-          <Route path="/gift-cards" element={<GiftCardsPage />} />
           <Route path="/pricing" element={<PricingPage />} />
           <Route path="/broker-support" element={<BrokerSupportPage />} />
           <Route path="/features/journaling" element={<AutomatedJournalingPage />} />
@@ -117,8 +109,10 @@ function AppContent() {
           <Route path="/reset-password/:token" element={<ResetPasswordPage />} />
           <Route path="/trades" element={<TradesPage />} />
           <Route path="/stats" element={<StatsPage />} />
+          <Route path="/calendar" element={<StatsPage />} />
+          <Route path="/tutorial" element={<TutorialPage />} />
+          <Route path="/guide" element={<TutorialPage />} />
         </Routes>
-        {!hideFooterRoutes.includes(location.pathname) && <Footer />}
       </div>
     </div>
   );

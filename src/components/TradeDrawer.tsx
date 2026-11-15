@@ -50,11 +50,11 @@ const nowLocalISO = (): string => {
 };
 
 const SENTIMENT_OPTIONS = [
-    { value: 'Nervous', label: 'Nervous', emoji: '😰', selectedClass: 'bg-red-600 text-white border-red-600' },
-    { value: 'Uneasy', label: 'Uneasy', emoji: '😟', selectedClass: 'bg-orange-500 text-white border-orange-500' },
-    { value: 'Neutral', label: 'Neutral', emoji: '😐', selectedClass: 'bg-gray-600 text-white border-gray-600' },
-    { value: 'Composed', label: 'Composed', emoji: '😌', selectedClass: 'bg-blue-600 text-white border-blue-600' },
-    { value: 'Zen', label: 'Zen', emoji: '🧘', selectedClass: 'bg-green-600 text-white border-green-600' },
+    { value: 'Nervous', label: '紧张焦虑', emoji: '😰', selectedClass: 'bg-red-600 text-white border-red-600' },
+    { value: 'Uneasy', label: '忐忑不安', emoji: '😟', selectedClass: 'bg-orange-500 text-white border-orange-500' },
+    { value: 'Neutral', label: '平和理性', emoji: '😐', selectedClass: 'bg-gray-600 text-white border-gray-600' },
+    { value: 'Composed', label: '从容自信', emoji: '😌', selectedClass: 'bg-blue-600 text-white border-blue-600' },
+    { value: 'Zen', label: '知行合一', emoji: '🧘', selectedClass: 'bg-emerald-600 text-white border-emerald-600' },
 ];
 
 const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, onDelete, trade, availableSymbols }) => {
@@ -91,6 +91,20 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, o
     const [showSymbolDropdown, setShowSymbolDropdown] = useState(false);
     const symbolInputRef = useRef<HTMLInputElement>(null);
     const symbolDropdownRef = useRef<HTMLDivElement>(null);
+
+    // Prevent background scrolling while drawer is open
+    useEffect(() => {
+        if (isOpen && typeof document !== 'undefined') {
+            const originalBodyOverflow = document.body.style.overflow;
+            const originalHtmlOverflow = document.documentElement.style.overflow;
+            document.body.style.overflow = 'hidden';
+            document.documentElement.style.overflow = 'hidden';
+            return () => {
+                document.body.style.overflow = originalBodyOverflow;
+                document.documentElement.style.overflow = originalHtmlOverflow;
+            };
+        }
+    }, [isOpen]);
 
     useEffect(() => {
         if (!isOpen) return;
@@ -250,7 +264,7 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, o
 
         const token = localStorage.getItem('token');
         if (!token) {
-            setError('Please log in to upload images.');
+            setError('请先登录账号后再上传图片。');
             return;
         }
 
@@ -266,7 +280,7 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, o
                 screenshots: [...(formData.screenshots || []), ...uploadedUrls],
             });
         } catch (err: any) {
-            setError(err.response?.data?.message || 'Failed to upload image.');
+            setError(err.response?.data?.message || '上传图片失败。');
         } finally {
             setUploadingImage(false);
             e.target.value = '';
@@ -286,10 +300,10 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, o
         setFormData(prev => ({ ...prev, entryTime: value }));
         if (!value) { setEntryTimeError(''); return; }
         const t = new Date(value);
-        if (t > now) { setEntryTimeError('Entry time cannot be later than the current time.'); return; }
+        if (t > now) { setEntryTimeError('入场时间不能晚于当前时间。'); return; }
         if (formData.exitTime) {
             const exitT = new Date(formData.exitTime);
-            if (exitT < t) { setEntryTimeError('Exit time must be after entry time.'); return; }
+            if (exitT < t) { setEntryTimeError('出场时间必须晚于入场时间。'); return; }
         }
         setEntryTimeError('');
     };
@@ -298,10 +312,10 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, o
         setFormData(prev => ({ ...prev, exitTime: value }));
         if (!value) { setExitTimeError(''); return; }
         const t = new Date(value);
-        if (t > now) { setExitTimeError('Exit time cannot be later than the current time.'); return; }
+        if (t > now) { setExitTimeError('出场时间不能晚于当前时间。'); return; }
         if (formData.entryTime) {
             const entryT = new Date(formData.entryTime);
-            if (t < entryT) { setExitTimeError('Exit time must be after entry time.'); return; }
+            if (t < entryT) { setExitTimeError('出场时间必须晚于入场时间。'); return; }
         }
         setExitTimeError('');
     };
@@ -313,7 +327,7 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, o
 
         const token = localStorage.getItem('token');
         if (!token) {
-            setError('Please log in to save the trade.');
+            setError('请先登录账号后保存交易记录。');
             setLoading(false);
             return;
         }
@@ -324,7 +338,7 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, o
         }
 
         if (!formData.entryConditions || formData.entryConditions.length === 0) {
-            setError('Please select at least one entry condition.');
+            setError('请至少选择一个入场条件/信号。');
             setLoading(false);
             return;
         }
@@ -334,7 +348,7 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, o
             const exitTime = new Date(formData.exitTime);
             const now = new Date();
             if (exitTime > now) {
-                setError('Exit time cannot be later than the current time.');
+                setError('出场时间不能晚于当前时间。');
                 setLoading(false);
                 return;
             }
@@ -345,7 +359,7 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, o
             const entryTime = new Date(formData.entryTime);
             const now = new Date();
             if (entryTime > now) {
-                setError('Entry time cannot be later than the current time.');
+                setError('入场时间不能晚于当前时间。');
                 setLoading(false);
                 return;
             }
@@ -356,7 +370,7 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, o
             const entryTime = new Date(formData.entryTime);
             const exitTime = new Date(formData.exitTime);
             if (exitTime < entryTime) {
-                setError('Exit time must be after entry time.');
+                setError('出场时间必须晚于入场时间。');
                 setLoading(false);
                 return;
             }
@@ -431,16 +445,19 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, o
         <>
             {/* Overlay */}
             <div
-                className={`fixed inset-0 z-40 bg-black transition-opacity duration-300 ${isOpen ? 'opacity-50' : 'opacity-0 pointer-events-none'
+                className={`fixed inset-0 z-[999] bg-black/60 backdrop-blur-xs transition-opacity duration-300 ${isOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'
                     }`}
                 onClick={onClose}
+                onWheel={(e) => e.stopPropagation()}
+                onTouchMove={(e) => e.preventDefault()}
             />
 
             {/* Error modal */}
             {error && (
                 <div
-                    className="fixed inset-0 z-[60] flex items-center justify-center px-4 bg-black/50 dark:bg-black/60"
+                    className="fixed inset-0 z-[1010] flex items-center justify-center px-4 bg-black/50 dark:bg-black/60"
                     onClick={() => setError(null)}
+                    onWheel={(e) => e.stopPropagation()}
                 >
                     <div
                         className="w-full max-w-md bg-white dark:bg-gray-800 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 overflow-hidden"
@@ -483,14 +500,15 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, o
 
             {/* Drawer */}
             <div
-                className={`fixed top-0 right-0 z-50 h-full w-full max-w-2xl bg-white dark:bg-gray-800 shadow-2xl transform transition-transform duration-300 ease-in-out ${isOpen ? 'translate-x-0' : 'translate-x-full'
+                className={`fixed top-0 right-0 z-[1000] h-full w-full md:w-1/2 bg-white dark:bg-gray-800 shadow-2xl transform transition-transform duration-300 ease-in-out ${isOpen ? 'translate-x-0' : 'translate-x-full'
                     }`}
+                onWheel={(e) => e.stopPropagation()}
             >
-                <div className="flex flex-col h-full">
+                <div className="flex flex-col h-full overflow-hidden">
                     {/* Header */}
-                    <div className="flex justify-between items-center p-4 border-b dark:border-gray-700">
+                    <div className="flex justify-between items-center p-4 border-b dark:border-gray-700 shrink-0 select-none">
                         <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
-                            {isEditMode ? 'Edit Trade' : 'Add New Trade'}
+                            {isEditMode ? '编辑交易' : '新建交易'}
                         </h2>
                         <button
                             onClick={onClose}
@@ -501,10 +519,10 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, o
                     </div>
 
                     {/* Form (scrollable) */}
-                    <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-4 space-y-4">
+                    <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto overflow-x-hidden overscroll-contain p-4 space-y-4">
 
                         <div>
-                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Symbol</label>
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">交易标的 (Symbol)</label>
                             <div className="relative" ref={symbolDropdownRef}>
                                 <input
                                     ref={symbolInputRef}
@@ -518,7 +536,7 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, o
                                     }}
                                     onFocus={() => setShowSymbolDropdown(true)}
                                     className="w-full pl-3 pr-9 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-purple-500 focus:border-purple-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-                                    placeholder="BTCUSD"
+                                    placeholder="例如 BTCUSD, XAUUSD, EURUSD"
                                     autoComplete="off"
                                 />
                                 <button
@@ -553,27 +571,31 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, o
                         </div>
 
                         <div>
-                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Session</label>
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">交易时段 (Market Session)</label>
                             <div className="flex flex-wrap gap-2">
-                                {(['Asia', 'Europe', 'US'] as const).map((option) => {
-                                    const selected = formData.session === option;
+                                {[
+                                    { value: 'Asia' as const, label: '亚盘时段 (Asia)' },
+                                    { value: 'Europe' as const, label: '欧盘时段 (Europe)' },
+                                    { value: 'US' as const, label: '美盘时段 (US)' },
+                                ].map((option) => {
+                                    const selected = formData.session === option.value;
                                     return (
                                         <button
-                                            key={option}
+                                            key={option.value}
                                             type="button"
-                                            onClick={() => setFormData({ ...formData, session: selected ? undefined : option })}
+                                            onClick={() => setFormData({ ...formData, session: selected ? undefined : option.value })}
                                             className={`px-3 py-1.5 text-xs rounded-full border transition-colors ${selected ? 'bg-purple-600 text-white border-purple-600' : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:border-purple-400'}`}
                                         >
-                                            {option} session
+                                            {option.label}
                                         </button>
                                     );
                                 })}
                             </div>
-                            <p className="mt-1 text-xs text-gray-400">Tag this trade with its trading market session (optional)</p>
+                            <p className="mt-1 text-xs text-gray-400">标记此笔交易发生时的交易时段 (选填)</p>
                         </div>
 
                         <div>
-                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Entry Sentiment</label>
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">入场心理 / 情绪状态 (Sentiment)</label>
                             <div className="flex flex-wrap gap-2">
                                 {SENTIMENT_OPTIONS.map((option) => {
                                     const selected = formData.sentiment === option.value;
@@ -589,12 +611,12 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, o
                                     );
                                 })}
                             </div>
-                            <p className="mt-1 text-xs text-gray-400">How did you feel when entering this trade, from Nervous to Zen (optional)</p>
+                            <p className="mt-1 text-xs text-gray-400">记录入场时的心智状态，从焦虑、冲动到知行合一心流 (选填)</p>
                         </div>
 
                         <div>
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                Entry Conditions <span className="text-red-500">*</span>
+                                入场信号与条件 (Entry Conditions) <span className="text-red-500">*</span>
                             </label>
                             <div className="flex flex-wrap gap-2">
                                 {ENTRY_CONDITION_OPTIONS.map((condition) => {
@@ -611,25 +633,25 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, o
                                     );
                                 })}
                             </div>
-                            <p className="mt-1 text-xs text-gray-400">Please select at least one entry condition</p>
+                            <p className="mt-1 text-xs text-gray-400">请至少选择一个入场形态或信号条件</p>
                         </div>
 
                         <div className="grid grid-cols-2 gap-3">
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Direction</label>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">多空方向 (Direction)</label>
                                 <Select
                                     value={formData.direction}
                                     onChange={(v) => setFormData({ ...formData, direction: v as CreateTradeData['direction'] })}
                                     options={[
-                                        { value: 'long', label: 'Long' },
-                                        { value: 'short', label: 'Short' },
+                                        { value: 'long', label: '做多' },
+                                        { value: 'short', label: '做空' },
                                     ]}
-                                    placeholder="Select Direction"
+                                    placeholder="选择方向"
                                     className="w-full"
                                 />
                             </div>
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Size</label>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">仓位手数 / 规模 (Size)</label>
                                 <input
                                     type="number"
                                     required
@@ -642,11 +664,9 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, o
                             </div>
                         </div>
 
-
-
                         <div className="grid grid-cols-2 gap-3">
                             <div className="min-w-0">
-                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Entry Price</label>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">入场价格 (Entry Price)</label>
                                 <input
                                     type="number"
                                     required
@@ -658,7 +678,7 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, o
                                 />
                             </div>
                             <div className="min-w-0">
-                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Exit Price (Optional)</label>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">出场价格 (Exit Price，选填)</label>
                                 <input
                                     type="number"
                                     min="0"
@@ -668,13 +688,14 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, o
                                         setFormData({ ...formData, exitPrice: e.target.value ? parseFloat(e.target.value) : undefined })
                                     }
                                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-purple-500 focus:border-purple-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                                    placeholder="持仓中可留空"
                                 />
                             </div>
                         </div>
 
                         <div className="grid grid-cols-2 gap-3">
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Stop Loss</label>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">止损点位 (Stop Loss)</label>
                                 <input
                                     type="number"
                                     min="0"
@@ -684,10 +705,11 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, o
                                         setFormData({ ...formData, stopLoss: e.target.value ? parseFloat(e.target.value) : undefined })
                                     }
                                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-purple-500 focus:border-purple-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                                    placeholder="SL 价格"
                                 />
                             </div>
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Take Profit</label>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">止盈点位 (Take Profit)</label>
                                 <input
                                     type="number"
                                     min="0"
@@ -697,12 +719,13 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, o
                                         setFormData({ ...formData, takeProfit: e.target.value ? parseFloat(e.target.value) : undefined })
                                     }
                                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-purple-500 focus:border-purple-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                                    placeholder="TP 价格"
                                 />
                             </div>
                         </div>
 
                         <div>
-                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Final P/L</label>
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">平仓净盈亏金额 (Final P/L)</label>
                             <input
                                 type="number"
                                 step="0.01"
@@ -717,38 +740,38 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, o
                                     const val = e.target.value;
                                     setFormData({ ...formData, manualPnl: val === '' ? undefined : parseFloat(val) });
                                 }}
-                                placeholder="Auto"
+                                placeholder="留空则按入离场价格自动测算"
                                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-purple-500 focus:border-purple-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
                             />
                             <p className="mt-1 text-xs text-gray-400">
                                 {(() => {
                                     const auto = calculateAutoPnL();
-                                    if (!auto) return `Leverage: ${formData.leverage ?? 1}x`;
-                                    return `Auto: ${auto.pnl >= 0 ? '+' : ''}${auto.pnl.toFixed(2)} (${auto.pnlPercent.toFixed(2)}%) | Leverage: ${formData.leverage ?? 1}x`;
+                                    if (!auto) return `杠杆倍数: ${formData.leverage ?? 1}x`;
+                                    return `自动测算: ${auto.pnl >= 0 ? '+' : ''}${auto.pnl.toFixed(2)} (${auto.pnlPercent.toFixed(2)}%) | 杠杆: ${formData.leverage ?? 1}x`;
                                 })()}
                             </p>
                         </div>
 
                         <div className="grid grid-cols-2 gap-4">
                             <div className="min-w-0">
-                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Entry Time</label>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">入场时间 (Entry Time)</label>
                                 <DateTimePicker
                                     value={formData.entryTime || ''}
                                     onChange={(v) => validateEntryTime(v)}
                                     max={nowLocal}
                                     error={entryTimeError}
-                                    placeholder="Select entry time"
+                                    placeholder="选择入场时间"
                                     className="w-full"
                                 />
                             </div>
                             <div className="min-w-0">
-                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Exit Time</label>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">出场时间 (Exit Time)</label>
                                 <DateTimePicker
                                     value={formData.exitTime || ''}
                                     onChange={(v) => validateExitTime(v)}
                                     max={nowLocal}
                                     error={exitTimeError}
-                                    placeholder="Select exit time"
+                                    placeholder="选择出场时间 (选填)"
                                     className="w-full"
                                 />
                             </div>
@@ -757,12 +780,12 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, o
                         {/* Trade Summary */}
                         <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4 space-y-2">
                             <div className="flex justify-between items-center">
-                                <span className="text-sm font-medium text-gray-600 dark:text-gray-400">Status</span>
+                                <span className="text-sm font-medium text-gray-600 dark:text-gray-400">交易状态</span>
                                 {(() => {
                                     const status = getTradeStatus();
                                     return (
                                         <span className={`px-2 py-1 rounded-full text-xs font-medium ${status === 'completed' ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' : 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400'}`}>
-                                            {status === 'completed' ? 'Completed' : 'In Progress'}
+                                            {status === 'completed' ? '已平仓结算' : '持仓中'}
                                         </span>
                                     );
                                 })()}
@@ -772,9 +795,9 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, o
                                 if (autoPnl) {
                                     return (
                                         <div className="flex justify-between items-center">
-                                            <span className="text-sm font-medium text-gray-600 dark:text-gray-400">Auto P/L</span>
+                                            <span className="text-sm font-medium text-gray-600 dark:text-gray-400">系统估算盈亏</span>
                                             <span className={`text-sm font-semibold ${autoPnl.pnl >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                                                {autoPnl.pnl >= 0 ? '+' : ''}{autoPnl.pnl.toFixed(2)} ({autoPnl.pnlPercent.toFixed(2)}%)
+                                                {autoPnl.pnl >= 0 ? '+' : ''}${autoPnl.pnl.toFixed(2)} ({autoPnl.pnlPercent.toFixed(2)}%)
                                             </span>
                                         </div>
                                     );
@@ -786,7 +809,7 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, o
                                 if (targetRR) {
                                     return (
                                         <div className="flex justify-between items-center">
-                                            <span className="text-sm font-medium text-gray-600 dark:text-gray-400">Target R/R</span>
+                                            <span className="text-sm font-medium text-gray-600 dark:text-gray-400">目标盈亏比 (Target R/R)</span>
                                             <span className="text-sm font-semibold text-gray-900 dark:text-white">1 : {targetRR.toFixed(2)}</span>
                                         </div>
                                     );
@@ -800,7 +823,7 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, o
                                     const isProfit = (pnl?.pnl ?? 0) >= 0;
                                     return (
                                         <div className="flex justify-between items-center">
-                                            <span className="text-sm font-medium text-gray-600 dark:text-gray-400">Actual R/R</span>
+                                            <span className="text-sm font-medium text-gray-600 dark:text-gray-400">实际盈亏比 (Actual R/R)</span>
                                             <span className={`text-sm font-semibold ${isProfit ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>1 : {Math.abs(actualRR).toFixed(2)}</span>
                                         </div>
                                     );
@@ -812,7 +835,7 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, o
                         {isEditMode && (
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                    Rating (Optional)
+                                    执行纪律评分 (Rating，选填)
                                 </label>
                                 <div className="flex items-center gap-1">
                                     {[1, 2, 3, 4, 5].map((star) => {
@@ -829,7 +852,7 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, o
                                                     });
                                                 }}
                                                 className="p-1 hover:scale-110 transition-transform"
-                                                title={`${star} star${star > 1 ? 's' : ''}`}
+                                                title={`${star} 星`}
                                             >
                                                 <Star
                                                     size={24}
@@ -846,56 +869,58 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, o
                                             onClick={() => setFormData({ ...formData, rating: 0 })}
                                             className="ml-2 text-xs text-gray-400 hover:text-red-500"
                                         >
-                                            Clear
+                                            清空
                                         </button>
                                     )}
                                 </div>
-                                <p className="mt-1 text-xs text-gray-400">Rate this trade from 1 to 5 stars</p>
+                                <p className="mt-1 text-xs text-gray-400">给这笔交易的计划执行力与纪律度打分 (1~5 星)</p>
                             </div>
                         )}
 
                         {isEditMode && (<div>
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                Final Trigger (Optional)
+                                平仓触发方式 (选填)
                             </label>
                             <div className="flex flex-wrap gap-2">
-                                {(['takeProfit', 'stopLoss'] as const).map((option) => {
-                                    const selected = formData.finalTrigger === option;
-                                    const activeStyles = option === 'takeProfit'
+                                {[
+                                    { value: 'takeProfit' as const, label: '止盈触发 (TP)' },
+                                    { value: 'stopLoss' as const, label: '止损触发 (SL)' },
+                                ].map((option) => {
+                                    const selected = formData.finalTrigger === option.value;
+                                    const activeStyles = option.value === 'takeProfit'
                                         ? 'bg-green-600 text-white border-green-600'
                                         : 'bg-red-600 text-white border-red-600';
-                                    const label = option === 'takeProfit' ? 'Take Profit' : 'Stop Loss';
                                     return (
                                         <button
-                                            key={option}
+                                            key={option.value}
                                             type="button"
-                                            onClick={() => setFormData({ ...formData, finalTrigger: selected ? undefined : option })}
+                                            onClick={() => setFormData({ ...formData, finalTrigger: selected ? undefined : option.value })}
                                             className={`px-3 py-1.5 text-xs rounded-full border transition-colors ${selected ? activeStyles : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:border-purple-400'}`}
                                         >
-                                            {label}
+                                            {option.label}
                                         </button>
                                     );
                                 })}
                             </div>
-                            <p className="mt-1 text-xs text-gray-400">Mark whether the trade finally triggered take profit or stop loss</p>
+                            <p className="mt-1 text-xs text-gray-400">标记本单平仓是触发止盈线还是止损线离场（手动平仓可不填）</p>
                         </div>)}
 
                         <div>
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                Notes (Optional)
+                                复盘心得与笔记 (Notes，选填)
                             </label>
                             <textarea
                                 value={formData.notes || ''}
                                 onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
                                 rows={4}
                                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-purple-500 focus:border-purple-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-                                placeholder="Add any notes about this trade..."
+                                placeholder="记录这笔交易的思考、犯错原因或心理总结..."
                             />
                         </div>
 
                         <div>
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                Screenshots (Optional)
+                                行情走势与执行截图 (Screenshots，选填)
                             </label>
                             <div className="flex items-center justify-center w-full">
                                 <label
@@ -904,9 +929,9 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, o
                                     <div className="flex flex-col items-center justify-center pt-5 pb-6">
                                         <Upload className="w-8 h-8 mb-2 text-gray-400" />
                                         <p className="text-sm text-gray-500 dark:text-gray-400">
-                                            {uploadingImage ? 'Uploading...' : 'Click to upload screenshots'}
+                                            {uploadingImage ? '正在上传图片...' : '点击上传图表截图'}
                                         </p>
-                                        <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">PNG, JPG, GIF, WEBP (max 5MB)</p>
+                                        <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">支持 PNG, JPG, GIF, WEBP (单张最大 5MB)</p>
                                     </div>
                                     <input
                                         type="file"
@@ -956,16 +981,16 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, o
                                     className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-red-600 hover:text-white hover:bg-red-600 dark:text-red-400 dark:hover:text-white dark:hover:bg-red-600 border border-red-200 dark:border-red-800 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-1 dark:focus:ring-offset-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                     <Trash2 size={14} />
-                                    Delete Trade
+                                    删除此交易
                                 </button>
                             )}
                         </div>
                         <div className="flex space-x-3">
                             <Button variant="gradient" onClick={onClose} disabled={loading || deleting}>
-                                Cancel
+                                取消
                             </Button>
                             <Button variant="primary" disabled={loading || deleting} onClick={handleSubmit}>
-                                {loading ? 'Saving...' : isEditMode ? 'Update Trade' : 'Add Trade'}
+                                {loading ? '正在保存...' : isEditMode ? '保存修改' : '创建记录'}
                             </Button>
                         </div>
                     </div>
@@ -981,12 +1006,12 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, o
                                 onClick={(e) => e.stopPropagation()}
                             >
                                 <div className="px-5 py-4 border-b border-gray-200 dark:border-gray-700">
-                                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Delete Trade</h3>
-                                    <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Are you sure you want to delete this trade? This action cannot be undone.</p>
+                                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white">删除交易确认</h3>
+                                    <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">确定要删除这笔交易记录吗？删除后将无法恢复。</p>
                                 </div>
                                 <div className="flex justify-end gap-2 px-5 py-4 bg-gray-50 dark:bg-gray-900/50 border-t border-gray-200 dark:border-gray-700">
                                     <Button variant="gradient" onClick={() => setShowDeleteConfirm(false)} disabled={deleting}>
-                                        Cancel
+                                        取消
                                     </Button>
                                     <Button
                                         variant="primary"
@@ -996,7 +1021,7 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, o
                                             if (!trade) return;
                                             const token = localStorage.getItem('token');
                                             if (!token) {
-                                                setError('Please log in to delete a trade.');
+                                                setError('请登录后操作删除。');
                                                 setShowDeleteConfirm(false);
                                                 return;
                                             }
@@ -1006,14 +1031,14 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, o
                                                 onDelete?.();
                                                 onClose();
                                             } catch (err: any) {
-                                                setError(err.response?.data?.message || 'Failed to delete trade.');
+                                                setError(err.response?.data?.message || '删除交易失败。');
                                             } finally {
                                                 setDeleting(false);
                                                 setShowDeleteConfirm(false);
                                             }
                                         }}
                                     >
-                                        {deleting ? 'Deleting...' : 'Delete'}
+                                        {deleting ? '正在删除...' : '确认删除'}
                                     </Button>
                                 </div>
                             </div>
@@ -1025,7 +1050,7 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, o
             {/* Lightbox */}
             {lightboxImage && (
                 <div
-                    className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-4"
+                    className="fixed inset-0 z-[1010] flex items-center justify-center bg-black/80 p-4"
                     onClick={() => setLightboxImage(null)}
                 >
                     <button

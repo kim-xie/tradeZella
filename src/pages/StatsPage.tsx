@@ -1,324 +1,596 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
-import Button from '../components/common/Button';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { createPortal } from 'react-dom';
+import { useSearchParams } from 'react-router-dom';
 import { getUserTrades } from '../services/api';
+import { Trade } from '../components/calendar/calendarTypes';
+import {
+  computeDayStats,
+  formatCurrency,
+  getTradeDirection,
+  getTradeEntryPrice,
+  getTradeExitPrice,
+  getTradeSize,
+  getTradeEntryTime,
+  getTradeExitTime,
+  getTradeStopLoss,
+  getTradeTakeProfit,
+  calculateTradePnL,
+  isTradeMistake,
+} from '../components/calendar/calendarUtils';
+import { CalendarDayDrawer } from '../components/calendar/CalendarDayDrawer';
+import { CalendarWeekModal } from '../components/calendar/CalendarWeekModal';
+import { CalendarYearMonthMatrix } from '../components/calendar/CalendarYearMonthMatrix';
+import { CalendarDailyPnLBarChart } from '../components/calendar/CalendarDailyPnLBarChart';
+import TradeExecutionChart from '../components/TradeExecutionChart';
+import {
+  ChevronLeft,
+  ChevronRight,
+  LineChart,
+  X,
+} from 'lucide-react';
 
-interface Trade {
-    id: number;
-    symbol: string;
-    direction: 'long' | 'short';
-    size: number;
-    entryprice: number;
-    exitprice?: number;
-    createdat: string;
-    entry_time?: string;
-    exit_time?: string;
-    stop_loss?: number;
-    take_profit?: number;
-    leverage?: number;
-    manual_pnl?: number | null;
-}
+const WEEKDAYS = [
+  { short: 'Mon', label: '周一' },
+  { short: 'Tue', label: '周二' },
+  { short: 'Wed', label: '周三' },
+  { short: 'Thu', label: '周四' },
+  { short: 'Fri', label: '周五' },
+  { short: 'Sat', label: '周六' },
+  { short: 'Sun', label: '周日' },
+];
 
-interface DayStats {
-    pnl: number;
-    count: number;
-    wins: number;
-    winRate: number;
-    avgRR: number;
-    avgWinDuration: number;
-    avgLossDuration: number;
-}
-
-const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
-    'July', 'August', 'September', 'October', 'November', 'December'];
-
-const getDurationMinutes = (trade: Trade): number | null => {
-    const entry = trade.entry_time || trade.createdat;
-    const exit = trade.exit_time;
-    if (!entry || !exit) return null;
-    const diff = new Date(exit).getTime() - new Date(entry).getTime();
-    if (isNaN(diff) || diff < 0) return null;
-    return diff / 60000;
-};
-
-const calculateTradePnL = (trade: Trade): number => {
-    if (!trade.exitprice || !trade.entryprice || trade.size <= 0) return 0;
-    // 优先使用手动输入的最终盈利
-    if (trade.manual_pnl !== undefined && trade.manual_pnl !== null && !isNaN(trade.manual_pnl)) {
-        return trade.manual_pnl;
-    }
-    const leverage = trade.leverage && trade.leverage >= 1 ? trade.leverage : 1;
-    const diff = trade.direction === 'long'
-        ? trade.exitprice - trade.entryprice
-        : trade.entryprice - trade.exitprice;
-    return diff * trade.size * leverage;
-};
-
-const calculateRR = (trade: Trade): number | null => {
-    if (!trade.exitprice || !trade.stop_loss || !trade.entryprice) return null;
-    const riskPerUnit = Math.abs(trade.entryprice - trade.stop_loss);
-    if (riskPerUnit === 0) return null;
-    const pnl = calculateTradePnL(trade);
-    return pnl / (riskPerUnit * trade.size);
-};
-
-const computeStats = (trades: Trade[]): DayStats => {
-    const completed = trades.filter(t => t.exitprice);
-    const pnl = completed.reduce((sum, t) => sum + calculateTradePnL(t), 0);
-    const wins = completed.filter(t => calculateTradePnL(t) > 0).length;
-    const winRate = completed.length > 0 ? (wins / completed.length) * 100 : 0;
-
-    const rrValues = completed.map(t => calculateRR(t)).filter((v): v is number => v !== null);
-    const avgRR = rrValues.length > 0 ? rrValues.reduce((a, b) => a + b, 0) / rrValues.length : 0;
-
-    const winDurations = completed.filter(t => calculateTradePnL(t) > 0).map(t => getDurationMinutes(t)).filter((v): v is number => v !== null);
-    const lossDurations = completed.filter(t => calculateTradePnL(t) <= 0).map(t => getDurationMinutes(t)).filter((v): v is number => v !== null);
-
-    return {
-        pnl,
-        count: trades.length,
-        wins,
-        winRate,
-        avgRR,
-        avgWinDuration: winDurations.length > 0 ? winDurations.reduce((a, b) => a + b, 0) / winDurations.length : 0,
-        avgLossDuration: lossDurations.length > 0 ? lossDurations.reduce((a, b) => a + b, 0) / lossDurations.length : 0,
-    };
-};
-
-const formatDurationShort = (minutes: number): string => {
-    if (minutes === 0) return '-';
-    const days = Math.floor(minutes / 1440);
-    const hours = Math.floor((minutes % 1440) / 60);
-    const mins = Math.floor(minutes % 60);
-    const parts: string[] = [];
-    if (days > 0) parts.push(`${days}d`);
-    if (hours > 0) parts.push(`${hours}h`);
-    if (mins > 0 && days === 0) parts.push(`${mins}m`);
-    return parts.join(' ') || '-';
-};
+const MONTH_NAMES = [
+  'January (1月)', 'February (2月)', 'March (3月)', 'April (4月)',
+  'May (5月)', 'June (6月)', 'July (7月)', 'August (8月)',
+  'September (9月)', 'October (10月)', 'November (11月)', 'December (12月)'
+];
 
 const StatsPage: React.FC = () => {
-    const navigate = useNavigate();
-    const [trades, setTrades] = useState<Trade[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
-    const [currentDate, setCurrentDate] = useState(new Date());
+  const [searchParams] = useSearchParams();
 
-    useEffect(() => {
-        const token = localStorage.getItem('token');
-        if (!token) {
-            setError('Please log in to view statistics.');
-            setLoading(false);
-            return;
-        }
-        getUserTrades(token)
-            .then((data) => {
-                setTrades(data || []);
-                setLoading(false);
-            })
-            .catch((err) => {
-                setError(err.message || 'Failed to load trades.');
-                setLoading(false);
-            });
-    }, []);
+  const [trades, setTrades] = useState<Trade[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const calendarCardRef = useRef<HTMLDivElement>(null);
 
-    const tradesByDay = useMemo(() => {
-        const map: Record<string, Trade[]> = {};
-        trades.forEach((trade) => {
-            const dateStr = (trade.entry_time || trade.createdat || '').substring(0, 10);
-            if (!dateStr) return;
-            if (!map[dateStr]) map[dateStr] = [];
-            map[dateStr].push(trade);
-        });
-        return map;
-    }, [trades]);
+  // Calendar State
+  const [currentDate, setCurrentDate] = useState(() => {
+    const qDate = searchParams.get('date');
+    if (qDate) {
+      const parsed = new Date(qDate);
+      if (!isNaN(parsed.getTime())) return parsed;
+    }
+    return new Date();
+  });
 
-    const calendarDays = useMemo(() => {
-        const year = currentDate.getFullYear();
-        const month = currentDate.getMonth();
-        const firstDay = new Date(year, month, 1).getDay();
-        const daysInMonth = new Date(year, month + 1, 0).getDate();
-        const cells: (string | null)[] = [];
-        for (let i = 0; i < firstDay; i++) cells.push(null);
-        for (let d = 1; d <= daysInMonth; d++) {
-            const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-            cells.push(dateStr);
-        }
-        return cells;
-    }, [currentDate]);
+  // Interactive Drawers / Modals
+  const [selectedDay, setSelectedDay] = useState<string | null>(null);
+  const [selectedWeek, setSelectedWeek] = useState<{ index: number; dates: string[] } | null>(null);
+  const [chartModalTrade, setChartModalTrade] = useState<Trade | null>(null);
 
-    const calendarRows = useMemo<(string | null)[][]>(() => {
-        const padded = [...calendarDays];
-        while (padded.length % 7 !== 0) padded.push(null);
-        const rows: (string | null)[][] = [];
-        for (let i = 0; i < padded.length; i += 7) {
-            rows.push(padded.slice(i, i + 7));
-        }
-        return rows;
-    }, [calendarDays]);
+  // Prevent background scrolling while standalone chart modal is open
+  useEffect(() => {
+    if (chartModalTrade && typeof document !== 'undefined') {
+      const originalBodyOverflow = document.body.style.overflow;
+      const originalHtmlOverflow = document.documentElement.style.overflow;
+      document.body.style.overflow = 'hidden';
+      document.documentElement.style.overflow = 'hidden';
+      return () => {
+        document.body.style.overflow = originalBodyOverflow;
+        document.documentElement.style.overflow = originalHtmlOverflow;
+      };
+    }
+  }, [chartModalTrade]);
 
-    const summaryStats = useMemo(() => {
-        const now = new Date();
-        const filterByPeriod = (start: Date) => {
-            return trades.filter((t) => {
-                const entry = new Date(t.entry_time || t.createdat);
-                return entry >= start && entry <= now;
-            });
-        };
+  const fetchTrades = async () => {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      setError('请登录后查看交易日历与统计数据。');
+      setLoading(false);
+      return;
+    }
+    try {
+      setLoading(true);
+      const data = await getUserTrades(token);
+      setTrades(data || []);
+      setError(null);
+    } catch (err: any) {
+      setError(err.message || '加载交易数据失败');
+    } finally {
+      setLoading(false);
+    }
+  };
 
-        const weekStart = new Date(now);
-        const weekDay = now.getDay();
-        weekStart.setDate(now.getDate() - weekDay + (weekDay === 0 ? -6 : 1));
-        weekStart.setHours(0, 0, 0, 0);
+  useEffect(() => {
+    fetchTrades();
+  }, []);
 
-        const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-        const yearStart = new Date(now.getFullYear(), 0, 1);
+  // Group trades by day: "YYYY-MM-DD"
+  const tradesByDay = useMemo(() => {
+    const map: Record<string, Trade[]> = {};
+    trades.forEach((trade) => {
+      const rawDate = getTradeEntryTime(trade);
+      if (!rawDate) return;
+      const dateStr = rawDate.substring(0, 10);
+      if (!dateStr || dateStr.length < 10) return;
+      if (!map[dateStr]) map[dateStr] = [];
+      map[dateStr].push(trade);
+    });
+    return map;
+  }, [trades]);
 
-        return {
-            week: computeStats(filterByPeriod(weekStart)),
-            month: computeStats(filterByPeriod(monthStart)),
-            year: computeStats(filterByPeriod(yearStart)),
-            all: computeStats(trades),
-        };
-    }, [trades]);
+  // Calendar Days (Monday first)
+  const calendarRows = useMemo<(string | null)[][]>(() => {
+    const year = currentDate.getFullYear();
+    const month = currentDate.getMonth();
 
-    const prevMonth = () => {
-        setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1));
-    };
-    const nextMonth = () => {
-        setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1));
-    };
-    const goToday = () => setCurrentDate(new Date());
+    const firstDay = new Date(year, month, 1).getDay();
+    const mondayOffset = firstDay === 0 ? 6 : firstDay - 1;
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
 
-    // if (loading) return (
-    //     <div className="fixed inset-0 flex flex-col items-center justify-center">
-    //         <div className="w-12 h-12 border-4 border-gray-200 dark:border-gray-700 border-t-purple-600 rounded-full animate-spin"></div>
-    //         <p className="mt-4 text-sm text-gray-500 dark:text-gray-400">Loading statistics...</p>
-    //     </div>
-    // );
-    if (error) return <div className="container mx-auto p-4 text-red-500">{error}</div>;
+    const cells: (string | null)[] = [];
+    for (let i = 0; i < mondayOffset; i++) {
+      cells.push(null);
+    }
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      cells.push(dateStr);
+    }
 
-    const StatCard = ({ title, stats, onClick }: { title: string; stats: DayStats; onClick?: () => void }) => (
-        <div
-            onClick={onClick}
-            className={`bg-white dark:bg-gray-800 rounded-lg shadow-sm p-4 border border-gray-200 dark:border-gray-700 ${onClick ? 'cursor-pointer transition-all hover:border-purple-400 dark:hover:border-purple-500 hover:shadow-md' : ''}`}
-        >
-            <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3 pb-2 border-b dark:border-gray-700">{title}</h3>
-            <div className="grid grid-cols-2 gap-2 text-xs">
-                <div><span className="text-gray-500 dark:text-gray-400">P/L: </span><span className={`font-semibold ${stats.pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>{stats.pnl >= 0 ? '+' : ''}{stats.pnl.toFixed(2)}</span></div>
-                <div><span className="text-gray-500 dark:text-gray-400">Trades: </span><span className="font-semibold text-gray-900 dark:text-white">{stats.count}</span></div>
-                <div><span className="text-gray-500 dark:text-gray-400">Win Rate: </span><span className="font-semibold text-gray-900 dark:text-white">{stats.winRate.toFixed(1)}%</span></div>
-                <div><span className="text-gray-500 dark:text-gray-400">Avg R/R: </span><span className="font-semibold text-gray-900 dark:text-white">{stats.avgRR.toFixed(1)}</span></div>
-                <div><span className="text-gray-500 dark:text-gray-400">Win Time: </span><span className="font-semibold text-gray-900 dark:text-white">{formatDurationShort(stats.avgWinDuration)}</span></div>
-                <div><span className="text-gray-500 dark:text-gray-400">Loss Time: </span><span className="font-semibold text-gray-900 dark:text-white">{formatDurationShort(stats.avgLossDuration)}</span></div>
-            </div>
-        </div>
-    );
+    while (cells.length % 7 !== 0) {
+      cells.push(null);
+    }
 
+    const rows: (string | null)[][] = [];
+    for (let i = 0; i < cells.length; i += 7) {
+      rows.push(cells.slice(i, i + 7));
+    }
+    return rows;
+  }, [currentDate]);
+
+  // Month navigation
+  const prevMonth = () => {
+    setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1));
+  };
+  const nextMonth = () => {
+    setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1));
+  };
+  const goToday = () => {
+    setCurrentDate(new Date());
+  };
+  const handleMonthChange = (monthIdx: number) => {
+    setCurrentDate(new Date(currentDate.getFullYear(), monthIdx, 1));
+  };
+
+  const todayStr = useMemo(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }, []);
+
+  const isCurrentMonthAndYear = useMemo(() => {
+    const today = new Date();
     return (
-        <div className="container mx-auto p-4">
-            <div className="flex items-center justify-between mb-4">
-                <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Trade Statistics</h1>
-                <Button variant="gradient" onClick={() => window.history.back()}>Back</Button>
-            </div>
-
-            {/* Calendar */}
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-4 mb-6">
-                <div className="flex items-center justify-between mb-4">
-                    <Button variant="primary" onClick={prevMonth} className="px-3 py-1 text-sm">‹</Button>
-                    <h2 className="text-lg font-semibold text-gray-900 dark:text-white">{MONTHS[currentDate.getMonth()]} {currentDate.getFullYear()}</h2>
-                    <div className="flex gap-2">
-                        <Button variant="primary" onClick={goToday} className="px-3 py-1 text-sm">Today</Button>
-                        <Button variant="primary" onClick={nextMonth} className="px-3 py-1 text-sm">›</Button>
-                    </div>
-                </div>
-
-                <div className="grid grid-cols-8 gap-1 mb-1">
-                    {WEEKDAYS.map((day) => (
-                        <div key={day} className="text-center text-xs font-semibold text-gray-500 dark:text-gray-400 py-2">{day}</div>
-                    ))}
-                    <div className="text-center text-xs font-semibold text-gray-500 dark:text-gray-400 py-2">Week</div>
-                </div>
-
-                <div className="grid grid-cols-8 gap-1">
-                    {calendarRows.flatMap((row, rowIdx) => {
-                        const weekDateStrs = row.filter((d): d is string => !!d);
-                        const weekTrades = weekDateStrs.flatMap((d) => tradesByDay[d] || []);
-                        const weekStats = computeStats(weekTrades);
-                        const weekHasData = weekTrades.length > 0;
-
-                        const dayCells = row.map((dateStr, idx) => {
-                            if (!dateStr) return <div key={`empty-${rowIdx}-${idx}`} className="min-h-[110px]" />;
-                            const dayTrades = tradesByDay[dateStr] || [];
-                            const stats = computeStats(dayTrades);
-                            const dayNum = parseInt(dateStr.split('-')[2], 10);
-                            const hasData = dayTrades.length > 0;
-                            const todayStr = new Date().toISOString().substring(0, 10);
-                            const isTodayCell = dateStr === todayStr;
-
-                            return (
-                                <div
-                                    key={`day-${dateStr}`}
-                                    onClick={() => navigate(`/trades?start=${dateStr}&end=${dateStr}`)}
-                                    title="View trades for this day"
-                                    className={`min-h-[110px] p-2 rounded-md border text-xs cursor-pointer transition-all hover:scale-[1.02] hover:shadow-md ${hasData ? (stats.pnl >= 0 ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800' : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800') : 'border-gray-200 dark:border-gray-700'} ${isTodayCell ? 'ring-2 ring-purple-500' : ''}`}
-                                >
-                                    <div className="flex justify-between items-center mb-1">
-                                        <span className={`font-bold ${isTodayCell ? 'text-purple-600 dark:text-purple-400' : 'text-gray-700 dark:text-gray-300'}`}>{dayNum}</span>
-                                        {hasData && <span className="text-gray-400">{stats.count}T</span>}
-                                    </div>
-                                    {hasData && (
-                                        <div className="space-y-0.5">
-                                            <div className={`font-semibold ${stats.pnl >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>{stats.pnl >= 0 ? '+' : ''}{stats.pnl.toFixed(2)}</div>
-                                            <div className="text-gray-500 dark:text-gray-400">Win: {stats.winRate.toFixed(0)}%</div>
-                                            <div className="text-gray-500 dark:text-gray-400">R/R: {stats.avgRR.toFixed(1)}</div>
-                                            <div className="text-gray-500 dark:text-gray-400">W: {formatDurationShort(stats.avgWinDuration)}</div>
-                                            <div className="text-gray-500 dark:text-gray-400">L: {formatDurationShort(stats.avgLossDuration)}</div>
-                                        </div>
-                                    )}
-                                </div>
-                            );
-                        });
-
-                        const weekStart = weekDateStrs[0];
-                        const weekEnd = weekDateStrs[weekDateStrs.length - 1];
-                        const weekCell = (
-                            <div
-                                key={`week-${rowIdx}`}
-                                onClick={() => { if (weekStart && weekEnd) navigate(`/trades?start=${weekStart}&end=${weekEnd}`); }}
-                                title="View trades for this week"
-                                className={`min-h-[110px] p-2 rounded-md border text-xs cursor-pointer transition-all hover:scale-[1.02] hover:shadow-md ${weekHasData ? (weekStats.pnl >= 0 ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800' : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800') : 'border-gray-200 dark:border-gray-700'}`}
-                            >
-                                <div className="flex justify-between items-center mb-1">
-                                    <span className="font-bold text-gray-700 dark:text-gray-300">WK</span>
-                                    {weekHasData && <span className="text-gray-400">{weekStats.count}T</span>}
-                                </div>
-                                {weekHasData && (
-                                    <div className="space-y-0.5">
-                                        <div className={`font-semibold ${weekStats.pnl >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>{weekStats.pnl >= 0 ? '+' : ''}{weekStats.pnl.toFixed(2)}</div>
-                                        <div className="text-gray-500 dark:text-gray-400">Win: {weekStats.winRate.toFixed(0)}%</div>
-                                        <div className="text-gray-500 dark:text-gray-400">R/R: {weekStats.avgRR.toFixed(1)}</div>
-                                        <div className="text-gray-500 dark:text-gray-400">W: {formatDurationShort(weekStats.avgWinDuration)}</div>
-                                        <div className="text-gray-500 dark:text-gray-400">L: {formatDurationShort(weekStats.avgLossDuration)}</div>
-                                    </div>
-                                )}
-                            </div>
-                        );
-
-                        return [...dayCells, weekCell];
-                    })}
-                </div>
-            </div>
-
-            {/* Summary Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                <StatCard title="This Month" stats={summaryStats.month} onClick={() => navigate('/trades?quick=month')} />
-                <StatCard title="This Year" stats={summaryStats.year} onClick={() => navigate('/trades?quick=year')} />
-                <StatCard title="All Time" stats={summaryStats.all} onClick={() => navigate('/trades?quick=all')} />
-            </div>
-        </div>
+      currentDate.getFullYear() === today.getFullYear() &&
+      currentDate.getMonth() === today.getMonth()
     );
+  }, [currentDate]);
+
+  return (
+    <div className="min-h-screen bg-gray-50/50 dark:bg-[#0b0f19] text-gray-900 dark:text-gray-100 transition-colors duration-200">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+        {error && (
+          <div className="p-4 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-400 text-xs">
+            {error}
+          </div>
+        )}
+
+        {/* Unified Calendar Container (Daily P&L Bar Chart + Month Nav + 8-Column Grid) */}
+        <div ref={calendarCardRef} className="bg-white dark:bg-[#111827] rounded-2xl border border-gray-200 dark:border-white/10 shadow-xs overflow-hidden">
+          {/* 1. 当月每日盈亏柱形图 (Monthly Daily P&L Bar Chart) */}
+          <CalendarDailyPnLBarChart
+            currentYear={currentDate.getFullYear()}
+            currentMonth={currentDate.getMonth()}
+            tradesByDay={tradesByDay}
+            onSelectDay={(dateStr) => setSelectedDay(dateStr)}
+          />
+
+          {/* 2. Month Navigator Bar (Left/Right Aligned Arrows, Centered Month & Today) */}
+          <div className="px-4 sm:px-5 py-3 border-b border-gray-200 dark:border-white/10 flex items-center justify-between bg-gray-50/50 dark:bg-navy-950/30">
+            {/* Left: Previous Month Arrow */}
+            <button
+              onClick={prevMonth}
+              className="p-1.5 rounded-lg border border-gray-200 dark:border-white/10 hover:bg-gray-100 dark:hover:bg-navy-800 transition text-gray-600 dark:text-gray-300 shadow-2xs"
+              title="上个月"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+
+            {/* Center: Month Selector & Back to Today */}
+            <div className="flex items-center space-x-2">
+              <select
+                value={currentDate.getMonth()}
+                onChange={(e) => handleMonthChange(Number(e.target.value))}
+                className="bg-white dark:bg-navy-900 border border-gray-200 dark:border-white/10 text-xs font-bold rounded-lg px-3 py-1.5 text-gray-900 dark:text-white focus:outline-hidden focus:ring-2 focus:ring-purple-500 shadow-2xs"
+              >
+                {MONTH_NAMES.map((name, idx) => (
+                  <option key={idx} value={idx}>{name}</option>
+                ))}
+              </select>
+
+              {!isCurrentMonthAndYear && (
+                <button
+                  onClick={goToday}
+                  className="px-3 py-1.5 rounded-lg bg-white hover:bg-gray-100 dark:bg-navy-900 dark:hover:bg-navy-800 text-xs font-semibold text-gray-700 dark:text-gray-200 border border-gray-200 dark:border-white/10 transition whitespace-nowrap shrink-0 shadow-2xs animate-in fade-in duration-150"
+                  title="回到当前月份"
+                >
+                  回到今日
+                </button>
+              )}
+            </div>
+
+            {/* Right: Next Month Arrow */}
+            <button
+              onClick={nextMonth}
+              className="p-1.5 rounded-lg border border-gray-200 dark:border-white/10 hover:bg-gray-100 dark:hover:bg-navy-800 transition text-gray-600 dark:text-gray-300 shadow-2xs"
+              title="下个月"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* 3. Calendar Grid (Weekdays Header + Days with Unified Metrics) */}
+          <div className="p-4 sm:p-5">
+            {/* Weekday Column Headers */}
+            <div className="grid grid-cols-8 gap-2 mb-2 text-center text-xs font-bold text-gray-500 dark:text-gray-400">
+              {WEEKDAYS.map((wd) => (
+                <div key={wd.short} className="py-2 rounded-lg bg-gray-50/70 dark:bg-navy-900/50">
+                  <span>{wd.label}</span>
+                  <span className="text-[10px] text-gray-400 block font-normal">{wd.short}</span>
+                </div>
+              ))}
+              <div className="py-2 rounded-lg bg-purple-50/60 dark:bg-purple-950/30 text-purple-700 dark:text-purple-300 font-bold border border-purple-200/50 dark:border-purple-800/40">
+                <span>周汇总</span>
+                <span className="text-[10px] block font-mono">Week</span>
+              </div>
+            </div>
+
+            {/* Calendar Rows */}
+            <div className="space-y-2">
+              {calendarRows.map((row, rowIdx) => {
+                const weekDateStrs = row.filter((d): d is string => !!d);
+                const weekTrades = weekDateStrs.flatMap((d) => tradesByDay[d] || []);
+                const weekStats = computeDayStats(weekTrades);
+                const weekHasTrades = weekTrades.length > 0;
+
+                return (
+                  <div key={`row-${rowIdx}`} className="grid grid-cols-8 gap-2">
+                    {/* Days 1 to 7 (Mon to Sun) */}
+                    {row.map((dateStr, colIdx) => {
+                      if (!dateStr) {
+                        return (
+                          <div
+                            key={`empty-${rowIdx}-${colIdx}`}
+                            className="min-h-[135px] rounded-xl border border-dashed border-gray-100 dark:border-white/5 bg-gray-50/30 dark:bg-navy-950/20"
+                          />
+                        );
+                      }
+
+                      const dayTrades = tradesByDay[dateStr] || [];
+                      const stats = computeDayStats(dayTrades, dateStr);
+                      const dayNum = parseInt(dateStr.split('-')[2], 10);
+                      const isToday = dateStr === todayStr;
+                      const hasTrades = dayTrades.length > 0;
+
+                      // Cell Background Style
+                      let bgClasses = 'bg-white dark:bg-navy-900/40 border-gray-200/80 dark:border-white/10';
+                      if (hasTrades) {
+                        if (stats.pnl > 0.001) {
+                          bgClasses = 'bg-emerald-500/10 dark:bg-emerald-950/30 border-emerald-500/30 dark:border-emerald-800/60 hover:border-emerald-500 dark:hover:border-emerald-500';
+                        } else if (stats.pnl < -0.001) {
+                          bgClasses = 'bg-rose-500/10 dark:bg-rose-950/30 border-rose-500/30 dark:border-rose-800/60 hover:border-rose-500 dark:hover:border-rose-500';
+                        } else {
+                          bgClasses = 'bg-gray-100 dark:bg-navy-800 border-gray-300 dark:border-navy-700';
+                        }
+                      }
+
+                      return (
+                        <div
+                          key={dateStr}
+                          onClick={() => setSelectedDay(dateStr)}
+                          className={`min-h-[135px] p-2.5 rounded-xl border text-xs cursor-pointer transition-all duration-150 hover:scale-[1.02] hover:shadow-md flex flex-col justify-between ${bgClasses} ${
+                            isToday ? 'border-purple-500 dark:border-purple-400 ring-2 ring-purple-500/25 shadow-md' : ''
+                          }`}
+                          title="点击查看日内复盘、笔记与每笔交易 K 线打点"
+                        >
+                          {/* Top: Date Number & Badges */}
+                          <div className="flex items-center justify-between mb-1">
+                            <span
+                              className={`text-xs font-mono font-bold ${
+                                isToday
+                                  ? 'text-purple-600 dark:text-purple-400 font-extrabold'
+                                  : 'text-gray-700 dark:text-gray-300'
+                              }`}
+                            >
+                              {dayNum}
+                            </span>
+
+                            <div className="flex items-center space-x-1">
+                              {isToday && (
+                                <span className="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-purple-100 dark:bg-purple-950/80 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
+                                  TODAY
+                                </span>
+                              )}
+                              {stats.hasNotes && (
+                                <span className="text-[10px]" title="包含日记/复盘心得">
+                                  📝
+                                </span>
+                              )}
+                              {stats.mistakesCount > 0 && (
+                                <span
+                                  className="px-1 py-0.2 rounded text-[9px] font-bold bg-amber-500 text-white flex items-center space-x-0.5"
+                                  title={`发现 ${stats.mistakesCount} 笔失误/违规`}
+                                >
+                                  <span>⚠️</span>
+                                  <span>{stats.mistakesCount}</span>
+                                </span>
+                              )}
+                              {hasTrades && (
+                                <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold text-gray-600 dark:text-gray-300 bg-black/5 dark:bg-white/10">
+                                  {stats.count}单
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Unified Center & Body Metrics */}
+                          {hasTrades ? (
+                            <div className="flex-1 flex flex-col justify-between py-1">
+                              {/* 1. Hero: Net P&L (净利润) */}
+                              <div className="text-center my-auto">
+                                <div
+                                  className={`text-sm sm:text-base font-black font-mono tracking-tight ${
+                                    stats.pnl >= 0
+                                      ? 'text-emerald-600 dark:text-emerald-400'
+                                      : 'text-rose-600 dark:text-rose-400'
+                                  }`}
+                                >
+                                  {formatCurrency(stats.pnl)}
+                                </div>
+                              </div>
+
+                              {/* 2. Unified Sub-metrics: 订单胜负, 手数, R倍数 */}
+                              <div className="space-y-0.5 text-[10px] font-mono border-t border-black/5 dark:border-white/5 pt-1.5">
+                                <div className="flex items-center justify-between text-gray-600 dark:text-gray-300">
+                                  <span className="font-sans text-gray-500 dark:text-gray-400">胜负:</span>
+                                  <span className="font-bold">
+                                    {stats.wins}W - {stats.losses}L ({stats.winRate.toFixed(0)}%)
+                                  </span>
+                                </div>
+
+                                <div className="flex items-center justify-between text-gray-600 dark:text-gray-300">
+                                  <span className="font-sans text-gray-500 dark:text-gray-400">手数:</span>
+                                  <span className="font-bold">
+                                    {stats.totalVolume.toFixed(2)} Lots
+                                  </span>
+                                </div>
+
+                                <div className="flex items-center justify-between text-gray-600 dark:text-gray-300">
+                                  <span className="font-sans text-gray-500 dark:text-gray-400">R倍数:</span>
+                                  <span
+                                    className={`font-bold ${
+                                      stats.totalR >= 0
+                                        ? 'text-emerald-600 dark:text-emerald-400'
+                                        : 'text-rose-600 dark:text-rose-400'
+                                    }`}
+                                  >
+                                    {stats.totalR >= 0 ? '+' : ''}
+                                    {stats.totalR.toFixed(1)}R
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="my-auto text-center text-[10px] text-gray-300 dark:text-gray-600">
+                              -
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+
+                    {/* 8th Column: Week Summary Cell (Unified Metrics) */}
+                    <div
+                      onClick={() => {
+                        if (weekHasTrades) {
+                          setSelectedWeek({ index: rowIdx, dates: weekDateStrs });
+                        }
+                      }}
+                      className={`min-h-[135px] p-2.5 rounded-xl border text-xs cursor-pointer transition-all duration-150 hover:scale-[1.02] hover:shadow-md flex flex-col justify-between ${
+                        weekHasTrades
+                          ? weekStats.pnl >= 0
+                            ? 'bg-purple-500/10 dark:bg-purple-950/30 border-purple-300 dark:border-purple-800/60'
+                            : 'bg-rose-500/10 dark:bg-rose-950/30 border-rose-300 dark:border-rose-800/60'
+                          : 'bg-gray-50 dark:bg-navy-950/40 border-gray-200/80 dark:border-white/5 opacity-60'
+                      }`}
+                      title="点击查看周度全面汇总复盘"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-bold text-purple-700 dark:text-purple-300">
+                          第 {rowIdx + 1} 周
+                        </span>
+                        {weekHasTrades && (
+                          <span className="text-[10px] font-mono text-gray-400">
+                            {weekStats.count}单
+                          </span>
+                        )}
+                      </div>
+
+                      {weekHasTrades ? (
+                        <div className="flex-1 flex flex-col justify-between py-1">
+                          {/* Week Net P&L */}
+                          <div className="text-center my-auto">
+                            <div
+                              className={`text-xs sm:text-sm font-black font-mono ${
+                                weekStats.pnl >= 0
+                                  ? 'text-emerald-600 dark:text-emerald-400'
+                                  : 'text-rose-600 dark:text-rose-400'
+                              }`}
+                            >
+                              {formatCurrency(weekStats.pnl)}
+                            </div>
+                            <div className="text-[10px] text-gray-500 dark:text-gray-400 font-mono mt-0.5">
+                              胜率: {weekStats.winRate.toFixed(0)}%
+                            </div>
+                          </div>
+
+                          {/* Week Sub-metrics */}
+                          <div className="space-y-0.5 text-[10px] font-mono border-t border-purple-200/40 dark:border-purple-800/40 pt-1.5">
+                            <div className="flex items-center justify-between text-gray-600 dark:text-gray-300">
+                              <span className="font-sans text-gray-500 dark:text-gray-400">胜负:</span>
+                              <span className="font-bold">{weekStats.wins}W - {weekStats.losses}L</span>
+                            </div>
+
+                            <div className="flex items-center justify-between text-gray-600 dark:text-gray-300">
+                              <span className="font-sans text-gray-500 dark:text-gray-400">手数:</span>
+                              <span className="font-bold">{weekStats.totalVolume.toFixed(2)}</span>
+                            </div>
+
+                            <div className="flex items-center justify-between text-gray-600 dark:text-gray-300">
+                              <span className="font-sans text-gray-500 dark:text-gray-400">PF:</span>
+                              <span className="font-bold">
+                                {weekStats.profitFactor >= 99 ? '∞' : weekStats.profitFactor.toFixed(1)}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="my-auto text-center text-[10px] text-gray-400">
+                          休市
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Monthly Performance Breakdown & Yearly Archive Data */}
+          <div className="border-t border-gray-200 dark:border-white/10 p-4 sm:p-5 bg-gray-50/50 dark:bg-navy-950/40">
+            <CalendarYearMonthMatrix
+              trades={trades}
+              currentYear={currentDate.getFullYear()}
+              currentMonth={currentDate.getMonth()}
+              onSelectMonth={(year, month) => {
+                setCurrentDate(new Date(year, month, 1));
+                calendarCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              }}
+              onSelectYear={(year) => {
+                setCurrentDate(new Date(year, currentDate.getMonth(), 1));
+                calendarCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              }}
+            />
+          </div>
+        </div>
+
+        {/* 3. Slide-over Day Review Drawer */}
+        <CalendarDayDrawer
+          dateStr={selectedDay}
+          trades={selectedDay ? tradesByDay[selectedDay] || [] : []}
+          onClose={() => setSelectedDay(null)}
+          onOpenChart={(trade) => setChartModalTrade(trade)}
+        />
+
+        {/* 4. Week Summary Modal */}
+        {selectedWeek && (
+          <CalendarWeekModal
+            weekIndex={selectedWeek.index}
+            weekDates={selectedWeek.dates}
+            tradesByDay={tradesByDay}
+            onClose={() => setSelectedWeek(null)}
+            onSelectDay={(dateStr) => setSelectedDay(dateStr)}
+          />
+        )}
+
+        {/* 5. TradingView Candlestick Execution Chart Modal */}
+        {chartModalTrade && typeof document !== 'undefined' && createPortal(
+          <div
+            className="fixed inset-0 z-[1010] flex items-center justify-center p-3 sm:p-6 bg-black/75 backdrop-blur-sm animate-in fade-in duration-200"
+            onClick={() => setChartModalTrade(null)}
+            onWheel={(e) => e.stopPropagation()}
+            onTouchMove={(e) => e.preventDefault()}
+          >
+            <div
+              className="bg-white dark:bg-[#0f172a] rounded-2xl border border-gray-200 dark:border-white/10 shadow-2xl w-full max-w-5xl h-[85vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-150 z-[1020]"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Modal Header */}
+              <div className="p-4 border-b border-gray-200 dark:border-white/10 flex items-center justify-between bg-gray-50 dark:bg-navy-950">
+                <div className="flex items-center space-x-3">
+                  <div className="p-2 rounded-lg bg-purple-500/10 text-purple-600 dark:text-purple-400">
+                    <LineChart className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-gray-900 dark:text-white flex items-center space-x-2">
+                      <span>{chartModalTrade.symbol} 订单图表回放</span>
+                      <span
+                        className={`text-xs px-2 py-0.5 rounded font-mono font-bold ${
+                          getTradeDirection(chartModalTrade) === 'long'
+                            ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400'
+                            : 'bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-400'
+                        }`}
+                      >
+                        {getTradeDirection(chartModalTrade).toUpperCase()}
+                      </span>
+                    </h3>
+                    <div className="text-xs text-gray-500 dark:text-gray-400 flex items-center space-x-2 mt-0.5 font-mono">
+                      <span>入场: {getTradeEntryPrice(chartModalTrade)}</span>
+                      <span>·</span>
+                      <span>出场: {getTradeExitPrice(chartModalTrade) || '持仓中'}</span>
+                      <span>·</span>
+                      <span
+                        className={`font-bold ${
+                          calculateTradePnL(chartModalTrade) >= 0
+                            ? 'text-emerald-600 dark:text-emerald-400'
+                            : 'text-rose-600 dark:text-rose-400'
+                        }`}
+                      >
+                        {formatCurrency(calculateTradePnL(chartModalTrade))}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => setChartModalTrade(null)}
+                  className="p-2 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-navy-800 transition"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Chart Body */}
+              <div className="flex-1 p-4 overflow-hidden bg-white dark:bg-[#0b0f19]">
+                <TradeExecutionChart
+                  symbol={chartModalTrade.symbol}
+                  direction={getTradeDirection(chartModalTrade)}
+                  entryPrice={getTradeEntryPrice(chartModalTrade)}
+                  exitPrice={getTradeExitPrice(chartModalTrade) || undefined}
+                  entryTime={getTradeEntryTime(chartModalTrade)}
+                  exitTime={getTradeExitTime(chartModalTrade) || undefined}
+                  stopLoss={getTradeStopLoss(chartModalTrade)}
+                  takeProfit={getTradeTakeProfit(chartModalTrade)}
+                  pnl={calculateTradePnL(chartModalTrade)}
+                  height={560}
+                />
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
+      </div>
+    </div>
+  );
 };
 
 export default StatsPage;

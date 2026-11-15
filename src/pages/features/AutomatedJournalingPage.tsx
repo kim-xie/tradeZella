@@ -3,7 +3,7 @@ import FeaturePageLayout from './FeaturePageLayout';
 import Button from '../../components/common/Button';
 import SEO from '../../components/common/SEO';
 import axios from 'axios';
-import { SERVER_BASE_URL as API_BASE_URL } from '../../services/api';
+import { SERVER_BASE_URL as API_BASE_URL, syncMT5Trades } from '../../services/api';
 
 interface Trade {
   id: string;
@@ -63,7 +63,7 @@ export default function AutomatedJournalingPage() {
       });
       setTrades(response.data.data);
     } catch (err) {
-      setError('Failed to fetch trades.');
+      setError('获取交易记录失败，请检查网络或重新登录。');
       console.error(err);
     } finally {
       setLoading(false);
@@ -81,7 +81,7 @@ export default function AutomatedJournalingPage() {
         [tradeId]: response.data.data
       }));
     } catch (err) {
-      console.error('Failed to fetch AI analysis.', err);
+      console.error('获取 AI 诊断失败。', err);
     }
   };
 
@@ -91,7 +91,7 @@ export default function AutomatedJournalingPage() {
 
   const handleSaveTrade = async () => {
     if (!symbol || !tradeDate || !entryPrice || !size) {
-      alert('Please fill in all required fields: Symbol, Trade Date, Entry Price, Size.');
+      alert('请填写所有必填字段：交易标的、交易日期、入场价格、手数。');
       return;
     }
 
@@ -131,7 +131,7 @@ export default function AutomatedJournalingPage() {
       setSentiment('');
       setScreenshots('');
     } catch (err) {
-      setError('Failed to save trade.');
+      setError('保存交易记录失败。');
       console.error(err);
     } finally {
       setSaving(false);
@@ -141,15 +141,12 @@ export default function AutomatedJournalingPage() {
   const handleBrokerSync = async () => {
     try {
       setSaving(true);
-      const token = localStorage.getItem('token');
-      // This would connect to actual broker APIs in a real implementation
-      const response = await axios.post(`${API_BASE_URL}/api/brokers/sync`, {}, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      alert(`Successfully synced ${response.data.data.tradesCount} trades from your broker.`);
+      setError(null);
+      const res = await syncMT5Trades({ days: 30 });
+      alert(res.message || `成功从 MT5 同步 ${res.count || 0} 笔实盘平仓交易！`);
       fetchTrades(); // Refresh the trades list
-    } catch (err) {
-      setError('Failed to sync with broker.');
+    } catch (err: any) {
+      setError(err.message || '从经纪商同步交易失败。');
       console.error(err);
     } finally {
       setSaving(false);
@@ -172,10 +169,10 @@ export default function AutomatedJournalingPage() {
           Authorization: `Bearer ${token}`
         }
       });
-      alert(`Successfully imported ${response.data.data.importedCount} trades from file.`);
+      alert(`成功从文件解析并导入 ${response.data.data.importedCount} 笔交易记录！`);
       fetchTrades(); // Refresh the trades list
     } catch (err) {
-      setError('Failed to import trades from file.');
+      setError('导入交易文件失败，请确保格式正确。');
       console.error(err);
     } finally {
       setSaving(false);
@@ -193,128 +190,128 @@ export default function AutomatedJournalingPage() {
         [tradeId]: response.data.data
       }));
     } catch (err) {
-      console.error('Failed to request AI analysis.', err);
+      console.error('请求 AI 分析失败。', err);
     }
   };
 
   return (
     <>
       <SEO 
-        title="Automated Journaling"
-        description="AI-powered trade analysis, automated data entry from brokers, and a rich journaling experience with performance tracking."
-        keywords="trading journal, automated trading, AI trade analysis, broker integration, trade tracking, performance metrics"
-        url="https://tradezella.com/features/journaling"
+        title="自动交易日志与智能复盘"
+        description="AI 驱动的交易分析、经纪商自动记账同步，以及支持胜率、盈亏比与心态追踪的多维复盘日志。"
+        keywords="交易日志, 智能复盘, AI交易分析, MT5同步, 交易追踪, 绩效统计"
+        url="https://tradezen.app/features/journaling"
       />
       <FeaturePageLayout
-        title="Automated Journaling"
-        description="AI-powered trade analysis, automated data entry from brokers, and a rich journaling experience with performance tracking."
+        title="自动化交易日志 (Journaling)"
+        description="告别繁琐的手动 Excel 记账。支持 MT5/MT4 直连同步、报表智能解析与 AI 行为诊断，让每一次下单都知行合一。"
         image="/assets/1.png"
       >
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          <div className="lg:col-span-1 bg-white p-6 rounded-lg shadow-md">
-            <h2 className="text-2xl font-bold mb-4">Add New Trade</h2>
+          <div className="lg:col-span-1 bg-white dark:bg-[#0b0f19] p-6 sm:p-7 rounded-2xl shadow-sm border border-gray-200/80 dark:border-white/10">
+            <h2 className="text-xl font-bold mb-4 text-gray-900 dark:text-white">录入与同步交易</h2>
             
             {/* Tab Navigation */}
-            <div className="flex border-b mb-4">
+            <div className="flex border-b border-gray-200 dark:border-white/10 mb-4">
               <button
-                className={`py-2 px-4 font-medium ${activeTab === 'manual' ? 'border-b-2 border-purple-600 text-purple-600' : 'text-gray-500'}`}
+                className={`py-2 px-3 text-xs font-semibold transition ${activeTab === 'manual' ? 'border-b-2 border-purple-600 text-purple-600 dark:text-purple-400' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400'}`}
                 onClick={() => setActiveTab('manual')}
               >
-                Manual Entry
+                手动快速记账
               </button>
               <button
-                className={`py-2 px-4 font-medium ${activeTab === 'broker' ? 'border-b-2 border-purple-600 text-purple-600' : 'text-gray-500'}`}
+                className={`py-2 px-3 text-xs font-semibold transition ${activeTab === 'broker' ? 'border-b-2 border-purple-600 text-purple-600 dark:text-purple-400' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400'}`}
                 onClick={() => setActiveTab('broker')}
               >
-                Broker Sync
+                经纪商直连同步
               </button>
               <button
-                className={`py-2 px-4 font-medium ${activeTab === 'file' ? 'border-b-2 border-purple-600 text-purple-600' : 'text-gray-500'}`}
+                className={`py-2 px-3 text-xs font-semibold transition ${activeTab === 'file' ? 'border-b-2 border-purple-600 text-purple-600 dark:text-purple-400' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400'}`}
                 onClick={() => setActiveTab('file')}
               >
-                File Upload
+                历史报表上传
               </button>
             </div>
             
-            {error && <p className="text-red-500 mb-4">{error}</p>}
+            {error && <p className="text-red-500 mb-4 text-xs">{error}</p>}
             
             {activeTab === 'manual' && (
               <div className="space-y-4">
                 <input
                   type="text"
-                  placeholder="Symbol (e.g., AAPL)"
+                  placeholder="标的代码 (例如：EURUSD, XAUUSD)"
                   value={symbol}
                   onChange={(e) => setSymbol(e.target.value)}
-                  className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-purple-600 focus:border-transparent"
+                  className="w-full px-4 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-700 dark:bg-navy-950 focus:ring-2 focus:ring-purple-600 focus:border-transparent"
                 />
                 <input
                   type="date"
                   value={tradeDate}
                   onChange={(e) => setTradeDate(e.target.value)}
-                  className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-purple-600 focus:border-transparent"
+                  className="w-full px-4 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-700 dark:bg-navy-950 focus:ring-2 focus:ring-purple-600 focus:border-transparent"
                 />
                 <select
                   value={direction}
                   onChange={(e) => setDirection(e.target.value as 'buy' | 'sell' | 'short' | 'cover')}
-                  className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-purple-600 focus:border-transparent"
+                  className="w-full px-4 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-700 dark:bg-navy-950 focus:ring-2 focus:ring-purple-600 focus:border-transparent"
                 >
-                  <option value="buy">Buy</option>
-                  <option value="sell">Sell</option>
-                  <option value="short">Short</option>
-                  <option value="cover">Cover</option>
+                  <option value="buy">做多买入 (Buy/Long)</option>
+                  <option value="sell">做空卖出 (Sell/Short)</option>
+                  <option value="short">卖空 (Short)</option>
+                  <option value="cover">平仓平多 (Cover)</option>
                 </select>
                 <input
                   type="number"
-                  placeholder="Size"
+                  placeholder="成交手数 (Size/Lots)"
                   value={size}
                   onChange={(e) => setSize(e.target.value)}
-                  className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-purple-600 focus:border-transparent"
+                  className="w-full px-4 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-700 dark:bg-navy-950 focus:ring-2 focus:ring-purple-600 focus:border-transparent"
                 />
                 <input
                   type="number"
-                  placeholder="Entry Price"
+                  placeholder="入场价格 (Entry Price)"
                   value={entryPrice}
                   onChange={(e) => setEntryPrice(e.target.value)}
-                  className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-purple-600 focus:border-transparent"
+                  className="w-full px-4 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-700 dark:bg-navy-950 focus:ring-2 focus:ring-purple-600 focus:border-transparent"
                 />
                 <input
                   type="number"
-                  placeholder="Exit Price (optional)"
+                  placeholder="出场价格 (Exit Price，可选)"
                   value={exitPrice}
                   onChange={(e) => setExitPrice(e.target.value)}
-                  className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-purple-600 focus:border-transparent"
+                  className="w-full px-4 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-700 dark:bg-navy-950 focus:ring-2 focus:ring-purple-600 focus:border-transparent"
                 />
                 <input
                   type="text"
-                  placeholder="Tags (comma-separated)"
+                  placeholder="标签 (逗号分隔，如：顺势突破, 严格止损)"
                   value={tags}
                   onChange={(e) => setTags(e.target.value)}
-                  className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-purple-600 focus:border-transparent"
+                  className="w-full px-4 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-700 dark:bg-navy-950 focus:ring-2 focus:ring-purple-600 focus:border-transparent"
                 />
                 <select
                   value={sentiment}
                   onChange={(e) => setSentiment(e.target.value)}
-                  className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-purple-600 focus:border-transparent"
+                  className="w-full px-4 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-700 dark:bg-navy-950 focus:ring-2 focus:ring-purple-600 focus:border-transparent"
                 >
-                  <option value="">Select Sentiment</option>
-                  <option value="confident">Confident</option>
-                  <option value="fearful">Fearful</option>
-                  <option value="greedy">Greedy</option>
-                  <option value="regretful">Regretful</option>
-                  <option value="neutral">Neutral</option>
+                  <option value="">选择入场心理/情绪状态</option>
+                  <option value="confident">从容自信 (Confident)</option>
+                  <option value="fearful">恐慌担忧 (Fearful)</option>
+                  <option value="greedy">贪婪追高 (Greedy)</option>
+                  <option value="regretful">懊悔冲动 (Regretful)</option>
+                  <option value="neutral">平和理性 (Neutral)</option>
                 </select>
                 <input
                   type="text"
-                  placeholder="Screenshot URLs (comma-separated)"
+                  placeholder="走势图截图链接 (以逗号分隔)"
                   value={screenshots}
                   onChange={(e) => setScreenshots(e.target.value)}
-                  className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-purple-600 focus:border-transparent"
+                  className="w-full px-4 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-700 dark:bg-navy-950 focus:ring-2 focus:ring-purple-600 focus:border-transparent"
                 />
                 <textarea
-                  placeholder="Notes"
+                  placeholder="记录开仓逻辑、止损止盈设置原因与复盘体会..."
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
-                  className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-purple-600 focus:border-transparent"
+                  className="w-full px-4 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-700 dark:bg-navy-950 focus:ring-2 focus:ring-purple-600 focus:border-transparent"
                   rows={3}
                 />
                 <Button 
@@ -323,15 +320,15 @@ export default function AutomatedJournalingPage() {
                   className={`w-full ${saving ? 'opacity-50 cursor-not-allowed' : ''}`}
                   disabled={saving}
                 >
-                  {saving ? 'Saving...' : 'Save Trade'}
+                  {saving ? '正在保存...' : '保存交易记录'}
                 </Button>
               </div>
             )}
             
             {activeTab === 'broker' && (
               <div className="space-y-4">
-                <p className="text-gray-600">
-                  Connect your broker account to automatically import your trades.
+                <p className="text-gray-600 dark:text-gray-300 text-xs leading-relaxed">
+                  一键连接本地 MetaTrader 5 或主流交易所，系统将自动读取已平仓订单并进行点位、盈亏比核算。
                 </p>
                 <Button 
                   variant="gradient" 
@@ -339,18 +336,24 @@ export default function AutomatedJournalingPage() {
                   className="w-full"
                   disabled={saving}
                 >
-                  {saving ? 'Syncing...' : 'Sync with Broker'}
+                  {saving ? '正在同步...' : '立即从 MT5 同步数据'}
                 </Button>
                 <div className="mt-4">
-                  <h3 className="font-medium mb-2">Connected Brokers:</h3>
-                  <ul className="text-sm text-gray-600">
-                    <li className="flex items-center justify-between py-1">
-                      <span>Interactive Brokers</span>
-                      <span className="bg-green-100 text-green-800 text-xs px-2 py-1 rounded">Connected</span>
+                  <h3 className="font-medium text-xs mb-2">已支持对接平台:</h3>
+                  <ul className="text-xs text-gray-600 dark:text-gray-400 space-y-1.5">
+                    <li className="flex items-center justify-between py-1.5 border-b border-gray-100 dark:border-gray-800">
+                      <div className="flex items-center space-x-2">
+                        <span className="w-2 h-2 rounded-full bg-green-500"></span>
+                        <span className="font-medium text-gray-800 dark:text-gray-200">MetaTrader 5 (MT5 本地实盘直连)</span>
+                      </div>
+                      <span className="bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-300 text-[10px] px-2 py-0.5 rounded font-medium">支持</span>
                     </li>
-                    <li className="flex items-center justify-between py-1">
-                      <span>TD Ameritrade</span>
-                      <span className="bg-yellow-100 text-yellow-800 text-xs px-2 py-1 rounded">Pending</span>
+                    <li className="flex items-center justify-between py-1.5">
+                      <div className="flex items-center space-x-2">
+                        <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+                        <span className="font-medium text-gray-800 dark:text-gray-200">MetaTrader 4 (MT4 报表导入)</span>
+                      </div>
+                      <span className="bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300 text-[10px] px-2 py-0.5 rounded font-medium">支持</span>
                     </li>
                   </ul>
                 </div>
@@ -359,10 +362,10 @@ export default function AutomatedJournalingPage() {
             
             {activeTab === 'file' && (
               <div className="space-y-4">
-                <p className="text-gray-600">
-                  Upload a CSV or Excel file containing your trade data.
+                <p className="text-gray-600 dark:text-gray-300 text-xs">
+                  上传包含您交易数据的 CSV、XLSX 或 MT4/MT5 详细对账单文件。
                 </p>
-                <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
+                <div className="border-2 border-dashed border-gray-300 dark:border-gray-700 rounded-lg p-6 text-center">
                   <input 
                     type="file" 
                     accept=".csv,.xlsx,.xls" 
@@ -378,8 +381,8 @@ export default function AutomatedJournalingPage() {
                       <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
                       </svg>
-                      <span>Click to upload trade file</span>
-                      <p className="text-xs text-gray-500 mt-1">CSV, XLSX, or XLS files only</p>
+                      <span className="text-xs font-semibold">点击上传交易流水对账单</span>
+                      <p className="text-[10px] text-gray-500 mt-1">支持 CSV、XLSX 或 XLS 格式</p>
                     </div>
                   </label>
                 </div>
@@ -387,100 +390,100 @@ export default function AutomatedJournalingPage() {
             )}
           </div>
           
-          <div className="lg:col-span-2 bg-white p-6 rounded-lg shadow-md">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-2xl font-bold">Your Trade Journal</h2>
-              <div className="text-sm text-gray-500">
-                {trades.length} trades recorded
+          <div className="lg:col-span-2 bg-white dark:bg-[#0b0f19] p-6 sm:p-7 rounded-2xl shadow-sm border border-gray-200/80 dark:border-white/10">
+            <div className="flex justify-between items-center mb-4 pb-3 border-b border-gray-100 dark:border-white/10">
+              <h2 className="text-xl font-bold text-gray-900 dark:text-white">交易日志流水记录</h2>
+              <div className="text-xs text-gray-500 dark:text-gray-400 font-mono">
+                已记录 {trades.length} 笔交易
               </div>
             </div>
             
             {loading ? (
-              <p className="text-gray-500">Loading trades...</p>
+              <p className="text-gray-500 dark:text-gray-400 text-xs py-8 text-center">正在加载交易流水...</p>
             ) : trades.length === 0 ? (
-              <div className="text-center py-10">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-16 w-16 mx-auto text-gray-300 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+              <div className="text-center py-12">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 mx-auto text-gray-300 dark:text-gray-600 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
                 </svg>
-                <p className="text-gray-500 mb-4">No trades recorded yet</p>
-                <p className="text-gray-400 text-sm">Add your first trade using the form or connect your broker</p>
+                <p className="text-gray-600 dark:text-gray-300 font-medium text-sm mb-1">暂无交易流水记录</p>
+                <p className="text-gray-400 text-xs">使用左侧表单手动录入，或点击「经纪商直连同步」连接 MT5</p>
               </div>
             ) : (
               <div className="space-y-4">
                 {trades.map((trade) => (
-                  <div key={trade.id} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
+                  <div key={trade.id} className="border border-gray-200 dark:border-white/10 rounded-xl p-4 bg-gray-50/50 dark:bg-[#070a13] hover:shadow-sm transition-all">
                     <div className="flex justify-between items-start">
                       <div>
                         <div className="flex items-center">
-                          <h3 className="text-lg font-semibold">{trade.symbol}</h3>
-                          <span className={`ml-2 px-2 py-1 text-xs rounded ${
+                          <h3 className="text-base font-bold font-mono text-gray-900 dark:text-white">{trade.symbol}</h3>
+                          <span className={`ml-2 px-2 py-0.5 text-xs font-mono font-bold rounded ${
                             trade.direction === 'buy' || trade.direction === 'cover' 
-                              ? 'bg-green-100 text-green-800' 
-                              : 'bg-red-100 text-red-800'
+                              ? 'bg-green-100 text-green-800 dark:bg-green-950/60 dark:text-green-300' 
+                              : 'bg-red-100 text-red-800 dark:bg-red-950/60 dark:text-red-300'
                           }`}>
                             {trade.direction.toUpperCase()}
                           </span>
                         </div>
-                        <p className="text-gray-500 text-sm mt-1">
+                        <p className="text-gray-500 text-xs mt-1 font-mono">
                           {new Date(trade.trade_date).toLocaleDateString()} • 
-                          Size: {trade.size} • 
-                          Entry: ${trade.entryPrice}
-                          {trade.exitPrice && ` • Exit: $${trade.exitPrice}`}
+                          手数: {trade.size} • 
+                          入场: ${trade.entryPrice}
+                          {trade.exitPrice && ` • 出场: $${trade.exitPrice}`}
                         </p>
                       </div>
                       <div className="text-right">
                         <button 
                           onClick={() => requestAIAnalysis(trade.id)}
-                          className="text-xs bg-purple-100 text-purple-800 px-2 py-1 rounded hover:bg-purple-200"
+                          className="text-xs bg-purple-100 dark:bg-purple-950/60 text-purple-800 dark:text-purple-300 px-2.5 py-1 rounded hover:bg-purple-200 transition font-medium"
                         >
-                          AI Analysis
+                          AI 复盘诊断
                         </button>
-                        <p className="text-xs text-gray-400 mt-1">
+                        <p className="text-[10px] text-gray-400 mt-1 font-mono">
                           {new Date(trade.createdAt).toLocaleDateString()}
                         </p>
                       </div>
                     </div>
                     
                     {trade.notes && (
-                      <p className="mt-2 text-gray-600 text-sm">{trade.notes}</p>
+                      <p className="mt-2 text-gray-600 dark:text-gray-300 text-xs leading-relaxed">{trade.notes}</p>
                     )}
                     
-                    <div className="flex flex-wrap gap-2 mt-2">
+                    <div className="flex flex-wrap gap-1.5 mt-2">
                       {trade.tags?.map((tag, index) => (
-                        <span key={index} className="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded">
-                          {tag}
+                        <span key={index} className="bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 text-[10px] px-2 py-0.5 rounded font-mono">
+                          #{tag}
                         </span>
                       ))}
                       {trade.sentiment && (
-                        <span className="bg-yellow-100 text-yellow-800 text-xs px-2 py-1 rounded">
-                          {trade.sentiment}
+                        <span className="bg-yellow-50 dark:bg-yellow-950/50 text-yellow-700 dark:text-yellow-300 text-[10px] px-2 py-0.5 rounded">
+                          心理: {trade.sentiment}
                         </span>
                       )}
                     </div>
                     
                     {aiAnalyses[trade.id] && (
-                      <div className="mt-3 p-3 bg-purple-50 rounded-lg">
-                        <h4 className="font-medium text-purple-800 text-sm">AI Analysis</h4>
+                      <div className="mt-3 p-3 bg-purple-50 dark:bg-purple-950/30 rounded-xl border border-purple-100 dark:border-purple-800/40">
+                        <h4 className="font-bold text-purple-900 dark:text-purple-300 text-xs">AI 智能诊断与反思建议</h4>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-2">
                           <div>
-                            <p className="text-xs text-gray-600">Strengths</p>
-                            <ul className="text-xs text-gray-700 list-disc list-inside">
+                            <p className="text-[11px] font-semibold text-gray-700 dark:text-gray-300">操作亮点 (Strengths)</p>
+                            <ul className="text-xs text-gray-600 dark:text-gray-400 list-disc list-inside mt-0.5">
                               {aiAnalyses[trade.id].results.strengths.slice(0, 2).map((strength, i) => (
                                 <li key={i}>{strength}</li>
                               ))}
                             </ul>
                           </div>
                           <div>
-                            <p className="text-xs text-gray-600">Recommendations</p>
-                            <ul className="text-xs text-gray-700 list-disc list-inside">
+                            <p className="text-[11px] font-semibold text-gray-700 dark:text-gray-300">优化建议 (Recommendations)</p>
+                            <ul className="text-xs text-gray-600 dark:text-gray-400 list-disc list-inside mt-0.5">
                               {aiAnalyses[trade.id].results.recommendations.slice(0, 2).map((rec, i) => (
                                 <li key={i}>{rec}</li>
                               ))}
                             </ul>
                           </div>
                         </div>
-                        <div className="mt-2 text-xs">
-                          <span className="font-medium">Risk Assessment:</span> {aiAnalyses[trade.id].results.riskAssessment}
+                        <div className="mt-2 text-xs border-t border-purple-100 dark:border-purple-800/40 pt-1.5 text-gray-700 dark:text-gray-300">
+                          <span className="font-bold">风控与纪律评估:</span> {aiAnalyses[trade.id].results.riskAssessment}
                         </div>
                       </div>
                     )}

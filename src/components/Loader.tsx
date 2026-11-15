@@ -1,19 +1,9 @@
 import React from 'react';
-import './Loader.css';
 
-const Loader = () => {
+const Loader: React.FC = () => {
   return (
-    <div className="loader-overlay">
-      <div className="loader">
-        <div className="loader__image">
-          <div className="loader__coin">
-            <img src="https://www.dropbox.com/s/fzc3fidyxqbqhnj/loader-coin.png?raw=1" alt="Loading..." />
-          </div>
-          <div className="loader__hand">
-            <img src="https://www.dropbox.com/s/y8uqvjn811z6npu/loader-hand.png?raw=1" alt="" />
-          </div>
-        </div>
-      </div>
+    <div className="fixed top-0 left-0 right-0 z-[100] h-[2.5px] overflow-hidden bg-transparent pointer-events-none">
+      <div className="h-full w-full bg-gradient-to-r from-purple-600 via-indigo-500 to-cyan-400 animate-pulse transition-all duration-300 shadow-[0_0_8px_rgba(139,92,246,0.6)]"></div>
     </div>
   );
 };

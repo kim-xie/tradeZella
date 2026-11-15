@@ -19,13 +19,13 @@ const SignupPage: React.FC = () => {
     try {
       // Validate passwords match
       if (password !== confirmPassword) {
-        setError('Passwords do not match');
+        setError('两次输入的密码不一致');
         return;
       }
       
       // Validate password strength
       if (password.length < 6) {
-        setError('Password must be at least 6 characters long');
+        setError('密码长度至少需要 6 个字符');
         return;
       }
       
@@ -34,7 +34,7 @@ const SignupPage: React.FC = () => {
       window.dispatchEvent(new Event('auth-change'));
       navigate('/');
     } catch (err: any) {
-      setError(err.response?.data?.message || 'An error occurred.');
+      setError(err.response?.data?.message || '注册发生错误，请稍后重试。');
     }
   };
 
@@ -42,12 +42,12 @@ const SignupPage: React.FC = () => {
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
         <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900 dark:text-white">
-          Create your account
+          注册 TradeZen 新账号
         </h2>
         <p className="mt-2 text-center text-sm text-gray-600 dark:text-gray-400">
-          Or{' '}
+          已有账号？{' '}
           <Link to="/login" className="font-medium text-purple-600 hover:text-purple-500">
-            sign in to your existing account
+            直接登录
           </Link>
         </p>
       </div>
@@ -59,7 +59,7 @@ const SignupPage: React.FC = () => {
             
             <div>
               <label htmlFor="name" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                Full Name
+                用户昵称 / 姓名
               </label>
               <div className="mt-1">
                 <input
@@ -68,6 +68,7 @@ const SignupPage: React.FC = () => {
                   type="text"
                   autoComplete="name"
                   required
+                  placeholder="例如：Alex Trader"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white"
@@ -77,7 +78,7 @@ const SignupPage: React.FC = () => {
             
             <div>
               <label htmlFor="email" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                Email address
+                邮箱地址
               </label>
               <div className="mt-1">
                 <input
@@ -86,6 +87,7 @@ const SignupPage: React.FC = () => {
                   type="email"
                   autoComplete="email"
                   required
+                  placeholder="yourname@domain.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white"
@@ -98,7 +100,7 @@ const SignupPage: React.FC = () => {
                 htmlFor="password"
                 className="block text-sm font-medium text-gray-700 dark:text-gray-300"
               >
-                Password
+                设置密码
               </label>
               <div className="mt-1 relative">
                 <input
@@ -107,6 +109,7 @@ const SignupPage: React.FC = () => {
                   type={showPassword ? "text" : "password"}
                   autoComplete="new-password"
                   required
+                  placeholder="至少 6 位密码"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white"
@@ -130,7 +133,7 @@ const SignupPage: React.FC = () => {
                 htmlFor="confirm-password"
                 className="block text-sm font-medium text-gray-700 dark:text-gray-300"
               >
-                Confirm Password
+                确认密码
               </label>
               <div className="mt-1 relative">
                 <input
@@ -139,6 +142,7 @@ const SignupPage: React.FC = () => {
                   type={showConfirmPassword ? "text" : "password"}
                   autoComplete="new-password"
                   required
+                  placeholder="请再次输入密码"
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white"
@@ -158,8 +162,8 @@ const SignupPage: React.FC = () => {
             </div>
 
             <div>
-              <Button variant="gradient" className="w-full" onClick={handleSignUp}>
-                Sign up
+              <Button variant="gradient" className="w-full py-2.5 font-bold" onClick={handleSignUp}>
+                立即注册
               </Button>
             </div>
             <div className="mt-6">
@@ -169,7 +173,7 @@ const SignupPage: React.FC = () => {
                 </div>
                 <div className="relative flex justify-center text-sm">
                   <span className="px-2 bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400">
-                    Or continue with
+                    或者使用第三方账号
                   </span>
                 </div>
               </div>
@@ -182,7 +186,7 @@ const SignupPage: React.FC = () => {
                   <svg className="w-5 h-5" aria-hidden="true" fill="currentColor" viewBox="0 0 20 20">
                     <path fillRule="evenodd" d="M10 0C4.477 0 0 4.477 0 10c0 4.418 3.582 8.097 8.097 9.872V14.28H5.64v-3.56h2.457v-2.66c0-2.43 1.45-3.778 3.655-3.778 1.045 0 2.115.197 2.115.197v3.08h-1.54c-1.18 0-1.54.72-1.54 1.47v1.84h3.4l-.54 3.56h-2.86v5.592C16.418 18.097 20 14.418 20 10c0-5.523-4.477-10-10-10z" clipRule="evenodd" />
                   </svg>
-                  <span className="ml-3">Sign up with Google</span>
+                  <span className="ml-3">通过 Google 账号注册</span>
                 </a>
               </div>
             </div>

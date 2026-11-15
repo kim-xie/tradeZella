@@ -1,7 +1,7 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://tradezella.com/sitemap.xml
+Sitemap: https://tradezen.app/sitemap.xml
 
 # Block access to private directories
 Disallow: /api/

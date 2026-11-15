@@ -4,41 +4,23 @@ import LegalPageLayout from '../components/common/LegalPageLayout';
 export default function AccessibilityPage() {
   return (
     <LegalPageLayout
-      title="Accessibility Statement"
-      description="Last Updated: September 18, 2025"
+      title="无障碍访问声明 (Accessibility)"
+      description="最近更新日期：2026年"
     >
-      <h2>1. Commitment</h2>
-      <p>TradeZella is committed to ensuring digital accessibility for all users, including people with disabilities. We aim to meet WCAG 2.2 AA standards.</p>
+      <h2>1. 我们的承诺</h2>
+      <p>TradeZen 致力于为所有交易者打造无障碍的数字体验。我们积极参照国际 Web 内容无障碍指南 (WCAG 2.2 AA) 标准，持续提升界面的可访问性。</p>
 
-      <h2>2. Measures We Implement</h2>
+      <h2>2. 无障碍技术实践</h2>
       <ul>
-        <li>Semantic HTML and ARIA roles</li>
-        <li>Keyboard-friendly navigation</li>
-        <li>Screen reader compatibility</li>
-        <li>High-contrast UI options</li>
-        <li>Image alt-text support</li>
-        <li>Logical tab order</li>
-        <li>Responsive layout across devices</li>
+        <li>语义化 HTML 结构与标准 ARIA 屏幕阅读标签</li>
+        <li>完善的键盘 Tab 键全流程导航支持</li>
+        <li>高对比度深色模式与暗光环境护眼色彩体系</li>
+        <li>全平台响应式布局，完美适配移动端、平板与超宽带屏显示器</li>
       </ul>
 
-      <h2>3. Ongoing Improvements</h2>
-      <p>We perform:</p>
-      <ul>
-        <li>Regular accessibility audits</li>
-        <li>Automated and manual testing</li>
-        <li>Continuous design improvements</li>
-      </ul>
-
-      <h2>4. Known Limitations</h2>
-      <p>Some third-party components may not be fully optimized. We are actively improving them.</p>
-
-      <h2>5. Feedback</h2>
-      <p>If you experience accessibility barriers, contact us:<br />
-      📩 accessibility@tradezella.com</p>
-      <p>We aim to respond within 48 hours.</p>
-
-      <h2>6. Enforcement</h2>
-      <p>We comply with applicable digital accessibility guidelines and global WCAG standards.</p>
+      <h2>3. 意见反馈与支持</h2>
+      <p>如果您在使用过程中遇到任何无障碍浏览障碍或有改进建议，请发送邮件至：<br />
+      📩 accessibility@tradezen.app</p>
     </LegalPageLayout>
   );
 }

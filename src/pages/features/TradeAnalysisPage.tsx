@@ -2,8 +2,15 @@ import React, { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import FeaturePageLayout from './FeaturePageLayout';
 import SEO from '../../components/common/SEO';
-import { Loader, BarChart2, TrendingUp, DollarSign, Target, Calendar } from 'lucide-react';
+import { Loader, BarChart2, TrendingUp, DollarSign, Target, Calendar, ShieldAlert, Layers, Sparkles } from 'lucide-react';
 import { SERVER_BASE_URL as API_BASE_URL } from '../../services/api';
+import MfeMaeScatterChart from '../../components/analytics/MfeMaeScatterChart';
+import HourlyPerformanceChart from '../../components/analytics/HourlyPerformanceChart';
+import DayOfWeekChart from '../../components/analytics/DayOfWeekChart';
+import MistakeTracker from '../../components/analytics/MistakeTracker';
+import MonthlyReturnsMatrix from '../../components/analytics/MonthlyReturnsMatrix';
+import SymbolPerformanceTable from '../../components/analytics/SymbolPerformanceTable';
+import RMultipleDistributionChart from '../../components/analytics/RMultipleDistributionChart';
 
 interface Trade {
   id: number;
@@ -87,7 +94,7 @@ export default function TradeAnalysisPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [timeframe, setTimeframe] = useState<'7d' | '30d' | '90d' | '1y' | 'all'>('30d');
-  const [activeTab, setActiveTab] = useState<'overview' | 'whatif' | 'scenarios'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'mistakes' | 'matrix' | 'symbols' | 'r_distribution' | 'whatif'>('overview');
   const [scenarios, setScenarios] = useState<WhatIfScenario[]>([
     {
       id: 1,
@@ -256,57 +263,87 @@ export default function TradeAnalysisPage() {
               <button
                 key={tf}
                 onClick={() => setTimeframe(tf)}
-                className={`px-3 py-1 text-sm rounded ${
+                className={`px-3 py-1 text-xs font-medium rounded transition ${
                   timeframe === tf
-                    ? 'bg-purple-600 text-white'
-                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                    ? 'bg-purple-600 text-white shadow-xs'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-navy-800 dark:text-gray-300'
                 }`}
               >
-                {tf === '7d' && '7 Days'}
-                {tf === '30d' && '30 Days'}
-                {tf === '90d' && '90 Days'}
-                {tf === '1y' && '1 Year'}
-                {tf === 'all' && 'All Time'}
+                {tf === '7d' && '近7天'}
+                {tf === '30d' && '近30天'}
+                {tf === '90d' && '近90天'}
+                {tf === '1y' && '近1年'}
+                {tf === 'all' && '全部历史'}
               </button>
             ))}
           </div>
-          <div className="text-sm text-gray-500">
-            {metrics.totalTrades} trades analyzed
+          <div className="text-xs text-gray-500 font-mono">
+            已分析 {metrics.totalTrades} 笔订单
           </div>
         </div>
 
         {/* Tab Navigation */}
-        <div className="border-b border-gray-200">
-          <nav className="-mb-px flex space-x-8">
+        <div className="border-b border-gray-200 dark:border-white/10 overflow-x-auto">
+          <nav className="-mb-px flex space-x-6 min-w-max">
             <button
               onClick={() => setActiveTab('overview')}
-              className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${
+              className={`whitespace-nowrap py-3.5 px-1 border-b-2 font-semibold text-sm transition-colors ${
                 activeTab === 'overview'
-                  ? 'border-purple-500 text-purple-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  ? 'border-purple-600 text-purple-600 dark:text-purple-400'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400'
               }`}
             >
-              Performance Overview
+              综合全景分析 (Overview)
+            </button>
+            <button
+              onClick={() => setActiveTab('mistakes')}
+              className={`whitespace-nowrap py-3.5 px-1 border-b-2 font-semibold text-sm transition-colors ${
+                activeTab === 'mistakes'
+                  ? 'border-purple-600 text-purple-600 dark:text-purple-400'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400'
+              }`}
+            >
+              心理与错误漏洞追踪 (Mistake Tracker)
+            </button>
+            <button
+              onClick={() => setActiveTab('matrix')}
+              className={`whitespace-nowrap py-3.5 px-1 border-b-2 font-semibold text-sm transition-colors ${
+                activeTab === 'matrix'
+                  ? 'border-purple-600 text-purple-600 dark:text-purple-400'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400'
+              }`}
+            >
+              年度月度收益热力矩阵 (Monthly Matrix)
+            </button>
+            <button
+              onClick={() => setActiveTab('symbols')}
+              className={`whitespace-nowrap py-3.5 px-1 border-b-2 font-semibold text-sm transition-colors ${
+                activeTab === 'symbols'
+                  ? 'border-purple-600 text-purple-600 dark:text-purple-400'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400'
+              }`}
+            >
+              品种标的排行榜 (Symbol Breakdown)
+            </button>
+            <button
+              onClick={() => setActiveTab('r_distribution')}
+              className={`whitespace-nowrap py-3.5 px-1 border-b-2 font-semibold text-sm transition-colors ${
+                activeTab === 'r_distribution'
+                  ? 'border-purple-600 text-purple-600 dark:text-purple-400'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400'
+              }`}
+            >
+              风险报酬 R 倍数 (R-Multiples)
             </button>
             <button
               onClick={() => setActiveTab('whatif')}
-              className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${
+              className={`whitespace-nowrap py-3.5 px-1 border-b-2 font-semibold text-sm transition-colors ${
                 activeTab === 'whatif'
-                  ? 'border-purple-500 text-purple-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  ? 'border-purple-600 text-purple-600 dark:text-purple-400'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400'
               }`}
             >
-              What-If Scenarios
-            </button>
-            <button
-              onClick={() => setActiveTab('scenarios')}
-              className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${
-                activeTab === 'scenarios'
-                  ? 'border-purple-500 text-purple-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
-            >
-              Custom Scenarios
+              收益情景推演 (What-If)
             </button>
           </nav>
         </div>
@@ -317,26 +354,26 @@ export default function TradeAnalysisPage() {
             {/* Key Metrics */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               <StatCard 
-                title="Total P/L" 
+                title="总净盈亏" 
                 value={`$${metrics.totalProfitLoss.toFixed(2)}`} 
                 icon={<DollarSign className="h-4 w-4" />}
                 className={metrics.totalProfitLoss >= 0 ? 'text-green-600' : 'text-red-600'}
                 trend={metrics.totalProfitLoss >= 0 ? 'up' : 'down'}
               />
               <StatCard 
-                title="Win Rate" 
+                title="综合胜率" 
                 value={`${metrics.winRate.toFixed(2)}%`} 
                 icon={<Target className="h-4 w-4" />}
                 trend={metrics.winRate >= 50 ? 'up' : 'down'}
               />
               <StatCard 
-                title="Profit Factor" 
+                title="盈亏比 (PF)" 
                 value={metrics.profitFactor.toFixed(2)} 
                 icon={<TrendingUp className="h-4 w-4" />}
                 trend={metrics.profitFactor >= 1.5 ? 'up' : 'down'}
               />
               <StatCard 
-                title="Expectancy" 
+                title="单笔数学期望" 
                 value={`$${metrics.expectancy.toFixed(2)}`} 
                 icon={<BarChart2 className="h-4 w-4" />}
                 className={metrics.expectancy >= 0 ? 'text-green-600' : 'text-red-600'}
@@ -347,75 +384,103 @@ export default function TradeAnalysisPage() {
             {/* Additional Metrics */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <StatCard 
-                title="Total Trades" 
+                title="总平仓订单数" 
                 value={metrics.totalTrades} 
                 icon={<Calendar className="h-4 w-4" />}
               />
               <StatCard 
-                title="Avg Win" 
+                title="平均盈利单" 
                 value={`$${metrics.avgWin.toFixed(2)}`} 
                 icon={<TrendingUp className="h-4 w-4" />}
                 className="text-green-600"
               />
               <StatCard 
-                title="Avg Loss" 
+                title="平均亏损单" 
                 value={`$${metrics.avgLoss.toFixed(2)}`} 
                 icon={<TrendingUp className="h-4 w-4" />}
                 className="text-red-600"
               />
             </div>
 
-            {/* Charts */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <ChartPlaceholder title="Equity Curve" />
-              <ChartPlaceholder title="Trade Distribution" />
+            {/* Advanced Quant Analytics Charts */}
+            <div className="space-y-6">
+              {/* MFE / MAE Excursion Analysis (TraderSync / TradeZella 核心分析图) */}
+              <MfeMaeScatterChart trades={trades} />
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Hourly Performance */}
+                <HourlyPerformanceChart trades={trades} />
+                
+                {/* Day of Week Performance */}
+                <DayOfWeekChart trades={trades} />
+              </div>
             </div>
-            
-            <div className="grid grid-cols-1 gap-6">
-              <ChartPlaceholder title="Performance Over Time" />
-            </div>
+          </div>
+        )}
+
+        {activeTab === 'mistakes' && (
+          <div className="space-y-6">
+            <MistakeTracker trades={trades} />
+          </div>
+        )}
+
+        {activeTab === 'matrix' && (
+          <div className="space-y-6">
+            <MonthlyReturnsMatrix trades={trades} />
+          </div>
+        )}
+
+        {activeTab === 'symbols' && (
+          <div className="space-y-6">
+            <SymbolPerformanceTable trades={trades} />
+          </div>
+        )}
+
+        {activeTab === 'r_distribution' && (
+          <div className="space-y-6">
+            <RMultipleDistributionChart trades={trades} />
           </div>
         )}
 
         {activeTab === 'whatif' && (
           <div className="space-y-6">
-            <div className="bg-purple-50 p-4 rounded-lg">
-              <h3 className="font-medium text-purple-800">What-If Analysis</h3>
-              <p className="text-sm text-purple-600 mt-1">
-                See how changes to your strategy could affect performance
+            <div className="bg-purple-50 dark:bg-purple-950/30 p-4 rounded-xl border border-purple-100 dark:border-purple-800/40">
+              <h3 className="font-bold text-purple-900 dark:text-purple-300 text-sm">收益情景推演 (What-If 敏锐度分析)</h3>
+              <p className="text-xs text-purple-700 dark:text-purple-400 mt-1">
+                测算当胜率提高、平均亏损缩减或风控执行率提升时，对账户整体复利曲线的乘数效应。
               </p>
             </div>
             
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               {scenarios.map((scenario) => (
-                <div key={scenario.id} className="bg-white border border-gray-200 rounded-lg shadow-sm p-5">
-                  <h3 className="font-semibold text-gray-900">{scenario.name}</h3>
-                  <p className="text-sm text-gray-500 mt-1">{scenario.description}</p>
+                <div key={scenario.id} className="bg-white dark:bg-navy-900 border border-gray-200 dark:border-white/10 rounded-xl shadow-xs p-5">
+                  <h3 className="font-bold text-gray-900 dark:text-white text-sm">{scenario.name}</h3>
+                  <p className="text-xs text-gray-500 mt-1">{scenario.description}</p>
                   
-                  <div className="mt-4 space-y-3">
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-500">Current Win Rate</span>
-                      <span className="font-medium">{metrics.winRate.toFixed(2)}%</span>
+                  <div className="mt-4 space-y-2.5">
+                    <div className="flex justify-between text-xs">
+                      <span className="text-gray-500">当前实盘胜率</span>
+                      <span className="font-mono font-bold">{metrics.winRate.toFixed(2)}%</span>
                     </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-500">Projected Win Rate</span>
-                      <span className="font-medium text-purple-600">{scenario.projectedWinRate.toFixed(2)}%</span>
+                    <div className="flex justify-between text-xs">
+                      <span className="text-gray-500">推演调整后胜率</span>
+                      <span className="font-mono font-bold text-purple-600">{scenario.projectedWinRate.toFixed(2)}%</span>
                     </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-500">Projected P/L</span>
-                      <span className={`font-medium ${scenario.projectedPL >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    <div className="flex justify-between text-xs">
+                      <span className="text-gray-500">推演预期净利</span>
+                      <span className={`font-mono font-bold ${scenario.projectedPL >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                         ${scenario.projectedPL.toFixed(2)}
                       </span>
                     </div>
                   </div>
                   
-                  <div className="mt-4 pt-4 border-t border-gray-200">
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-500">Improvement</span>
-                      <span className={`font-medium ${scenario.projectedPL > metrics.totalProfitLoss ? 'text-green-600' : 'text-red-600'}`}>
+                  <div className="mt-4 pt-3 border-t border-gray-100 dark:border-white/5">
+                    <div className="flex justify-between text-xs">
+                      <span className="text-gray-500">预期改善</span>
+                      <span className={`font-mono font-bold ${scenario.projectedPL > metrics.totalProfitLoss ? 'text-green-600' : 'text-red-600'}`}>
                         {scenario.projectedPL > metrics.totalProfitLoss 
-                          ? `+${((scenario.projectedPL - metrics.totalProfitLoss) / Math.abs(metrics.totalProfitLoss) * 100).toFixed(1)}%` 
-                          : `${((scenario.projectedPL - metrics.totalProfitLoss) / Math.abs(metrics.totalProfitLoss) * 100).toFixed(1)}%`}
+                          ? `+${((scenario.projectedPL - metrics.totalProfitLoss) / Math.abs(metrics.totalProfitLoss || 1) * 100).toFixed(1)}%` 
+                          : `${((scenario.projectedPL - metrics.totalProfitLoss) / Math.abs(metrics.totalProfitLoss || 1) * 100).toFixed(1)}%`}
                       </span>
                     </div>
                   </div>
@@ -427,61 +492,61 @@ export default function TradeAnalysisPage() {
 
         {activeTab === 'scenarios' && (
           <div className="space-y-6">
-            <div className="bg-white border border-gray-200 rounded-lg shadow-sm p-5">
-              <h3 className="font-semibold text-gray-900">Create Custom Scenario</h3>
-              <p className="text-sm text-gray-500 mt-1">
-                Adjust parameters to model your own "what-if" scenarios
+            <div className="bg-white dark:bg-navy-900 border border-gray-200 dark:border-white/10 rounded-xl shadow-xs p-5">
+              <h3 className="font-bold text-gray-900 dark:text-white text-sm">创建自定义推演模型</h3>
+              <p className="text-xs text-gray-500 mt-1">
+                灵活微调参数，模拟如果减少冲动交易或缩减最大亏损后的复盘模型
               </p>
               
               <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Win Rate Adjustment (%)
+                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    胜率提升调整 (%)
                   </label>
                   <input
                     type="number"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-purple-500 focus:border-purple-500"
-                    placeholder="e.g., 5"
+                    className="w-full px-3 py-2 text-xs border border-gray-300 dark:border-gray-700 rounded-lg shadow-xs focus:ring-purple-500 focus:border-purple-500 dark:bg-navy-950"
+                    placeholder="例如：5"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Avg Win Adjustment (%)
+                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    平均盈利增幅 (%)
                   </label>
                   <input
                     type="number"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-purple-500 focus:border-purple-500"
-                    placeholder="e.g., 10"
+                    className="w-full px-3 py-2 text-xs border border-gray-300 dark:border-gray-700 rounded-lg shadow-xs focus:ring-purple-500 focus:border-purple-500 dark:bg-navy-950"
+                    placeholder="例如：10"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Avg Loss Adjustment (%)
+                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    平均亏损缩减 (%)
                   </label>
                   <input
                     type="number"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-purple-500 focus:border-purple-500"
-                    placeholder="e.g., -5"
+                    className="w-full px-3 py-2 text-xs border border-gray-300 dark:border-gray-700 rounded-lg shadow-xs focus:ring-purple-500 focus:border-purple-500 dark:bg-navy-950"
+                    placeholder="例如：-5"
                   />
                 </div>
               </div>
               
               <div className="mt-4">
-                <button className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500">
-                  Run Scenario Analysis
+                <button className="px-4 py-2 bg-purple-600 text-white rounded-lg text-xs font-bold hover:bg-purple-700 transition">
+                  开始执行推演测算
                 </button>
               </div>
             </div>
             
-            <div className="bg-white border border-gray-200 rounded-lg shadow-sm p-5">
-              <h3 className="font-semibold text-gray-900">Saved Scenarios</h3>
-              <p className="text-sm text-gray-500 mt-1">
-                Your previously created scenarios
+            <div className="bg-white dark:bg-navy-900 border border-gray-200 dark:border-white/10 rounded-xl shadow-xs p-5">
+              <h3 className="font-bold text-gray-900 dark:text-white text-sm">已保存的推演方案</h3>
+              <p className="text-xs text-gray-500 mt-1">
+                历史创建的方案将在此归档
               </p>
               
-              <div className="mt-4 text-center py-8 text-gray-500">
-                <p>No saved scenarios yet</p>
-                <p className="text-sm mt-1">Create and save scenarios to compare different strategies</p>
+              <div className="mt-4 text-center py-8 text-gray-500 text-xs">
+                <p>暂无已保存的推演场景</p>
+                <p className="text-[11px] text-gray-400 mt-1">保存不同的测算模型以横向对比策略优化空间</p>
               </div>
             </div>
           </div>
@@ -493,17 +558,17 @@ export default function TradeAnalysisPage() {
   return (
     <>
       <SEO 
-        title="Trade Analysis"
-        description="Advanced charting, institutional-grade performance metrics, and 'what-if' scenario modeling for your trading performance."
-        keywords="trade analysis, trading performance, performance metrics, what-if scenarios, trading analytics, equity curve, win rate, profit factor"
-        url="https://tradezella.com/features/analysis"
+        title="深度量化交易分析"
+        description="机构级交易分析、胜率盈亏比分解、MFE/MAE 最大潜力回撤与 What-If 收益推演。"
+        keywords="TradeZen, 交易分析, 量化复盘, 胜率, 盈亏比, MFE, MAE, 期望值"
+        url="https://tradezen.app/features/analysis"
       />
       <FeaturePageLayout
-        title="Trade Analysis"
-        description="Advanced charting, institutional-grade performance metrics, and 'what-if' scenario modeling."
+        title="深度交易分析 (Trade Analysis)"
+        description="全景式量化图表、知行合一心理与违规追踪、时段收益分布与假设推演模型。"
         image="/assets/2.png"
       >
-        <div className="bg-white p-6 rounded-lg shadow-md">
+        <div className="bg-white dark:bg-[#0b0f19] p-6 rounded-2xl shadow-sm border border-gray-200/80 dark:border-white/10">
           {renderContent()}
         </div>
       </FeaturePageLayout>

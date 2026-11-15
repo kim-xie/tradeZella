@@ -9,7 +9,7 @@ describe('CommunityPage', () => {
   it('renders loading state initially', () => {
     vi.spyOn(api, 'getCommunityCategories').mockResolvedValue([]);
     render(<CommunityPage />);
-    expect(screen.getByText('Loading categories...')).toBeInTheDocument();
+    expect(screen.getByText('正在加载板块列表...')).toBeInTheDocument();
   });
 
   it('renders categories after successful fetch', async () => {
@@ -22,8 +22,8 @@ describe('CommunityPage', () => {
     render(<CommunityPage />);
 
     await waitFor(() => {
-      expect(screen.getByText('Trade Journals')).toBeInTheDocument();
-      expect(screen.getByText('Market Discussions')).toBeInTheDocument();
+      expect(screen.getByText(/实盘复盘日志/)).toBeInTheDocument();
+      expect(screen.getByText(/行情研判与多空推演/)).toBeInTheDocument();
     });
   });
 
@@ -32,7 +32,7 @@ describe('CommunityPage', () => {
     render(<CommunityPage />);
 
     await waitFor(() => {
-      expect(screen.getByText('Failed to fetch community categories.')).toBeInTheDocument();
+      expect(screen.getByText('加载社区板块失败，请稍后重试。')).toBeInTheDocument();
     });
   });
 });

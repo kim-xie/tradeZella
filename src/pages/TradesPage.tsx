@@ -1,10 +1,14 @@
 import TradeDrawer from '../components/TradeDrawer';
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { X, Star, ChevronLeft, ChevronRight } from 'lucide-react';
+import { X, Star, ChevronLeft, ChevronRight, RefreshCw, Upload, Database, CheckCircle2, BarChart2, Calendar, PenLine } from 'lucide-react';
 import Button from '../components/common/Button';
 import Select from '../components/common/Select';
-import { getUserTrades, SERVER_BASE_URL as API_BASE_URL } from '../services/api';
+import DateRangePicker from '../components/common/DateRangePicker';
+import CSVUploader from '../components/CSVUploader';
+import TradeExecutionChart from '../components/TradeExecutionChart';
+import TradeRatingModal from '../components/TradeRatingModal';
+import { getUserTrades, updateTrade, SERVER_BASE_URL as API_BASE_URL } from '../services/api';
 
 interface Trade {
   id: number;
@@ -92,17 +96,32 @@ const calculateTargetRR = (trade: Trade): number | null => {
 type ExitMethodType = 'takeProfit' | 'stopLoss' | 'manual';
 const SENTIMENT_EMOJI: Record<string, string> = { Nervous: '😰', Uneasy: '😟', Neutral: '😐', Composed: '😌', Zen: '🧘' };
 const calculateExitMethod = (trade: Trade): ExitMethodType | null => {
-  if (trade.exitprice == null || trade.stop_loss == null || trade.take_profit == null) return null;
+  // 1. 优先使用终局触发标记 (例如 MT5 / 券商同步的 [tp] / [sl] 触发)
+  if (trade.final_trigger === 'takeProfit') return 'takeProfit';
+  if (trade.final_trigger === 'stopLoss') return 'stopLoss';
+
+  // 2. 兼容历史数据在 notes 中带有 MT5 SL/TP 触发标记的情况
+  if (trade.notes) {
+    const lower = trade.notes.toLowerCase();
+    if (lower.includes('[tp') || lower.includes('take profit')) return 'takeProfit';
+    if (lower.includes('[sl') || lower.includes('stop loss')) return 'stopLoss';
+  }
+
+  // 3. 若未平仓，则无平仓方式
+  if (trade.exitprice == null) return null;
+
   const exit = trade.exitprice;
   const sl = trade.stop_loss;
   const tp = trade.take_profit;
+
+  // 4. 根据多空方向与止盈/止损价格推算
   if (trade.direction === 'long') {
-    if (exit >= tp) return 'takeProfit';
-    if (exit <= sl) return 'stopLoss';
+    if (tp != null && exit >= tp) return 'takeProfit';
+    if (sl != null && exit <= sl) return 'stopLoss';
     return 'manual';
   } else {
-    if (exit <= tp) return 'takeProfit';
-    if (exit >= sl) return 'stopLoss';
+    if (tp != null && exit <= tp) return 'takeProfit';
+    if (sl != null && exit >= sl) return 'stopLoss';
     return 'manual';
   }
 };
@@ -136,6 +155,50 @@ const formatLocalTimeFull = (dateStr?: string): string => {
   return `${m[1]}-${m[2]}-${m[3]} ${m[4]}:${m[5]}`;
 };
 
+interface TradeSourceInfo {
+  type: 'synced' | 'manual';
+  label: string;
+}
+
+const getTradeSource = (trade: Trade): TradeSourceInfo => {
+  const tags = Array.isArray(trade.tags)
+    ? trade.tags
+    : typeof trade.tags === 'string'
+    ? (() => {
+        try {
+          const parsed = JSON.parse(trade.tags);
+          return Array.isArray(parsed) ? parsed : [trade.tags];
+        } catch {
+          return (trade.tags as string).split(',').map((s) => s.trim()).filter(Boolean);
+        }
+      })()
+    : [];
+
+  const tagsLower = tags.map((t: string) => String(t).toLowerCase());
+  const notesLower = String(trade.notes || '').toLowerCase();
+
+  if (tagsLower.some((t: string) => t.includes('mt5') || t.includes('metatrader 5'))) {
+    return { type: 'synced', label: 'MT5 同步' };
+  }
+  if (tagsLower.some((t: string) => t.includes('mt4') || t.includes('metatrader 4'))) {
+    return { type: 'synced', label: 'MT4 导入' };
+  }
+  if (tagsLower.some((t: string) => t.includes('ctrader'))) {
+    return { type: 'synced', label: 'cTrader 导入' };
+  }
+  if (notesLower.includes('自动同步') || notesLower.includes('mt5') || notesLower.includes('mt4')) {
+    return { type: 'synced', label: '实盘同步' };
+  }
+  if (notesLower.includes('导入') || notesLower.includes('ticket/id:') || notesLower.includes('ticket:')) {
+    return { type: 'synced', label: '报表同步' };
+  }
+  if (tagsLower.some((t: string) => t === 'csv' || t === 'sync' || t === 'import')) {
+    return { type: 'synced', label: '实盘同步' };
+  }
+
+  return { type: 'manual', label: '手动新增' };
+};
+
 const isToday = (dateStr?: string): boolean => {
   if (!dateStr) return false;
   const date = parseServerTime(dateStr);
@@ -159,6 +222,8 @@ const TradesPage: React.FC = () => {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [editingTrade, setEditingTrade] = useState<Trade | null>(null);
   const [viewingTrade, setViewingTrade] = useState<Trade | null>(null);
+  const [chartModalTrade, setChartModalTrade] = useState<Trade | null>(null);
+  const [ratingModalTrade, setRatingModalTrade] = useState<Trade | null>(null);
 
   const [lightboxImage, setLightboxImage] = useState<{ urls: string[]; index: number } | null>(null);
   const [searchSymbol, setSearchSymbol] = useState('');
@@ -168,7 +233,9 @@ const TradesPage: React.FC = () => {
   const [searchDirection, setSearchDirection] = useState('');
   const [searchResult, setSearchResult] = useState('');
   const [searchExitMethod, setSearchExitMethod] = useState('');
+  const [searchSource, setSearchSource] = useState('');
   const [quickFilter, setQuickFilter] = useState('today');
+  const [showUploader, setShowUploader] = useState(false);
   const navigate = useNavigate();
 
   const handleAddClick = () => {
@@ -185,12 +252,29 @@ const TradesPage: React.FC = () => {
     setViewingTrade(trade);
   };
 
+  const handleSaveRating = async (tradeId: number, newRating: number) => {
+    const activeToken = localStorage.getItem('token');
+    if (!activeToken) return;
+    try {
+      await updateTrade(activeToken, tradeId, { rating: newRating === 0 ? null : newRating });
+      setTrades((prev) =>
+        prev.map((t) => (t.id === tradeId ? { ...t, rating: newRating === 0 ? undefined : newRating } : t))
+      );
+    } catch (err) {
+      console.error('Failed to update trade discipline rating:', err);
+      throw err;
+    }
+  };
+
   const handleReset = () => {
     setSearchSymbol('');
     setSearchStatus('');
     setSearchDirection('');
     setSearchResult('');
     setSearchExitMethod('');
+    setSearchSource('');
+    setSearchEntryDateStart('');
+    setSearchEntryDateEnd('');
     handleQuickFilter('today');
   };
 
@@ -296,6 +380,10 @@ const TradesPage: React.FC = () => {
         const method = calculateExitMethod(trade);
         if (!method || method !== searchExitMethod) return false;
       }
+      if (searchSource) {
+        const src = getTradeSource(trade).type;
+        if (searchSource !== src) return false;
+      }
       if (searchResult) {
         if (!trade.exitprice) return false;
         const pnlValue = calculateTradePnL(trade)?.pnl || 0;
@@ -305,7 +393,7 @@ const TradesPage: React.FC = () => {
       }
       return true;
     });
-  }, [trades, searchSymbol, searchEntryDateStart, searchEntryDateEnd, searchStatus, searchDirection, searchExitMethod, searchResult]);
+  }, [trades, searchSymbol, searchEntryDateStart, searchEntryDateEnd, searchStatus, searchDirection, searchExitMethod, searchSource, searchResult]);
 
   const availableSymbols = useMemo(() => {
     const symbols = new Set<string>();
@@ -313,121 +401,201 @@ const TradesPage: React.FC = () => {
     return Array.from(symbols).sort();
   }, [trades]);
 
-  // if (loading && trades.length === 0) {
-  //   return (
-  //     <div className="fixed inset-0 flex flex-col items-center justify-center">
-  //       <div className="w-12 h-12 border-4 border-gray-200 dark:border-gray-700 border-t-purple-600 rounded-full animate-spin"></div>
-  //       <p className="mt-4 text-sm text-gray-500 dark:text-gray-400">Loading trades...</p>
-  //     </div>
-  //   );
-  // }
+  if (loading && trades.length === 0) {
+    return (
+      <div className="fixed inset-0 flex flex-col items-center justify-center">
+        <div className="w-12 h-12 border-4 border-gray-200 dark:border-gray-700 border-t-purple-600 rounded-full animate-spin"></div>
+        <p className="mt-4 text-sm text-gray-500 dark:text-gray-400">Loading trades...</p>
+      </div>
+    );
+  }
 
   if (error && trades.length === 0) {
-    return <div className="container mx-auto p-4 text-red-500">{error}</div>;
+    return <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 text-red-500">{error}</div>;
   }
 
   return (
-    <div className="container mx-auto p-4">
-      {/* CSV Uploader */}
-      {/* <div className="mb-4">
-        <CSVUploader onUploadSuccess={fetchTrades} />
-      </div> */}
-
-      {/* Search Bar */}
-      <div className="flex flex-wrap items-center gap-3 mb-6 bg-white dark:bg-gray-800 p-4 px-0 rounded-lg shadow-sm">
-        {/* Quick Date Filters */}
-
-        <div className="flex-1 min-w-[150px]">
-          <input
-            type="text"
-            placeholder="Search by symbol..."
-            value={searchSymbol}
-            onChange={(e) => setSearchSymbol(e.target.value)}
-            className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-purple-500 focus:border-purple-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-          />
-        </div>
-        <div className="min-w-[140px]">
-          <Select
-            value={searchStatus}
-            onChange={setSearchStatus}
-            placeholder="All Status"
-            options={[
-              { value: '', label: 'All Status' },
-              { value: 'completed', label: 'Completed' },
-              { value: 'in_progress', label: 'In Progress' },
-            ]}
-            className="w-full"
-          />
-        </div>
-        {/* <div className="min-w-[140px]">
-          <Select
-            value={searchDirection}
-            onChange={setSearchDirection}
-            placeholder="All Direction"
-            options={[
-              { value: '', label: 'All Direction' },
-              { value: 'long', label: 'Long' },
-              { value: 'short', label: 'Short' },
-            ]}
-            className="w-full"
-          />
-        </div> */}
-        <div className="min-w-[140px]">
-          <Select
-            value={searchResult}
-            onChange={setSearchResult}
-            placeholder="All Result"
-            options={[
-              { value: '', label: 'All Result' },
-              { value: 'profit', label: 'Profit' },
-              { value: 'loss', label: 'Loss' },
-              { value: 'breakeven', label: 'Break Even' },
-            ]}
-            className="w-full"
-          />
-        </div>
-        <div className="min-w-[140px]">
-          <Select
-            value={searchExitMethod}
-            onChange={setSearchExitMethod}
-            placeholder="All Exit Methods"
-            options={[
-              { value: '', label: 'All Exit Methods' },
-              { value: 'takeProfit', label: 'Take Profit' },
-              { value: 'stopLoss', label: 'Stop Loss' },
-              { value: 'manual', label: 'Manual' },
-            ]}
-            className="w-full"
-          />
-        </div>
-        {/* Quick Date Filters - Radio Style */}
-        <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
-          {[
-            { value: 'today', label: 'Today' },
-            { value: 'week', label: 'This Week' },
-            { value: 'month', label: 'This Month' },
-            { value: 'year', label: 'This Year' },
-          ].map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              onClick={() => handleQuickFilter(option.value)}
-              className={`text-xs py-1.5 px-3 rounded-md transition-colors ${quickFilter === option.value ? 'bg-white dark:bg-gray-900 text-purple-600 dark:text-purple-400 font-semibold shadow-sm' : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'}`}
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      {/* MT5 实盘订单同步 & CSV 导入 面板 */}
+      {showUploader && (
+        <div className="mb-6 p-5 sm:p-6 bg-white dark:bg-[#0b0f19] rounded-2xl shadow-xl border border-purple-200 dark:border-purple-800/70 animate-in fade-in duration-200 relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-80 h-32 bg-purple-500/10 dark:bg-purple-600/10 rounded-full blur-3xl pointer-events-none" />
+          <div className="flex justify-between items-center mb-4 pb-3 border-b border-gray-100 dark:border-white/10 relative">
+            <div className="flex items-center space-x-2.5">
+              <span className="flex h-2.5 w-2.5 relative">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+              </span>
+              <h3 className="font-bold text-gray-900 dark:text-white text-base">
+                实盘交易订单同步 (MT5 直连 / MT4 报表导入)
+              </h3>
+            </div>
+            <button 
+              onClick={() => setShowUploader(false)} 
+              className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-white/5 transition"
+              title="收起订单同步面板"
             >
-              {option.label}
+              <X className="w-5 h-5" />
             </button>
-          ))}
-          <button
-            type="button"
-            onClick={() => { setQuickFilter(''); setSearchEntryDateStart(''); setSearchEntryDateEnd(''); }}
-            className={`text-xs py-1.5 px-3 rounded-md transition-colors ${quickFilter === '' ? 'bg-white dark:bg-gray-900 text-purple-600 dark:text-purple-400 font-semibold shadow-sm' : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'}`}
-          >
-            All
-          </button>
+          </div>
+          <CSVUploader onUploadSuccess={() => { fetchTrades(); }} />
         </div>
-        <Button variant="gradient" onClick={handleReset} className="text-sm py-2">Reset</Button>
-        <Button variant="primary" onClick={handleAddClick} className="text-sm py-2">Add New Trade</Button>
-        <Button variant="primary" onClick={() => navigate('/stats')} className="text-sm py-2">Statistics</Button>
+      )}
+
+      {/* Search & Filter Bar */}
+      <div className="relative z-30 mb-6 bg-white/90 dark:bg-[#0b0f19]/90 backdrop-blur-md p-4 sm:p-5 rounded-2xl border border-gray-200/80 dark:border-white/10 shadow-sm space-y-3.5">
+        {/* Top Filter Controls: Search & Select Dropdowns */}
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex-1 min-w-[160px]">
+            <input
+              type="text"
+              placeholder="搜索标的"
+              value={searchSymbol}
+              onChange={(e) => setSearchSymbol(e.target.value)}
+              className="w-full h-[38px] px-3.5 text-sm border border-gray-200 dark:border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 hover:border-purple-400 dark:hover:border-purple-500/80 bg-white dark:bg-[#070a13] text-gray-900 dark:text-white transition shadow-2xs"
+            />
+          </div>
+          <div className="min-w-[130px]">
+            <Select
+              value={searchStatus}
+              onChange={setSearchStatus}
+              placeholder="全部状态"
+              options={[
+                { value: '', label: '全部状态' },
+                { value: 'completed', label: '已平仓结算' },
+                { value: 'in_progress', label: '持仓中' },
+              ]}
+              className="w-full"
+            />
+          </div>
+          <div className="min-w-[130px]">
+            <Select
+              value={searchResult}
+              onChange={setSearchResult}
+              placeholder="全部盈亏"
+              options={[
+                { value: '', label: '全部盈亏' },
+                { value: 'profit', label: '盈利' },
+                { value: 'loss', label: '亏损' },
+                { value: 'breakeven', label: '保本' },
+              ]}
+              className="w-full"
+            />
+          </div>
+          <div className="min-w-[130px]">
+            <Select
+              value={searchSource}
+              onChange={setSearchSource}
+              placeholder="全部来源"
+              options={[
+                { value: '', label: '全部来源' },
+                { value: 'manual', label: '手动新增' },
+                { value: 'synced', label: '实盘/报表同步' },
+              ]}
+              className="w-full"
+            />
+          </div>
+          <div className="min-w-[140px]">
+            <Select
+              value={searchExitMethod}
+              onChange={setSearchExitMethod}
+              placeholder="全部平仓方式"
+              options={[
+                { value: '', label: '全部平仓方式' },
+                { value: 'takeProfit', label: '止盈触发' },
+                { value: 'stopLoss', label: '止损触发' },
+                { value: 'manual', label: '手动平仓' },
+              ]}
+              className="w-full"
+            />
+          </div>
+        </div>
+
+        {/* Bottom Bar: Time Range on Left, Action Buttons Fixed to the Right */}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          {/* Time Filters: Quick Presets & Modern Date Range Picker */}
+          <div className="flex flex-wrap items-center gap-2.5">
+            {/* Quick Date Filters - Radio Style */}
+            <div className="h-[38px] flex items-center gap-1 bg-gray-100/80 dark:bg-[#070a13] rounded-xl p-1 border border-gray-200/80 dark:border-white/10 shadow-2xs">
+              {[
+                { value: 'today', label: '今日' },
+                { value: 'week', label: '本周' },
+                { value: 'month', label: '本月' },
+                { value: 'year', label: '今年' },
+              ].map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => handleQuickFilter(option.value)}
+                  className={`h-full text-sm px-3 rounded-lg font-medium transition-all flex items-center justify-center ${
+                    quickFilter === option.value
+                      ? 'bg-white dark:bg-purple-600 text-purple-700 dark:text-white font-semibold shadow-xs'
+                      : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+                  }`}
+                >
+                  {option.label}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() => {
+                  setQuickFilter('');
+                  setSearchEntryDateStart('');
+                  setSearchEntryDateEnd('');
+                }}
+                className={`h-full text-sm px-3 rounded-lg font-medium transition-all flex items-center justify-center ${
+                  quickFilter === '' && !searchEntryDateStart && !searchEntryDateEnd
+                    ? 'bg-white dark:bg-purple-600 text-purple-700 dark:text-white font-semibold shadow-xs'
+                    : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+                }`}
+              >
+                全部
+              </button>
+            </div>
+
+            {/* Modern Mainstream Date Range Picker */}
+            <DateRangePicker
+              startDate={searchEntryDateStart}
+              endDate={searchEntryDateEnd}
+              onChange={(start, end) => {
+                setSearchEntryDateStart(start);
+                setSearchEntryDateEnd(end);
+                setQuickFilter('custom');
+              }}
+              onClear={() => {
+                setSearchEntryDateStart('');
+                setSearchEntryDateEnd('');
+                setQuickFilter('');
+              }}
+            />
+          </div>
+
+          {/* Action Buttons: FIXED TO THE RIGHT (固定靠右) */}
+          <div className="flex items-center gap-2.5 ml-auto">
+            <Button
+              variant="outline"
+              onClick={handleReset}
+              className="h-[38px] px-4 rounded-xl text-sm font-medium"
+            >
+              重置
+            </Button>
+            <Button
+              variant="primary"
+              onClick={handleAddClick}
+              className="h-[38px] px-4 rounded-xl text-sm font-medium"
+            >
+              + 新建交易
+            </Button>
+            <Button 
+              variant="primary"
+              onClick={() => setShowUploader(prev => !prev)} 
+              className="h-[38px] px-4 rounded-xl text-sm font-medium flex items-center space-x-1.5"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>订单同步</span>
+            </Button>
+          </div>
+        </div>
       </div>
 
       <TradeDrawer
@@ -448,44 +616,85 @@ const TradesPage: React.FC = () => {
             onClick={() => setViewingTrade(null)}
           />
           {/* Drawer */}
-          <div className="fixed top-0 right-0 z-50 h-full w-full max-w-2xl bg-white dark:bg-gray-800 shadow-2xl">
+          <div className="fixed top-0 right-0 z-50 h-full w-full md:w-1/2 bg-white dark:bg-gray-800 shadow-2xl">
             <div className="flex flex-col h-full">
               <div className="flex justify-between items-center p-4 border-b dark:border-gray-700">
-                <h3 className="text-xl font-semibold text-gray-900 dark:text-white">Trade Details</h3>
+                <div className="flex items-center space-x-2.5">
+                  <h3 className="text-xl font-semibold text-gray-900 dark:text-white">交易复盘详情</h3>
+                  {(() => {
+                    const src = getTradeSource(viewingTrade);
+                    return (
+                      <span className={`text-xs px-2.5 py-0.5 rounded-full font-mono font-medium flex items-center space-x-1 ${
+                        src.type === 'synced'
+                          ? 'bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800'
+                          : 'bg-gray-100 dark:bg-white/10 text-gray-600 dark:text-gray-300'
+                      }`}>
+                        {src.type === 'synced' ? <RefreshCw className="w-2.5 h-2.5 mr-1" /> : <PenLine className="w-2.5 h-2.5 mr-1" />}
+                        <span>{src.label}</span>
+                      </span>
+                    );
+                  })()}
+                </div>
                 <button onClick={() => setViewingTrade(null)} className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">
                   <X size={24} />
                 </button>
               </div>
-              <div className="flex-1 overflow-y-auto p-6 space-y-3">
+              <div className="flex-1 overflow-y-auto p-6 space-y-4">
+                {/* TradingView Execution Plotter on K-Line */}
+                <div>
+                  <h4 className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2 flex items-center justify-between">
+                    <span>K线买卖执行打点 (TradingView Plotter)</span>
+                    <span className="text-[10px] text-purple-600 dark:text-purple-400 font-mono font-normal">ENTRY / EXIT MARKERS</span>
+                  </h4>
+                  <TradeExecutionChart
+                    symbol={viewingTrade.symbol}
+                    direction={viewingTrade.direction}
+                    entryPrice={viewingTrade.entryprice}
+                    exitPrice={viewingTrade.exitprice}
+                    stopLoss={viewingTrade.stop_loss}
+                    takeProfit={viewingTrade.take_profit}
+                    entryTime={viewingTrade.entry_time}
+                    exitTime={viewingTrade.exit_time}
+                    size={viewingTrade.size}
+                    profit={calculateTradePnL(viewingTrade)?.pnl}
+                    pnlPercent={calculateTradePnL(viewingTrade)?.pnlPercent}
+                    notes={viewingTrade.notes}
+                    sentiment={viewingTrade.sentiment}
+                    tags={viewingTrade.tags}
+                    session={viewingTrade.session}
+                    exitReason={calculateExitMethod(viewingTrade) || undefined}
+                    height={320}
+                  />
+                </div>
+
                 <div className="grid grid-cols-2 gap-4">
-                  <div><span className="text-sm text-gray-500 dark:text-gray-400">Symbol:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{viewingTrade.symbol}</span></div>
-                  <div><span className="text-sm text-gray-500 dark:text-gray-400">Direction:</span> <span className={`text-sm font-medium ${viewingTrade.direction === 'long' ? 'text-green-600' : 'text-red-600'}`}>{viewingTrade.direction}</span></div>
-                  <div><span className="text-sm text-gray-500 dark:text-gray-400">Size:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{viewingTrade.size}</span></div>
-                  <div className="flex items-center gap-2"><span className="text-sm text-gray-500 dark:text-gray-400">Status:</span> {(() => { const isCompleted = !!viewingTrade.exitprice; return <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${isCompleted ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'}`}>{isCompleted ? 'Completed' : 'In Progress'}</span>; })()}</div>
-                  <div><span className="text-sm text-gray-500 dark:text-gray-400">Entry Price:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{viewingTrade.entryprice}</span></div>
-                  <div><span className="text-sm text-gray-500 dark:text-gray-400">Exit Price:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{viewingTrade.exitprice || '-'}</span></div>
-                  <div><span className="text-sm text-gray-500 dark:text-gray-400">Stop Loss:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{viewingTrade.stop_loss || '-'}</span></div>
-                  <div><span className="text-sm text-gray-500 dark:text-gray-400">Take Profit:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{viewingTrade.take_profit || '-'}</span></div>
-                  <div><span className="text-sm text-gray-500 dark:text-gray-400">Entry Time:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{formatLocalTime(viewingTrade.entry_time)}</span></div>
-                  <div><span className="text-sm text-gray-500 dark:text-gray-400">Exit Time:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{formatLocalTime(viewingTrade.exit_time)}</span></div>
-                  <div><span className="text-sm text-gray-500 dark:text-gray-400">Duration:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{formatDuration(viewingTrade.entry_time, viewingTrade.exit_time)}</span></div>
-                  {(() => { const p = calculateTradePnL(viewingTrade); return p ? <div><span className="text-sm text-gray-500 dark:text-gray-400">P/L:{p.isManual ? ' (manual)' : ''}</span> <span className={`text-sm font-semibold ${p.pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>{p.pnl >= 0 ? '+' : ''}{p.pnl.toFixed(2)} ({p.pnlPercent.toFixed(2)}%)</span></div> : null; })()}
-                  {(() => { const tr = calculateTargetRR(viewingTrade); return tr != null ? <div><span className="text-sm text-gray-500 dark:text-gray-400">Target R/R:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{tr.toFixed(1)}</span></div> : null; })()}
-                  {(() => { const p = calculateTradePnL(viewingTrade); return p?.rr != null ? <div><span className="text-sm text-gray-500 dark:text-gray-400">Actual R/R:</span> <span className={`text-sm font-semibold ${p.pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>{Math.abs(p.rr).toFixed(1)}</span></div> : null; })()}
-                  <div><span className="text-sm text-gray-500 dark:text-gray-400">Created At:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{formatLocalTimeFull(viewingTrade.createdat)}</span></div>
-                  <div><span className="text-sm text-gray-500 dark:text-gray-400">Updated At:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{formatLocalTimeFull(viewingTrade.updatedat)}</span></div>
-                  <div><span className="text-sm text-gray-500 dark:text-gray-400">Session:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{viewingTrade.session || '-'}</span></div>
-                  <div><span className="text-sm text-gray-500 dark:text-gray-400">Entry Sentiment:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{viewingTrade.sentiment ? `${SENTIMENT_EMOJI[viewingTrade.sentiment] || ''} ${viewingTrade.sentiment}` : '-'}</span></div>
-                  {(() => { const method = calculateExitMethod(viewingTrade); if (!method) return <div><span className="text-sm text-gray-500 dark:text-gray-400">Exit Method:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">-</span></div>; const styles: Record<ExitMethodType, string> = { takeProfit: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400', stopLoss: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400', manual: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400' }; const labels: Record<ExitMethodType, string> = { takeProfit: 'Take Profit', stopLoss: 'Stop Loss', manual: 'Manual' }; return <div className="flex items-center gap-2"><span className="text-sm text-gray-500 dark:text-gray-400">Exit Method:</span><span className={`inline-block px-2 py-0.5 text-xs font-medium rounded-full ${styles[method]}`}>{labels[method]}</span></div>; })()}
-                  {(() => { const ft = viewingTrade.final_trigger; if (!ft) return <div><span className="text-sm text-gray-500 dark:text-gray-400">Final Trigger:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">-</span></div>; const ftStyles: Record<'takeProfit' | 'stopLoss', string> = { takeProfit: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400', stopLoss: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' }; const ftLabels: Record<'takeProfit' | 'stopLoss', string> = { takeProfit: 'Take Profit', stopLoss: 'Stop Loss' }; return <div className="flex items-center gap-2"><span className="text-sm text-gray-500 dark:text-gray-400">Final Trigger:</span><span className={`inline-block px-2 py-0.5 text-xs font-medium rounded-full ${ftStyles[ft]}`}>{ftLabels[ft]}</span></div>; })()}
+                  <div><span className="text-sm text-gray-500 dark:text-gray-400">交易标的:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{viewingTrade.symbol}</span></div>
+                  <div><span className="text-sm text-gray-500 dark:text-gray-400">交易方向:</span> <span className={`text-sm font-medium ${viewingTrade.direction === 'long' ? 'text-green-600' : 'text-red-600'}`}>{viewingTrade.direction === 'long' ? '做多 (Long)' : '做空 (Short)'}</span></div>
+                  <div><span className="text-sm text-gray-500 dark:text-gray-400">交易规模/手数:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{viewingTrade.size}</span></div>
+                  <div className="flex items-center gap-2"><span className="text-sm text-gray-500 dark:text-gray-400">结算状态:</span> {(() => { const isCompleted = !!viewingTrade.exitprice; return <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${isCompleted ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'}`}>{isCompleted ? '已平仓结算' : '持仓中'}</span>; })()}</div>
+                  <div><span className="text-sm text-gray-500 dark:text-gray-400">入场价格:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{viewingTrade.entryprice}</span></div>
+                  <div><span className="text-sm text-gray-500 dark:text-gray-400">出场价格:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{viewingTrade.exitprice || '-'}</span></div>
+                  <div><span className="text-sm text-gray-500 dark:text-gray-400">止损点位 (SL):</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{viewingTrade.stop_loss || '-'}</span></div>
+                  <div><span className="text-sm text-gray-500 dark:text-gray-400">止盈点位 (TP):</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{viewingTrade.take_profit || '-'}</span></div>
+                  <div><span className="text-sm text-gray-500 dark:text-gray-400">入场时间:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{formatLocalTime(viewingTrade.entry_time)}</span></div>
+                  <div><span className="text-sm text-gray-500 dark:text-gray-400">出场时间:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{formatLocalTime(viewingTrade.exit_time)}</span></div>
+                  <div><span className="text-sm text-gray-500 dark:text-gray-400">持仓时长:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{formatDuration(viewingTrade.entry_time, viewingTrade.exit_time)}</span></div>
+                  {(() => { const p = calculateTradePnL(viewingTrade); return p ? <div><span className="text-sm text-gray-500 dark:text-gray-400">净盈亏:{p.isManual ? ' (手动指定)' : ''}</span> <span className={`text-sm font-semibold ${p.pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>{p.pnl >= 0 ? '+' : ''}${p.pnl.toFixed(2)} ({p.pnlPercent.toFixed(2)}%)</span></div> : null; })()}
+                  {(() => { const tr = calculateTargetRR(viewingTrade); return tr != null ? <div><span className="text-sm text-gray-500 dark:text-gray-400">目标盈亏比 (Target R/R):</span> <span className="text-sm font-medium text-gray-900 dark:text-white">1 : {tr.toFixed(1)}</span></div> : null; })()}
+                  {(() => { const p = calculateTradePnL(viewingTrade); return p?.rr != null ? <div><span className="text-sm text-gray-500 dark:text-gray-400">实际盈亏比 (Actual R/R):</span> <span className={`text-sm font-semibold ${p.pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>1 : {Math.abs(p.rr).toFixed(1)}</span></div> : null; })()}
+                  <div><span className="text-sm text-gray-500 dark:text-gray-400">创建时间:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{formatLocalTimeFull(viewingTrade.createdat)}</span></div>
+                  <div><span className="text-sm text-gray-500 dark:text-gray-400">更新时间:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{formatLocalTimeFull(viewingTrade.updatedat)}</span></div>
+                  <div><span className="text-sm text-gray-500 dark:text-gray-400">交易时段:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{viewingTrade.session ? `${viewingTrade.session} 盘` : '-'}</span></div>
+                  <div><span className="text-sm text-gray-500 dark:text-gray-400">入场心智/情绪:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{viewingTrade.sentiment ? `${SENTIMENT_EMOJI[viewingTrade.sentiment] || ''} ${viewingTrade.sentiment}` : '-'}</span></div>
+                  {(() => { const method = calculateExitMethod(viewingTrade); if (!method) return <div><span className="text-sm text-gray-500 dark:text-gray-400">平仓方式:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">-</span></div>; const styles: Record<ExitMethodType, string> = { takeProfit: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400', stopLoss: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400', manual: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400' }; const labels: Record<ExitMethodType, string> = { takeProfit: '止盈触发', stopLoss: '止损触发', manual: '手动平仓' }; return <div className="flex items-center gap-2"><span className="text-sm text-gray-500 dark:text-gray-400">平仓方式:</span><span className={`inline-block px-2 py-0.5 text-xs font-medium rounded-full ${styles[method]}`}>{labels[method]}</span></div>; })()}
                   <div className="flex items-center gap-3 flex-wrap">
-                    <span className="text-sm text-gray-500 dark:text-gray-400">Result:</span>
-                    {(() => { const p = calculateTradePnL(viewingTrade); if (!viewingTrade.exitprice) return <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400">-</span>; if (!p) return <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400">-</span>; if (p.pnl > 0) return <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">Profit</span>; if (p.pnl < 0) return <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">Loss</span>; return <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300">Break Even</span>; })()}</div>
-                  {(() => { const rating = viewingTrade.rating || 0; if (rating <= 0) return null; return <div className="flex items-center gap-1"><span className="text-sm text-gray-500 dark:text-gray-400">Rating:</span><div className="flex items-center">{[1, 2, 3, 4, 5].map((star) => (<Star key={star} size={16} className={rating >= star ? 'text-yellow-400 fill-yellow-400' : 'text-gray-300 dark:text-gray-600'} />))}</div></div>; })()}
+                    <span className="text-sm text-gray-500 dark:text-gray-400">盈亏结果:</span>
+                    {(() => { const p = calculateTradePnL(viewingTrade); if (!viewingTrade.exitprice) return <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400">-</span>; if (!p) return <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400">-</span>; if (p.pnl > 0) return <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">盈利</span>; if (p.pnl < 0) return <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">亏损</span>; return <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300">保本</span>; })()}</div>
+                  {(() => { const rating = viewingTrade.rating || 0; if (rating <= 0) return null; return <div className="flex items-center gap-1"><span className="text-sm text-gray-500 dark:text-gray-400">纪律评分:</span><div className="flex items-center">{[1, 2, 3, 4, 5].map((star) => (<Star key={star} size={16} className={rating >= star ? 'text-yellow-400 fill-yellow-400' : 'text-gray-300 dark:text-gray-600'} />))}</div></div>; })()}
                 </div>
                 {viewingTrade.tags && viewingTrade.tags.length > 0 && (
                   <div>
-                    <span className="text-sm text-gray-500 dark:text-gray-400 block mb-1">Tags:</span>
+                    <span className="text-sm text-gray-500 dark:text-gray-400 block mb-1">策略战法标签:</span>
                     <div className="flex flex-wrap gap-2">
                       {viewingTrade.tags.map((tag, i) => (
                         <span key={i} className="px-2 py-1 text-xs rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">{tag}</span>
@@ -495,7 +704,7 @@ const TradesPage: React.FC = () => {
                 )}
                 {viewingTrade.entry_conditions && viewingTrade.entry_conditions.length > 0 && (
                   <div>
-                    <span className="text-sm text-gray-500 dark:text-gray-400 block mb-1">Entry Conditions:</span>
+                    <span className="text-sm text-gray-500 dark:text-gray-400 block mb-1">入场条件与信号:</span>
                     <div className="flex flex-wrap gap-2">
                       {viewingTrade.entry_conditions.map((condition, i) => (
                         <span key={i} className="px-2 py-1 text-xs rounded-full bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400">{condition}</span>
@@ -505,13 +714,13 @@ const TradesPage: React.FC = () => {
                 )}
                 {viewingTrade.notes && (
                   <div>
-                    <span className="text-sm text-gray-500 dark:text-gray-400 block mb-1">Notes:</span>
+                    <span className="text-sm text-gray-500 dark:text-gray-400 block mb-1">复盘心得与笔记:</span>
                     <p className="text-sm text-gray-900 dark:text-white bg-gray-50 dark:bg-gray-700/50 p-3 rounded-md">{viewingTrade.notes}</p>
                   </div>
                 )}
                 {viewingTrade.screenshots && viewingTrade.screenshots.length > 0 && (
                   <div>
-                    <span className="text-sm text-gray-500 dark:text-gray-400 block mb-2">Screenshots:</span>
+                    <span className="text-sm text-gray-500 dark:text-gray-400 block mb-2">行情与图表截图:</span>
                     <div className="grid grid-cols-3 gap-2">
                       {viewingTrade.screenshots.map((url, i) => {
                         const fullUrl = url.startsWith('http') ? url : `${API_BASE_URL}${url}`;
@@ -533,7 +742,7 @@ const TradesPage: React.FC = () => {
                 )}
               </div>
               <div className="flex justify-end p-4 border-t dark:border-gray-700">
-                <Button variant="gradient" onClick={() => setViewingTrade(null)}>Close</Button>
+                <Button variant="gradient" onClick={() => setViewingTrade(null)}>关闭</Button>
               </div>
             </div>
           </div>
@@ -585,124 +794,244 @@ const TradesPage: React.FC = () => {
         </div>
       )}
 
-      <div className="flex items-center justify-between mb-3 px-1">
-        <div className="text-sm text-gray-600 dark:text-gray-400">
-          Showing <span className="font-semibold text-gray-900 dark:text-white">{filteredTrades.length}</span> of <span className="font-semibold text-gray-900 dark:text-white">{trades.length}</span> trade{trades.length === 1 ? '' : 's'}
+      <div className="flex items-center justify-between mb-2.5 px-1">
+        <div className="text-xs text-gray-400 dark:text-gray-500 font-mono tracking-tight flex items-center space-x-1.5">
+          <span>显示</span>
+          <span className="font-semibold text-gray-700 dark:text-gray-300">{filteredTrades.length}</span>
+          <span className="text-gray-300 dark:text-gray-600">/</span>
+          <span>共</span>
+          <span className="font-semibold text-gray-700 dark:text-gray-300">{trades.length}</span>
+          <span>笔交易记录</span>
         </div>
       </div>
 
-      <div className="bg-white dark:bg-gray-800 shadow-md rounded-lg overflow-x-auto">
-        <table className="min-w-full leading-normal whitespace-nowrap">
-          <thead>
-            <tr>
-              <th className="px-5 py-3 border-b-2 border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-700 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider">Entry Time</th>
-              <th className="px-5 py-3 border-b-2 border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-700 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider">Symbol</th>
-              <th className="px-5 py-3 border-b-2 border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-700 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider">Direction</th>
-              <th className="px-5 py-3 border-b-2 border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-700 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider">Exit Method</th>
-              <th className="px-5 py-3 border-b-2 border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-700 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider">Final Trigger</th>
-              <th className="px-5 py-3 border-b-2 border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-700 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider">Duration</th>
-              <th className="px-5 py-3 border-b-2 border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-700 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider">P/L</th>
-              <th className="px-5 py-3 border-b-2 border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-700 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider">Actual R/R</th>
-              <th className="px-5 py-3 border-b-2 border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-700 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider">Rating</th>
-              <th className="px-5 py-3 border-b-2 border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-700 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider">Status</th>
-              <th className="px-5 py-3 border-b-2 border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-700 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider">Actions</th>
-            </tr>
-          </thead>
-          <tbody className="text-gray-900 dark:text-white">
-            {(() => {
-              if (filteredTrades.length > 0) {
-                return filteredTrades.map((trade) => {
-                  const pnl = calculateTradePnL(trade);
-                  const targetRR = calculateTargetRR(trade);
-                  const isCompleted = !!trade.exitprice;
-                  const rowBg = 'bg-white dark:bg-gray-800';
-                  return (
-                    <tr key={trade.id} className={rowBg}>
-                      <td className={`px-5 py-5 border-b border-gray-200 dark:border-gray-700 ${rowBg} text-sm`}>{formatLocalTime(trade.entry_time)}</td>
-                      <td className={`px-5 py-5 border-b border-gray-200 dark:border-gray-700 ${rowBg} text-sm`}>{trade.symbol}</td>
-                      <td className={`px-5 py-5 border-b border-gray-200 dark:border-gray-700 ${rowBg} text-sm`}>
-                        <span className={trade.direction === 'long' ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}>{trade.direction}</span>
-                      </td>
-                      <td className={`px-5 py-5 border-b border-gray-200 dark:border-gray-700 ${rowBg} text-sm`}>
-                        {(() => {
-                          const method = calculateExitMethod(trade);
-                          if (!method) return <span className="text-gray-400">-</span>;
-                          const styles: Record<ExitMethodType, string> = {
-                            takeProfit: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
-                            stopLoss: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
-                            manual: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
-                          };
-                          const labels: Record<ExitMethodType, string> = {
-                            takeProfit: 'Take Profit',
-                            stopLoss: 'Stop Loss',
-                            manual: 'Manual',
-                          };
-                          return <span className={`inline-block px-2 py-0.5 text-xs font-medium rounded-full ${styles[method]}`}>{labels[method]}</span>;
-                        })()}
-                      </td>
-                      <td className={`px-5 py-5 border-b border-gray-200 dark:border-gray-700 ${rowBg} text-sm`}>
-                        {(() => {
-                          const ft = trade.final_trigger;
-                          if (!ft) return <span className="text-gray-400">-</span>;
-                          const ftStyles: Record<'takeProfit' | 'stopLoss', string> = {
-                            takeProfit: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
-                            stopLoss: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
-                          };
-                          const ftLabels: Record<'takeProfit' | 'stopLoss', string> = {
-                            takeProfit: 'Take Profit',
-                            stopLoss: 'Stop Loss',
-                          };
-                          return <span className={`inline-block px-2 py-0.5 text-xs font-medium rounded-full ${ftStyles[ft]}`}>{ftLabels[ft]}</span>;
-                        })()}
-                      </td>
-                      <td className={`px-5 py-5 border-b border-gray-200 dark:border-gray-700 ${rowBg} text-sm`}>{formatDuration(trade.entry_time, trade.exit_time)}</td>
-                      <td className={`px-5 py-5 border-b border-gray-200 dark:border-gray-700 ${rowBg} text-sm`}>
-                        {pnl ? (
-                          <span className={`font-semibold ${pnl.pnl >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                            {pnl.pnl >= 0 ? '+' : ''}{pnl.pnl.toFixed(2)}<br /><span className="text-xs font-normal">({pnl.pnlPercent.toFixed(2)}%)</span>
+      <div className="bg-white dark:bg-[#0b0f19] border border-gray-200/80 dark:border-white/10 shadow-sm rounded-2xl overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse leading-normal">
+            <thead>
+              <tr className="bg-gray-50/90 dark:bg-[#070a13] border-b border-gray-200/80 dark:border-white/10 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap">
+                <th className="px-3.5 py-3 whitespace-nowrap">入场时间</th>
+                <th className="px-3 py-3 whitespace-nowrap">标的代码</th>
+                <th className="px-3 py-3 whitespace-nowrap">多空方向</th>
+                <th className="px-3 py-3 whitespace-nowrap">手数</th>
+                <th className="px-3 py-3 whitespace-nowrap">平仓方式</th>
+                <th className="px-3 py-3 whitespace-nowrap">持仓时长</th>
+                <th className="px-3 py-3 whitespace-nowrap">平仓净盈亏</th>
+                <th className="px-3 py-3 whitespace-nowrap">盈亏比</th>
+                <th className="px-3 py-3 whitespace-nowrap">纪律评分</th>
+                <th className="px-3 py-3 whitespace-nowrap">状态</th>
+                <th className="px-3.5 py-3 whitespace-nowrap text-left">操作</th>
+              </tr>
+            </thead>
+            <tbody className="text-gray-900 dark:text-white divide-y divide-gray-100 dark:divide-white/5">
+              {(() => {
+                if (filteredTrades.length > 0) {
+                  return filteredTrades.map((trade) => {
+                    const pnl = calculateTradePnL(trade);
+                    const targetRR = calculateTargetRR(trade);
+                    const isCompleted = !!trade.exitprice;
+                    return (
+                      <tr key={trade.id} className="bg-white dark:bg-[#0b0f19] hover:bg-purple-50/30 dark:hover:bg-white/[0.02] transition-colors whitespace-nowrap">
+                        <td className="px-3.5 py-3 text-xs font-mono text-gray-600 dark:text-gray-400">{formatLocalTime(trade.entry_time)}</td>
+                        <td className="px-3 py-3 text-sm font-bold font-mono tracking-wide text-gray-900 dark:text-white whitespace-nowrap">{trade.symbol}</td>
+                        <td className="px-3 py-3 text-xs">
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded font-mono font-bold text-[11px] ${
+                            trade.direction === 'long' 
+                              ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20' 
+                              : 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20'
+                          }`}>
+                            {trade.direction === 'long' ? '做多 BUY' : '做空 SELL'}
                           </span>
-                        ) : '-'}
-                      </td>
-                      <td className={`px-5 py-5 border-b border-gray-200 dark:border-gray-700 ${rowBg} text-sm`}>
-                        {pnl?.rr != null ? (
-                          <span className={`font-semibold ${pnl.rr >= 1 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>{pnl.rr.toFixed(1)}</span>
-                        ) : '-'}
-                      </td>
-                      <td className={`px-5 py-5 border-b border-gray-200 dark:border-gray-700 ${rowBg} text-sm`}>
-                        <div className="flex items-center">
-                          {[1, 2, 3, 4, 5].map((star) => (
-                            <Star
-                              key={star}
-                              size={14}
-                              className={(trade.rating || 0) >= star ? 'text-yellow-400 fill-yellow-400' : 'text-gray-300 dark:text-gray-600'}
-                            />
-                          ))}
+                        </td>
+                        <td className="px-3 py-3 text-xs font-mono font-semibold text-gray-700 dark:text-gray-300">
+                          {trade.size != null ? trade.size : '-'}
+                        </td>
+                        <td className="px-3 py-3 text-xs whitespace-nowrap">
+                          {(() => {
+                            const method = calculateExitMethod(trade);
+                            if (!method) return <span className="text-gray-400">-</span>;
+                            const styles: Record<ExitMethodType, string> = {
+                              takeProfit: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/50',
+                              stopLoss: 'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300 border border-rose-200 dark:border-rose-800/50',
+                              manual: 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 border border-amber-200 dark:border-amber-800/50',
+                            };
+                            const labels: Record<ExitMethodType, string> = {
+                              takeProfit: '止盈触发',
+                              stopLoss: '止损触发',
+                              manual: '手动平仓',
+                            };
+                            return <span className={`inline-block px-2 py-0.5 text-[11px] font-medium rounded-md ${styles[method]}`}>{labels[method]}</span>;
+                          })()}
+                        </td>
+                        <td className="px-3 py-3 text-xs font-mono font-semibold text-gray-700 dark:text-gray-300">
+                          {formatDuration(trade.entry_time, trade.exit_time)}
+                        </td>
+                        <td className="px-3 py-3 text-xs">
+                          {pnl ? (
+                            <div className={`font-mono font-bold text-sm ${pnl.pnl >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                              {pnl.pnl >= 0 ? '+' : ''}${pnl.pnl.toFixed(2)}
+                              <span className="text-[11px] font-normal opacity-75 block">({pnl.pnlPercent.toFixed(2)}%)</span>
+                            </div>
+                          ) : <span className="text-gray-400">-</span>}
+                        </td>
+                        <td className="px-3 py-3 text-xs font-mono font-semibold text-gray-700 dark:text-gray-300">
+                          {pnl?.rr != null ? `${pnl.rr.toFixed(1)}R` : '-'}
+                        </td>
+                        <td className="px-3 py-3 text-xs">
+                          <button
+                            type="button"
+                            onClick={() => setRatingModalTrade(trade)}
+                            className="group/rating flex items-center p-1 -m-1 rounded-lg hover:bg-amber-500/10 dark:hover:bg-amber-500/20 transition-all cursor-pointer focus:outline-none focus:ring-2 focus:ring-amber-500/40"
+                            title="点击设置交易纪律评分"
+                          >
+                            <div className="flex items-center space-x-0.5">
+                              {[1, 2, 3, 4, 5].map((star) => (
+                                <Star
+                                  key={star}
+                                  size={13}
+                                  className={`transition-all duration-150 group-hover/rating:scale-110 ${
+                                    (trade.rating || 0) >= star 
+                                      ? 'text-amber-400 fill-amber-400 drop-shadow-[0_0_2px_rgba(251,191,36,0.5)]' 
+                                      : 'text-gray-200 dark:text-gray-700'
+                                  }`}
+                                />
+                              ))}
+                            </div>
+                          </button>
+                        </td>
+                        <td className="px-3 py-3 text-xs whitespace-nowrap">
+                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-medium ${
+                            isCompleted 
+                              ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60' 
+                              : 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 border border-amber-200 dark:border-amber-800/60'
+                          }`}>
+                            <span className={`w-1.5 h-1.5 rounded-full mr-1.5 ${isCompleted ? 'bg-emerald-500' : 'bg-amber-500 animate-pulse'}`} />
+                            {isCompleted ? '已平仓' : '持仓中'}
+                          </span>
+                        </td>
+                        <td className="px-3.5 py-3 text-xs text-left">
+                          <div className="flex items-center justify-start space-x-1.5">
+                            <button
+                              type="button"
+                              onClick={() => setChartModalTrade(trade)}
+                              className="px-2 py-1 text-xs font-medium text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 border border-emerald-200 dark:border-emerald-800/60 rounded-lg transition flex items-center space-x-1"
+                              title="在 TradingView K 线上查看买卖打点"
+                            >
+                              <BarChart2 className="w-3 h-3" />
+                              <span>K线</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDetailClick(trade)}
+                              className="px-2 py-1 text-xs font-medium text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-950/40 hover:bg-purple-100 dark:hover:bg-purple-900/40 border border-purple-200 dark:border-purple-800/60 rounded-lg transition"
+                            >
+                              详情
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleEditClick(trade)}
+                              className="px-2 py-1 text-xs font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-white/5 hover:bg-gray-200 dark:hover:bg-white/10 border border-gray-200 dark:border-white/10 rounded-lg transition"
+                            >
+                              编辑
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  });
+                }
+                return (
+                  <tr>
+                    <td colSpan={11} className="text-center py-12 text-gray-500 dark:text-gray-400">
+                      {loading ? '正在加载交易数据...' : (
+                        <div className="flex flex-col items-center justify-center space-y-2.5">
+                          <p className="text-sm font-semibold text-gray-700 dark:text-gray-200">暂无交易记录</p>
+                          <p className="text-xs text-gray-400 max-w-md">
+                            当前筛选条件下暂无交易数据，您可以连接本地 MT5 终端一键同步，或上传 MT5 / MT4 报表 CSV。
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => setShowUploader(true)}
+                            className="mt-1 px-4 py-2 text-xs font-semibold text-white bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 rounded-xl shadow-sm transition flex items-center space-x-1.5"
+                          >
+                            <RefreshCw className="w-3.5 h-3.5" />
+                            <span>立即同步实盘订单 / 导入 CSV 报表</span>
+                          </button>
                         </div>
-                      </td>
-                      <td className={`px-5 py-5 border-b border-gray-200 dark:border-gray-700 ${rowBg} text-sm whitespace-nowrap`}>
-                        <span className={`inline-block px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap ${isCompleted ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' : 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400'}`}>
-                          {isCompleted ? 'Completed' : 'In Progress'}
-                        </span>
-                      </td>
-                      <td className={`px-5 py-5 border-b border-gray-200 dark:border-gray-700 ${rowBg} text-sm`}>
-                        <div className="flex items-center justify-start">
-                          <Button variant="primary" className="mx-1 text-xs w-16 py-1 px-0 flex items-center justify-center" onClick={() => handleDetailClick(trade)}>Detail</Button>
-                          <Button variant="primary" className="mx-1 text-xs w-16 py-1 px-0 flex items-center justify-center" onClick={() => handleEditClick(trade)}>Edit</Button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                });
-              }
-              return (
-                <tr>
-                  <td colSpan={11} className="text-center py-10 text-gray-500 dark:text-gray-400">No trades found.</td>
-                </tr>
-              );
-            })()}
-          </tbody>
-        </table>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })()}
+            </tbody>
+          </table>
+        </div>
       </div>
+      {/* Trade Execution Chart Modal (TradingView 独立弹窗) */}
+      {chartModalTrade && (
+        <>
+          <div
+            className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs transition-opacity"
+            onClick={() => setChartModalTrade(null)}
+          />
+          <div className="fixed inset-4 sm:inset-10 lg:inset-20 z-50 flex flex-col bg-white dark:bg-[#0b0f19] rounded-2xl shadow-2xl border border-gray-200 dark:border-white/10 overflow-hidden">
+            <div className="flex items-center justify-between p-4 border-b border-gray-100 dark:border-white/10 bg-gray-50/50 dark:bg-white/[0.02]">
+              <div className="flex items-center space-x-3">
+                <span className="p-2 rounded-xl bg-purple-100 dark:bg-purple-950/60 text-purple-600 dark:text-purple-400">
+                  <BarChart2 className="w-5 h-5" />
+                </span>
+                <div>
+                  <h3 className="text-base font-bold text-gray-900 dark:text-white flex items-center space-x-2">
+                    <span>{chartModalTrade.symbol} 交易执行打点与行情走势</span>
+                    <span className="text-xs px-2 py-0.5 rounded font-mono font-bold bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300">
+                      #{chartModalTrade.id}
+                    </span>
+                  </h3>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 font-mono">
+                    入场: {chartModalTrade.entryprice} | 出场: {chartModalTrade.exitprice || '-'} | 规模: {chartModalTrade.size}手
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setChartModalTrade(null)}
+                className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 rounded-xl hover:bg-gray-100 dark:hover:bg-white/5 transition"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <div className="flex-1 p-4 overflow-hidden">
+              <TradeExecutionChart
+                symbol={chartModalTrade.symbol}
+                direction={chartModalTrade.direction}
+                entryPrice={chartModalTrade.entryprice}
+                exitPrice={chartModalTrade.exitprice}
+                stopLoss={chartModalTrade.stop_loss}
+                takeProfit={chartModalTrade.take_profit}
+                entryTime={chartModalTrade.entry_time}
+                exitTime={chartModalTrade.exit_time}
+                size={chartModalTrade.size}
+                profit={calculateTradePnL(chartModalTrade)?.pnl}
+                pnlPercent={calculateTradePnL(chartModalTrade)?.pnlPercent}
+                notes={chartModalTrade.notes}
+                sentiment={chartModalTrade.sentiment}
+                tags={chartModalTrade.tags}
+                session={chartModalTrade.session}
+                exitReason={calculateExitMethod(chartModalTrade) || undefined}
+                height={520}
+                className="h-full"
+              />
+            </div>
+          </div>
+        </>
+      )}
+      {/* Quick Trade Discipline Rating Modal */}
+      <TradeRatingModal
+        isOpen={!!ratingModalTrade}
+        trade={ratingModalTrade}
+        onClose={() => setRatingModalTrade(null)}
+        onSaveRating={handleSaveRating}
+      />
     </div>
   );
 };

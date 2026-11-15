@@ -1,0 +1,187 @@
+#!/usr/bin/env python3
+import sys
+import io
+import json
+import argparse
+import datetime
+import re
+from collections import defaultdict
+import MetaTrader5 as mt5
+
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8')
+    sys.stderr.reconfigure(encoding='utf-8')
+
+def parse_sl_tp(comment):
+    sl = None
+    tp = None
+    if not comment:
+        return sl, tp
+    
+    sl_match = re.search(r'\[sl\s+([\d\.]+)\]', comment, re.IGNORECASE)
+    if sl_match:
+        try:
+            sl = float(sl_match.group(1))
+        except ValueError:
+            pass
+            
+    tp_match = re.search(r'\[tp\s+([\d\.]+)\]', comment, re.IGNORECASE)
+    if tp_match:
+        try:
+            tp = float(tp_match.group(1))
+        except ValueError:
+            pass
+            
+    return sl, tp
+
+def format_iso_time(ts):
+    if not ts:
+        return None
+    dt = datetime.datetime.fromtimestamp(ts)
+    return dt.strftime('%Y-%m-%dT%H:%M:%S')
+
+def sync_trades(days=30, limit=None, all_history=False):
+    if not mt5.initialize():
+        return {
+            "success": False,
+            "error": f"Failed to initialize MT5: {mt5.last_error()}"
+        }
+
+    try:
+        now = datetime.datetime.now()
+        if all_history:
+            from_dt = datetime.datetime(2020, 1, 1)
+        else:
+            from_dt = now - datetime.timedelta(days=days)
+
+        deals = mt5.history_deals_get(from_dt, now)
+        if deals is None:
+            return {
+                "success": True,
+                "count": 0,
+                "trades": []
+            }
+
+        # Group deals by position_id
+        pos_map = defaultdict(list)
+        for deal in deals:
+            if deal.symbol and deal.position_id > 0:
+                pos_map[deal.position_id].append(deal)
+
+        trades = []
+        for pos_id, deal_list in pos_map.items():
+            in_deals = [d for d in deal_list if d.entry == 0]
+            out_deals = [d for d in deal_list if d.entry in (1, 2, 3)]
+
+            # Only process closed or partially closed trades
+            if not in_deals or not out_deals:
+                continue
+
+            first_in = in_deals[0]
+            last_out = out_deals[-1]
+
+            total_in_vol = sum(d.volume for d in in_deals)
+            total_out_vol = sum(d.volume for d in out_deals)
+            if total_in_vol <= 0 or total_out_vol <= 0:
+                continue
+
+            entry_price = sum(d.volume * d.price for d in in_deals) / total_in_vol
+            exit_price = sum(d.volume * d.price for d in out_deals) / total_out_vol
+
+            # 0: DEAL_TYPE_BUY, 1: DEAL_TYPE_SELL
+            direction = 'long' if first_in.type == 0 else 'short'
+            
+            # Net profit = profit + swap + commission + fee
+            total_profit = sum(d.profit + d.swap + d.commission + getattr(d, 'fee', 0.0) for d in deal_list)
+            
+            # SL / TP parsing
+            all_comments = " ".join(filter(None, [d.comment for d in deal_list]))
+            sl, tp = parse_sl_tp(all_comments)
+
+            final_trigger = None
+            if '[sl' in all_comments.lower() or any(d.reason == 4 for d in out_deals):
+                final_trigger = 'stopLoss'
+            elif '[tp' in all_comments.lower() or any(d.reason == 5 for d in out_deals):
+                final_trigger = 'takeProfit'
+
+            entry_iso = format_iso_time(first_in.time)
+            exit_iso = format_iso_time(last_out.time)
+
+            trade = {
+                "ticket": str(pos_id),
+                "positionId": str(pos_id),
+                "symbol": first_in.symbol,
+                "direction": direction,
+                "size": round(min(total_in_vol, total_out_vol), 4),
+                "entryPrice": round(entry_price, 5),
+                "exitPrice": round(exit_price, 5),
+                "entryTime": entry_iso,
+                "exitTime": exit_iso,
+                "tradeDate": entry_iso,
+                "manualPnl": round(total_profit, 2),
+                "stopLoss": round(sl, 5) if sl else None,
+                "takeProfit": round(tp, 5) if tp else None,
+                "notes": f"MT5 Position #{pos_id}{(' | ' + all_comments.strip()) if all_comments.strip() else ''}",
+                "tags": ["MT5", first_in.symbol],
+                "finalTrigger": final_trigger
+            }
+            trades.append(trade)
+
+        # Sort by exit time descending (most recent first)
+        trades.sort(key=lambda x: x["exitTime"] or "", reverse=True)
+
+        if limit and limit > 0:
+            trades = trades[:limit]
+
+        return {
+            "success": True,
+            "count": len(trades),
+            "trades": trades
+        }
+
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e)
+        }
+    finally:
+        mt5.shutdown()
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description="Sync closed trades from MT5")
+    parser.add_argument("--days", type=int, default=30, help="Days of history to fetch")
+    parser.add_argument("--all", action="store_true", help="Fetch all history")
+    parser.add_argument("--limit", type=int, default=None, help="Limit number of trades")
+    parser.add_argument("--csv", type=str, default=None, help="Export to CSV file path")
+    parser.add_argument("--json", action="store_true", help="Output JSON to stdout")
+
+    args = parser.parse_args()
+
+    result = sync_trades(days=args.days, limit=args.limit, all_history=args.all)
+
+    if args.csv and result.get("success") and result.get("trades"):
+        import csv
+        with open(args.csv, 'w', newline='', encoding='utf-8-sig') as f:
+            fieldnames = ["symbol", "direction", "size", "entryPrice", "exitPrice", "entryTime", "exitTime", "manualPnl", "stopLoss", "takeProfit", "notes", "tags", "finalTrigger"]
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            for t in result["trades"]:
+                writer.writerow({
+                    "symbol": t["symbol"],
+                    "direction": t["direction"],
+                    "size": t["size"],
+                    "entryPrice": t["entryPrice"],
+                    "exitPrice": t["exitPrice"],
+                    "entryTime": t["entryTime"],
+                    "exitTime": t["exitTime"],
+                    "manualPnl": t["manualPnl"],
+                    "stopLoss": t["stopLoss"] or "",
+                    "takeProfit": t["takeProfit"] or "",
+                    "notes": t["notes"],
+                    "tags": ",".join(t["tags"]),
+                    "finalTrigger": t["finalTrigger"] or ""
+                })
+        print(f"Exported {len(result['trades'])} trades to {args.csv}")
+
+    if args.json or not args.csv:
+        print(json.dumps(result, ensure_ascii=False))

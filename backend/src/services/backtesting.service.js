@@ -1,4 +1,12 @@
 import { BacktestingModel } from '../models/backtesting.model.js';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const execFileAsync = promisify(execFile);
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 export class BacktestingService {
   static async createBacktestingResult(backtestingData) {
@@ -17,60 +25,77 @@ export class BacktestingService {
     return await BacktestingModel.delete(id, userId);
   }
 
-  // Simulate a backtesting process (in a real implementation, this would connect to market data)
-  static async runBacktest({ userId, strategy, startDate, endDate, initialCapital }) {
-    // This is a simplified simulation - in a real implementation, this would:
-    // 1. Connect to market data sources
-    // 2. Apply the strategy to historical data
-    // 3. Calculate performance metrics
-    
-    // Simulated results for demonstration
-    const totalTrades = Math.floor(Math.random() * 100) + 50;
-    const winningTrades = Math.floor(totalTrades * (0.4 + Math.random() * 0.3));
-    const losingTrades = totalTrades - winningTrades;
-    const winRate = (winningTrades / totalTrades) * 100;
-    
-    // Simulate profit/loss calculations
-    const avgWin = initialCapital * 0.02;
-    const avgLoss = initialCapital * 0.015;
-    const totalProfit = (winningTrades * avgWin) - (losingTrades * avgLoss);
-    const finalCapital = initialCapital + totalProfit;
-    
-    // Calculate performance metrics
-    const profitFactor = winningTrades > 0 ? (winningTrades * avgWin) / (losingTrades * avgLoss || 1) : 0;
-    const maxDrawdown = (Math.random() * 10).toFixed(2);
-    const sharpeRatio = (Math.random() * 2).toFixed(2);
-    
-    const results = {
-      trades: Array.from({ length: totalTrades }, (_, i) => ({
-        id: i + 1,
-        date: new Date(startDate).setDate(new Date(startDate).getDate() + i),
-        symbol: ['AAPL', 'GOOGL', 'MSFT', 'AMZN'][Math.floor(Math.random() * 4)],
-        direction: Math.random() > 0.5 ? 'buy' : 'sell',
-        size: Math.floor(Math.random() * 100) + 1,
-        entryPrice: 100 + (Math.random() * 50),
-        exitPrice: 100 + (Math.random() * 50),
-        profit: (Math.random() * 1000) - 500,
-        commission: Math.random() * 10
-      }))
-    };
-
-    return {
+  /**
+   * Run backtest via the Python MT5 Backtesting Engine
+   */
+  static async runBacktest(backtestConfig) {
+    const {
       userId,
-      name: `Backtest: ${new Date().toISOString()}`,
-      strategy,
+      strategy = 'ma_crossover',
+      symbol = 'EURUSD',
+      timeframe = 'H1',
       startDate,
       endDate,
-      initialCapital,
-      finalCapital,
-      totalTrades,
-      winningTrades,
-      losingTrades,
-      winRate: winRate.toFixed(2),
-      profitFactor: profitFactor.toFixed(2),
-      maxDrawdown,
-      sharpeRatio,
-      results
-    };
+      initialCapital = 10000,
+      parameters = {},
+    } = backtestConfig;
+
+    const scriptPath = path.join(__dirname, '../../scripts/mt5_backtest_engine.py');
+    const configPayload = JSON.stringify({
+      strategy,
+      symbol,
+      timeframe,
+      startDate: startDate || new Date(Date.now() - 90 * 86400000).toISOString().split('T')[0],
+      endDate: endDate || new Date().toISOString().split('T')[0],
+      initialCapital: parseFloat(initialCapital),
+      parameters,
+    });
+
+    try {
+      const { stdout, stderr } = await execFileAsync('python', [scriptPath, '--config', configPayload], {
+        maxBuffer: 25 * 1024 * 1024,
+        env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
+      });
+
+      if (!stdout || !stdout.trim()) {
+        throw new Error(stderr || 'No output received from backtest engine');
+      }
+
+      const engineResult = JSON.parse(stdout);
+      if (!engineResult.success) {
+        throw new Error(engineResult.error || 'Backtest failed');
+      }
+
+      return {
+        userId,
+        playbookId: backtestConfig.playbookId || null,
+        name: engineResult.name || `Backtest: ${strategy} on ${symbol}`,
+        strategy: engineResult.strategy || strategy,
+        startDate: engineResult.startDate,
+        endDate: engineResult.endDate,
+        initialCapital: engineResult.initialCapital,
+        finalCapital: engineResult.finalCapital,
+        totalTrades: engineResult.totalTrades,
+        winningTrades: engineResult.winningTrades,
+        losingTrades: engineResult.losingTrades,
+        winRate: engineResult.winRate,
+        profitFactor: engineResult.profitFactor,
+        maxDrawdown: engineResult.maxDrawdown,
+        sharpeRatio: engineResult.sharpeRatio,
+        results: {
+          symbol: engineResult.symbol,
+          timeframe: engineResult.timeframe,
+          dataSource: engineResult.dataSource,
+          netProfit: engineResult.netProfit,
+          returnPct: engineResult.returnPct,
+          equityCurve: engineResult.equityCurve,
+          trades: engineResult.trades,
+          totalBars: engineResult.totalBars,
+        },
+      };
+    } catch (err) {
+      console.error('Error executing backtest engine:', err);
+      throw new Error(`Backtest execution failed: ${err.message}`);
+    }
   }
 }

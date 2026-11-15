@@ -15,16 +15,16 @@ const ResetPasswordPage: React.FC = () => {
 
   const handleResetPassword = async () => {
     if (password !== confirmPassword) {
-      setError('Passwords do not match.');
+      setError('两次输入的密码不一致');
       return;
     }
     try {
       await axios.post(`${API_BASE_URL}/api/auth/reset-password`, { token, password });
-      setMessage('Your password has been successfully reset. You can now log in with your new password.');
+      setMessage('密码已成功重置！您现在可以使用新密码登录系统。');
       setError('');
       setTimeout(() => navigate('/login'), 5000);
     } catch (err: any) {
-      setError(err.response?.data?.message || 'An error occurred.');
+      setError(err.response?.data?.message || '重置密码失败，请重试或链接已过期。');
       setMessage('');
     }
   };
@@ -33,21 +33,21 @@ const ResetPasswordPage: React.FC = () => {
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
         <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900 dark:text-white">
-          Reset your password
+          重置您的密码
         </h2>
       </div>
 
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
         <div className="bg-white dark:bg-gray-800 py-8 px-4 shadow sm:rounded-lg sm:px-10">
           <div className="space-y-6">
-            {error && <p className="text-red-500 text-center">{error}</p>}
-            {message && <p className="text-green-500 text-center">{message}</p>}
+            {error && <p className="text-red-500 text-center text-sm">{error}</p>}
+            {message && <p className="text-green-500 text-center text-sm">{message}</p>}
             <div>
               <label
                 htmlFor="password"
                 className="block text-sm font-medium text-gray-700 dark:text-gray-300"
               >
-                New password
+                设置新密码
               </label>
               <div className="mt-1">
                 <input
@@ -55,6 +55,7 @@ const ResetPasswordPage: React.FC = () => {
                   name="password"
                   type="password"
                   required
+                  placeholder="请输入至少6位新密码"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white"
@@ -67,7 +68,7 @@ const ResetPasswordPage: React.FC = () => {
                 htmlFor="confirm-password"
                 className="block text-sm font-medium text-gray-700 dark:text-gray-300"
               >
-                Confirm new password
+                确认新密码
               </label>
               <div className="mt-1">
                 <input
@@ -75,6 +76,7 @@ const ResetPasswordPage: React.FC = () => {
                   name="confirm-password"
                   type="password"
                   required
+                  placeholder="请再次输入新密码"
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white"
@@ -84,12 +86,12 @@ const ResetPasswordPage: React.FC = () => {
 
             <div>
               <Button variant="gradient" className="w-full" onClick={handleResetPassword}>
-                Reset password
+                确认重置密码
               </Button>
             </div>
             <div className="text-sm text-center">
                 <Link to="/login" className="font-medium text-purple-600 hover:text-purple-500">
-                  Return to login
+                  返回登录
                 </Link>
               </div>
           </div>

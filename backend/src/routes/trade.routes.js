@@ -6,7 +6,8 @@ import { validate, tradeValidationRules, updateTradeValidationRules } from '../m
 
 const router = Router();
 const storage = multer.memoryStorage();
-const upload = multer({
+
+const imageUpload = multer({
   storage,
   fileFilter: (req, file, cb) => {
     const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
@@ -19,15 +20,23 @@ const upload = multer({
   limits: { fileSize: 5 * 1024 * 1024 },
 });
 
-// Protect all routes in this file
-// router.use(protect); // Removed global protect
+const csvUpload = multer({
+  storage,
+  limits: { fileSize: 20 * 1024 * 1024 },
+});
+
+// MT5 direct integration routes
+router.get('/mt5/status', protect, TradeController.getMT5Status);
+router.post('/mt5/sync', protect, TradeController.syncMT5Trades);
 
 router.route('/')
   .get(protect, TradeController.getTrades)
   .post(protect, tradeValidationRules(), validate, TradeController.createTrade);
 
-router.post('/upload', protect, upload.single('file'), TradeController.uploadTrades);
-router.post('/screenshots', protect, upload.single('file'), TradeController.uploadScreenshot);
+router.post('/bulk', protect, TradeController.createBulkTrades);
+
+router.post('/upload', protect, csvUpload.single('file'), TradeController.uploadTrades);
+router.post('/screenshots', protect, imageUpload.single('file'), TradeController.uploadScreenshot);
 
 router.route('/:id')
   .get(protect, TradeController.getTrade)

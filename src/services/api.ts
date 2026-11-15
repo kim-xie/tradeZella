@@ -154,6 +154,20 @@ export const createTrade = async (token: string, tradeData: CreateTradeData) => 
   }
 };
 
+export const createBulkTrades = async (token: string, trades: CreateTradeData[]) => {
+  try {
+    const response = await apiClient.post('/trades/bulk', { trades }, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    return response.data.data;
+  } catch (error) {
+    console.error('Error creating bulk trades:', error);
+    throw error;
+  }
+};
+
 export const updateTrade = async (token: string, tradeId: number, tradeData: Partial<CreateTradeData>) => {
   try {
     const response = await apiClient.put(`/trades/${tradeId}`, tradeData, {
@@ -192,3 +206,233 @@ export const uploadScreenshot = async (token: string, file: File) => {
     throw error;
   }
 };
+
+// ============================================================
+// MT5 及回测相关 API
+// ============================================================
+
+export interface MT5StatusData {
+  connected: boolean;
+  terminal?: {
+    name: string;
+    company: string;
+    connected: boolean;
+    build: number;
+    path: string;
+  };
+  account?: {
+    login: number;
+    server: string;
+    balance: number;
+    equity: number;
+    currency: string;
+    leverage: number;
+    name: string;
+    company: string;
+  };
+  symbolsTotal?: number;
+  popularSymbols?: string[];
+  allSymbols?: string[];
+  error?: string;
+}
+
+export interface RunBacktestParams {
+  strategy: string;
+  symbol: string;
+  timeframe: string;
+  startDate?: string;
+  endDate?: string;
+  initialCapital?: number;
+  parameters?: Record<string, any>;
+}
+
+export interface BacktestTradeItem {
+  id: number;
+  date: string;
+  entryTime: string;
+  exitTime: string;
+  symbol: string;
+  direction: string;
+  size: number;
+  entryPrice: number;
+  exitPrice: number;
+  stopLoss?: number;
+  takeProfit?: number;
+  profit: number;
+  commission: number;
+  pnlPercent: number;
+  exitReason?: string;
+}
+
+export interface BacktestRecord {
+  id: number | string;
+  userId?: number;
+  name: string;
+  strategy: string;
+  startDate: string;
+  endDate: string;
+  initialCapital: number;
+  finalCapital: number;
+  totalTrades: number;
+  winningTrades: number;
+  losingTrades: number;
+  winRate: number;
+  profitFactor: number;
+  maxDrawdown: number;
+  sharpeRatio: number;
+  results: {
+    symbol?: string;
+    timeframe?: string;
+    dataSource?: string;
+    netProfit?: number;
+    returnPct?: number;
+    equityCurve?: Array<{ time: string; capital: number; drawdown: number }>;
+    trades?: BacktestTradeItem[];
+    totalBars?: number;
+  };
+  createdAt: string;
+}
+
+export interface CandleItem {
+  time: string;
+  timestamp: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+}
+
+export interface CandlesResponse {
+  success: boolean;
+  symbol: string;
+  timeframe: string;
+  contractSize: number;
+  dataSource: string;
+  count: number;
+  candles: CandleItem[];
+}
+
+/**
+ * 从 MT5 获取指定品种与周期的历史 K 线数据（用于手动重播与回测）
+ */
+export const fetchCandles = async (params: { symbol: string; timeframe: string; count?: number; start?: string }): Promise<CandlesResponse> => {
+  try {
+    const response = await apiClient.get('/backtesting/candles', { params });
+    return response.data;
+  } catch (error: any) {
+    console.error('Failed to fetch candles:', error);
+    throw new Error(error.response?.data?.message || 'Failed to fetch candles');
+  }
+};
+
+/**
+ * 获取本地 MT5 终端运行状态、账户信息与支持品种
+ */
+export const getMT5Status = async (): Promise<MT5StatusData> => {
+  try {
+    const response = await apiClient.get('/trades/mt5/status');
+    return response.data.data;
+  } catch (error: any) {
+    console.warn('Failed to fetch MT5 status:', error);
+    return {
+      connected: false,
+      error: error.response?.data?.message || error.message,
+    };
+  }
+};
+
+/**
+ * 一键直连同步本地 MT5 终端的历史平仓交易记录
+ */
+export const syncMT5Trades = async (options?: { days?: number; all?: boolean; limit?: number }) => {
+  try {
+    const response = await apiClient.post('/trades/mt5/sync', options || { days: 30 });
+    return response.data;
+  } catch (error: any) {
+    console.error('Failed to sync MT5 trades:', error);
+    throw new Error(error.response?.data?.message || 'Failed to sync trades from MT5');
+  }
+};
+
+/**
+ * 获取所有已保存的回测历史记录
+ */
+export const getBacktestingResults = async (): Promise<BacktestRecord[]> => {
+  try {
+    const response = await apiClient.get('/backtesting');
+    return response.data.data;
+  } catch (error: any) {
+    console.error('Failed to fetch backtest results:', error);
+    throw error;
+  }
+};
+
+/**
+ * 运行新的量化策略回测（基于 MT5 真实行情数据）
+ */
+export const runBacktestApi = async (params: RunBacktestParams): Promise<BacktestRecord> => {
+  try {
+    const response = await apiClient.post('/backtesting', params);
+    return response.data.data;
+  } catch (error: any) {
+    console.error('Failed to run backtest:', error);
+    throw new Error(error.response?.data?.message || 'Backtest execution failed');
+  }
+};
+
+/**
+ * 删除指定回测记录
+ */
+export const deleteBacktest = async (id: string | number): Promise<void> => {
+  try {
+    await apiClient.delete(`/backtesting/${id}`);
+  } catch (error: any) {
+    console.error('Failed to delete backtest:', error);
+    throw error;
+  }
+};
+
+// 券商/交易所集成相关 API
+export interface BrokerConnectionData {
+  id: string;
+  userId?: string;
+  brokerName: string;
+  brokerType?: string;
+  connectionDetails?: any;
+  isActive?: boolean;
+  lastSync?: string;
+  syncStatus?: 'success' | 'failed' | 'in-progress';
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export const getBrokerConnections = async (): Promise<BrokerConnectionData[]> => {
+  try {
+    const response = await apiClient.get('/brokers');
+    return response.data?.data || [];
+  } catch (error) {
+    console.warn('Failed to fetch broker connections:', error);
+    return [];
+  }
+};
+
+export const createBrokerConnection = async (data: {
+  brokerName: string;
+  brokerType?: string;
+  connectionDetails: any;
+}): Promise<BrokerConnectionData> => {
+  const response = await apiClient.post('/brokers', data);
+  return response.data?.data;
+};
+
+export const deleteBrokerConnection = async (id: string): Promise<void> => {
+  await apiClient.delete(`/brokers/${id}`);
+};
+
+export const syncBrokerConnection = async (id: string): Promise<any> => {
+  const response = await apiClient.post(`/brokers/${id}/sync`);
+  return response.data;
+};
+
+

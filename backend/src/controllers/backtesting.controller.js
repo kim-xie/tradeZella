@@ -1,6 +1,56 @@
 import { BacktestingService } from '../services/backtesting.service.js';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const execFileAsync = promisify(execFile);
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 export class BacktestingController {
+  static async getCandles(req, res, next) {
+    try {
+      const { symbol = 'EURUSD', timeframe = 'H1', count = 300, start } = req.query;
+      const scriptPath = path.join(__dirname, '../../scripts/mt5_candles.py');
+      const args = [scriptPath, '--symbol', symbol, '--timeframe', timeframe, '--count', String(count)];
+      if (start) args.push('--start', start);
+
+      const { stdout } = await execFileAsync('python', args, {
+        maxBuffer: 15 * 1024 * 1024,
+        env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
+      });
+      const data = JSON.parse(stdout);
+      res.status(200).json(data);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  static async getMT5Status(req, res, next) {
+    try {
+      const scriptPath = path.join(__dirname, '../../scripts/mt5_status.py');
+      const { stdout } = await execFileAsync('python', [scriptPath], {
+        timeout: 10000,
+        env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
+      });
+      const data = JSON.parse(stdout);
+      res.status(200).json({
+        success: true,
+        data,
+      });
+    } catch (error) {
+      console.warn('MT5 status check failed:', error.message);
+      res.status(200).json({
+        success: true,
+        data: {
+          connected: false,
+          error: error.message,
+        },
+      });
+    }
+  }
+
   static async runBacktest(req, res, next) {
     try {
       const backtestData = { ...req.body, userId: req.user.id };

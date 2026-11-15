@@ -11,12 +11,11 @@ const ForgotPasswordPage: React.FC = () => {
 
   const handleForgotPassword = async () => {
     try {
-      // This is a placeholder for the actual API call
       await axios.post(`${API_BASE_URL}/api/auth/forgot-password`, { email });
-      setMessage('If an account with that email exists, a password reset link has been sent.');
+      setMessage('若该邮箱已注册，密码重置邮件已发送至您的邮箱，请查收。');
       setError('');
     } catch (err: any) {
-      setError(err.response?.data?.message || 'An error occurred.');
+      setError(err.response?.data?.message || '发送失败，请稍后重试。');
       setMessage('');
     }
   };
@@ -25,10 +24,10 @@ const ForgotPasswordPage: React.FC = () => {
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
         <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900 dark:text-white">
-          Forgot your password?
+          找回 / 重置密码
         </h2>
         <p className="mt-2 text-center text-sm text-gray-600 dark:text-gray-400">
-          Enter your email address and we will send you a link to reset your password.
+          输入您注册时的邮箱地址，我们将向您发送重置密码的邮件链接。
         </p>
       </div>
 
@@ -39,7 +38,7 @@ const ForgotPasswordPage: React.FC = () => {
             {message && <p className="text-green-500 text-center">{message}</p>}
             <div>
               <label htmlFor="email" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                Email address
+                注册邮箱地址
               </label>
               <div className="mt-1">
                 <input
@@ -48,6 +47,7 @@ const ForgotPasswordPage: React.FC = () => {
                   type="email"
                   autoComplete="email"
                   required
+                  placeholder="yourname@domain.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white"
@@ -56,14 +56,14 @@ const ForgotPasswordPage: React.FC = () => {
             </div>
 
             <div>
-              <Button variant="gradient" className="w-full" onClick={handleForgotPassword}>
-                Send reset link
+              <Button variant="gradient" className="w-full py-2.5 font-bold" onClick={handleForgotPassword}>
+                发送密码重置邮件
               </Button>
             </div>
 
             <div className="text-sm text-center">
                 <Link to="/login" className="font-medium text-purple-600 hover:text-purple-500">
-                  Return to login
+                  返回登录页面
                 </Link>
               </div>
           </div>

@@ -56,7 +56,7 @@ app.use(passport.session());
 
 // Routes
 app.get('/', (req, res) => {
-  res.send('TradeZella Backend is running!');
+  res.send('TradeZen Backend is running!');
 });
 
 app.use('/api/auth', authRouter);

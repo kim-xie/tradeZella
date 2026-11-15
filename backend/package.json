@@ -1,7 +1,8 @@
 {
-  "name": "vite-react-typescript-starter",
+  "name": "tradezen-backend",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
+  "description": "TradeZen API Backend",
   "type": "module",
   "scripts": {
     "dev": "nodemon src/index.js",

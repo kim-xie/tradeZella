@@ -12,17 +12,17 @@ interface SEOProps {
 }
 
 const SEO: React.FC<SEOProps> = ({
-  title = 'TradeZella - Trading Journal & Community Platform',
-  description = 'The ultimate trading journal and community platform. Track your trades, analyze performance, and connect with fellow traders to improve your profitability.',
-  keywords = 'trading journal, trade analysis, trading community, backtesting, playbooks, broker integration, trading performance, trade tracking',
+  title = 'TradeZen - 知行合一 交易管理与复盘系统',
+  description = 'TradeZen 是专为交易者打造的交易管理大师平台。集成交易日志、知行纪律与情绪分析、多维数据统计、逐根K线复盘与实盘直连同步。',
+  keywords = 'TradeZen, 交易日志, 交易复盘, 交易管理, 模拟回测, 情绪追踪, 知行合一, 交易数据分析, trading journal',
   image = '/assets/1.png',
-  url = 'https://tradezella.com/',
-  author = 'TradeZella',
+  url = 'https://tradezen.app/',
+  author = 'TradeZen',
   type = 'website'
 }) => {
-  const fullTitle = title === 'TradeZella - Trading Journal & Community Platform' 
+  const fullTitle = title === 'TradeZen - 知行合一 交易管理与复盘系统' 
     ? title 
-    : `${title} | TradeZella - Trading Journal & Community Platform`;
+    : `${title} | TradeZen`;
 
   return (
     <Helmet>
@@ -40,7 +40,7 @@ const SEO: React.FC<SEOProps> = ({
       <meta property="og:title" content={fullTitle} />
       <meta property="og:description" content={description} />
       <meta property="og:image" content={image} />
-      <meta property="og:site_name" content="TradeZella" />
+      <meta property="og:site_name" content="TradeZen" />
       
       {/* Twitter */}
       <meta property="twitter:card" content="summary_large_image" />

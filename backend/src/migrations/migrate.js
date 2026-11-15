@@ -49,7 +49,14 @@ async function runMigrations() {
 }
 
 // Run migrations if this file is executed directly
-if (import.meta.url === `file://${process.argv[1]}`) {
+const isDirectExecution = () => {
+  if (!process.argv[1]) return false;
+  const currentPath = fileURLToPath(import.meta.url).replace(/\\/g, '/').toLowerCase();
+  const execPath = path.resolve(process.argv[1]).replace(/\\/g, '/').toLowerCase();
+  return currentPath === execPath;
+};
+
+if (isDirectExecution()) {
   runMigrations().catch(err => {
     console.error('Migration error:', err);
     process.exit(1);

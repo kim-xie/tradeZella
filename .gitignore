@@ -29,3 +29,4 @@ dist-ssr/
 backend/.env
 database.sqlite
 .history
+*.tsbuildinfo

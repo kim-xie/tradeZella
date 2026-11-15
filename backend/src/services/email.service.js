@@ -15,7 +15,7 @@ const transporter = nodemailer.createTransport({
 export const sendPasswordResetEmail = async (to, token) => {
   const resetUrl = `http://localhost:5173/reset-password/${token}`;
   const mailOptions = {
-    from: '"TradeZella" <noreply@tradezella.com>',
+    from: '"TradeZen" <noreply@tradezen.app>',
     to,
     subject: 'Password Reset Request',
     html: `<p>You requested a password reset. Click the link below to reset your password:</p>

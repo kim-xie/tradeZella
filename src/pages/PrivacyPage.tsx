@@ -4,89 +4,48 @@ import LegalPageLayout from '../components/common/LegalPageLayout';
 export default function PrivacyPage() {
   return (
     <LegalPageLayout
-      title="Privacy Policy"
-      description="Last Updated: September 18, 2025"
+      title="隐私政策 (Privacy Policy)"
+      description="最近更新日期：2026年"
     >
-      <h2>1. Introduction</h2>
-      <p>TradeZella ("we", "our", "us") is committed to protecting your personal information. This Privacy Policy explains how we collect, use, store, and protect your data.</p>
+      <h2>1. 引言与宗旨</h2>
+      <p>TradeZen（“我们”）深知个人隐私与交易数据对每位投资者的重要性。本隐私政策向您说明我们在您使用 TradeZen 平台与服务时，如何收集、使用、存储及保护您的个人信息与交易记录。</p>
 
-      <h2>2. Information We Collect</h2>
-      <h3>a) Information You Provide</h3>
+      <h2>2. 我们收集的信息</h2>
+      <h3>a) 您主动提供的信息</h3>
       <ul>
-        <li>Name, email, phone number</li>
-        <li>Account login details</li>
-        <li>Billing and payment information</li>
-        <li>Customer support messages</li>
+        <li>注册基础信息（姓名/昵称、电子邮箱、登录密码）</li>
+        <li>交易日志、复盘反思笔记、心态标签及上传的图表走势截图</li>
+        <li>订阅结算信息（通过加密支付网关处理，平台不保留敏感卡号）</li>
       </ul>
 
-      <h3>b) Automatically Collected</h3>
+      <h3>b) 系统自动采集的信息</h3>
       <ul>
-        <li>IP address</li>
-        <li>Device information</li>
-        <li>Browser type</li>
-        <li>Usage patterns</li>
-        <li>Cookies and tracking identifiers</li>
+        <li>IP 地址与设备访问日志</li>
+        <li>浏览器类型及客户端屏幕分辨率</li>
+        <li>系统功能模块使用偏好与交互统计</li>
       </ul>
 
-      <h3>c) Third-Party Data</h3>
+      <h3>c) 本地经纪商直连数据</h3>
+      <p>当您授权使用 MT5 IPC 直连或导入对账单时，系统仅以只读模式获取历史成交订单数据用于生成量化指标，绝无转账交易权限。</p>
+
+      <h2>3. 信息的使用目的</h2>
+      <p>我们仅将所收集的数据用于以下合法目的：</p>
       <ul>
-        <li>Payment processors</li>
-        <li>Authentication providers</li>
-        <li>Analytics tools</li>
+        <li>运行、维护并保障 TradeZen 平台各功能的正常稳定运行</li>
+        <li>为您计算胜率、盈亏比、资金曲线与知行合一纪律评分</li>
+        <li>驱动 AI 复盘算法为您提供客观的交易执行优化建议</li>
+        <li>履行网络安全与数据合规的法定义务</li>
       </ul>
 
-      <h2>3. How We Use Your Information</h2>
-      <p>We use your data to:</p>
-      <ul>
-        <li>Operate and secure the platform</li>
-        <li>Process bookings and payments</li>
-        <li>Improve performance and user experience</li>
-        <li>Provide customer support</li>
-        <li>Comply with legal obligations</li>
-      </ul>
+      <h2>4. 严格的数据不出售承诺</h2>
+      <p><strong>TradeZen 严正承诺：我们绝不出售、出租或交易任何用户的个人身份信息及私人交易记录给第三方或金融机构。</strong></p>
 
-      <h2>4. Legal Basis (GDPR)</h2>
-      <p>We process your data under:</p>
-      <ul>
-        <li>Contractual necessity</li>
-        <li>Legitimate interest</li>
-        <li>Consent</li>
-        <li>Legal requirement</li>
-      </ul>
+      <h2>5. 数据安全与加密防护</h2>
+      <p>我们采用行业高标准的 TLS 1.3 传输加密与云端数据库 AES-256 静态加密，配合严密的多租户数据隔离机制，确保您的交易记录仅供您本人审阅。</p>
 
-      <h2>5. How We Share Your Information</h2>
-      <p>We share data only with trusted partners:</p>
-      <ul>
-        <li>Payment gateways</li>
-        <li>Cloud hosting providers</li>
-        <li>Analytics vendors</li>
-        <li>Customer support tools</li>
-      </ul>
-      <p>We do not sell your personal data.</p>
-
-      <h2>6. Data Retention</h2>
-      <p>We retain data only as long as necessary to fulfill the purposes outlined in this policy.</p>
-
-      <h2>7. Your Rights</h2>
-      <p>Depending on your location, you may have rights to:</p>
-      <ul>
-        <li>Access your data</li>
-        <li>Correct your data</li>
-        <li>Delete your data</li>
-        <li>Export your data</li>
-        <li>Object to processing</li>
-        <li>Withdraw consent</li>
-      </ul>
-      <p>Email: privacy@tradezella.com</p>
-
-      <h2>8. Data Security</h2>
-      <p>We use encryption, secure servers, access controls, and monitoring to protect your information.</p>
-
-      <h2>9. International Transfers</h2>
-      <p>Your data may be stored or processed outside your country. Safeguards are applied to ensure lawful transfers.</p>
-
-      <h2>10. Updates</h2>
-      <p>We may update this policy periodically. The new version will be posted on this page.</p>
+      <h2>6. 您的权利与联系我们</h2>
+      <p>您对自己的数据享有完全的知情权、导出权与彻底注销删除权。如需导出或清除您的交易记录，可随时在个人中心操作或致信：<br />
+      📩 privacy@tradezen.app</p>
     </LegalPageLayout>
   );
 }
