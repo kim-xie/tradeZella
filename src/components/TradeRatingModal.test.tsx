@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
 import TradeRatingModal from './TradeRatingModal';
 
@@ -20,19 +20,19 @@ describe('TradeRatingModal', () => {
         isOpen={false}
         onClose={vi.fn()}
         trade={mockTrade}
-        onSaveRating={vi.fn()}
+        onSelectRating={vi.fn()}
       />
     );
     expect(container.firstChild).toBeNull();
   });
 
-  it('renders modal with trade information and initial rating animation on open', () => {
+  it('renders modal with trade information and 5 stars', () => {
     render(
       <TradeRatingModal
         isOpen={true}
         onClose={vi.fn()}
         trade={mockTrade}
-        onSaveRating={vi.fn()}
+        onSelectRating={vi.fn()}
       />
     );
 
@@ -42,67 +42,56 @@ describe('TradeRatingModal', () => {
     expect(screen.getByText('多 BUY')).toBeInTheDocument();
     expect(screen.getByText(/2手/)).toBeInTheDocument();
 
-    // Initial rating is 3 -> Should display 3-star feedback
-    expect(screen.getByText('基本合格 / 中规中矩')).toBeInTheDocument();
-    expect(screen.getByText(/基本合格 · 守住底线/)).toBeInTheDocument();
+    // 5 star buttons are rendered
+    expect(screen.getByTitle('评定为 1 星')).toBeInTheDocument();
+    expect(screen.getByTitle('评定为 2 星')).toBeInTheDocument();
+    expect(screen.getByTitle('评定为 3 星')).toBeInTheDocument();
+    expect(screen.getByTitle('评定为 4 星')).toBeInTheDocument();
+    expect(screen.getByTitle('评定为 5 星')).toBeInTheDocument();
   });
 
-  it('switches dynamic animation and feedback for 1, 2, 4, and 5 star ratings', () => {
+  it('clicking a star directly calls onSelectRating and closes modal', () => {
+    const onSelectRating = vi.fn();
+    const onClose = vi.fn();
+
     render(
       <TradeRatingModal
         isOpen={true}
-        onClose={vi.fn()}
+        onClose={onClose}
         trade={mockTrade}
-        onSaveRating={vi.fn()}
+        onSelectRating={onSelectRating}
       />
     );
 
-    // 1-star
-    const star1Btn = screen.getByTitle('评定为 1 星');
-    fireEvent.click(star1Btn);
-    expect(screen.getByText('严重失误 / 违背计划')).toBeInTheDocument();
-    expect(screen.getByText(/严重违规 · 需严格复盘/)).toBeInTheDocument();
-
-    // 2-star
-    const star2Btn = screen.getByTitle('评定为 2 星');
-    fireEvent.click(star2Btn);
-    expect(screen.getByText('执行欠佳 / 存在偏差')).toBeInTheDocument();
-    expect(screen.getByText(/执行欠佳 · 稍有侥幸/)).toBeInTheDocument();
-
-    // 4-star
+    // Clicking 4-star directly closes and sets rating
     const star4Btn = screen.getByTitle('评定为 4 星');
     fireEvent.click(star4Btn);
-    expect(screen.getByText('良好执行 / 严格纪律')).toBeInTheDocument();
-    expect(screen.getByText(/良好执行 · 纪律严明/)).toBeInTheDocument();
 
-    // 5-star
-    const star5Btn = screen.getByTitle('评定为 5 星');
-    fireEvent.click(star5Btn);
-    expect(screen.getByText('知行合一 / 大师级执行！')).toBeInTheDocument();
-    expect(screen.getByText(/知行合一 · 完美典范/)).toBeInTheDocument();
+    expect(onSelectRating).toHaveBeenCalledWith(101, 4);
+    expect(onClose).toHaveBeenCalled();
   });
 
-  it('supports mouse hover preview of ratings', () => {
+  it('supports mouse hover preview of star descriptions', () => {
     render(
       <TradeRatingModal
         isOpen={true}
         onClose={vi.fn()}
         trade={mockTrade}
-        onSaveRating={vi.fn()}
+        onSelectRating={vi.fn()}
       />
     );
 
     const star5Btn = screen.getByTitle('评定为 5 星');
     fireEvent.mouseEnter(star5Btn);
-    expect(screen.getByText('知行合一 / 大师级执行！')).toBeInTheDocument();
+    expect(screen.getByText('5星 · 知行合一')).toBeInTheDocument();
 
-    fireEvent.mouseLeave(star5Btn);
-    // Returns to selected rating (3)
-    expect(screen.getByText('基本合格 / 中规中矩')).toBeInTheDocument();
+    const star1Btn = screen.getByTitle('评定为 1 星');
+    fireEvent.mouseEnter(star1Btn);
+    expect(screen.getByText('1星 · 严重违规')).toBeInTheDocument();
   });
 
-  it('calls onSaveRating with selected rating and closes smoothly', async () => {
-    const onSaveRating = vi.fn().mockResolvedValue(undefined);
+  it('allows clearing rating to 0', () => {
+    const onSelectRating = vi.fn();
     const onClose = vi.fn();
 
     render(
@@ -110,54 +99,15 @@ describe('TradeRatingModal', () => {
         isOpen={true}
         onClose={onClose}
         trade={mockTrade}
-        onSaveRating={onSaveRating}
+        onSelectRating={onSelectRating}
       />
     );
 
-    // Select 5-star
-    fireEvent.click(screen.getByTitle('评定为 5 星'));
-
-    // Click Save
-    const saveBtn = screen.getByRole('button', { name: '保存评分' });
-    fireEvent.click(saveBtn);
-
-    expect(onSaveRating).toHaveBeenCalledWith(101, 5);
-
-    await waitFor(() => {
-      expect(screen.getByText('已保存')).toBeInTheDocument();
-    });
-
-    await waitFor(() => {
-      expect(onClose).toHaveBeenCalled();
-    }, { timeout: 1000 });
-  });
-
-  it('allows clearing rating to 0', async () => {
-    const onSaveRating = vi.fn().mockResolvedValue(undefined);
-    const onClose = vi.fn();
-
-    render(
-      <TradeRatingModal
-        isOpen={true}
-        onClose={onClose}
-        trade={mockTrade}
-        onSaveRating={onSaveRating}
-      />
-    );
-
-    // Click clear button
     const clearBtn = screen.getByText('清空评分');
     fireEvent.click(clearBtn);
 
-    expect(screen.getByText('请为本笔交易设定纪律评分')).toBeInTheDocument();
-
-    // Click Save
-    fireEvent.click(screen.getByRole('button', { name: '保存评分' }));
-    expect(onSaveRating).toHaveBeenCalledWith(101, 0);
-
-    await waitFor(() => {
-      expect(screen.getByText('已保存')).toBeInTheDocument();
-    });
+    expect(onSelectRating).toHaveBeenCalledWith(101, 0);
+    expect(onClose).toHaveBeenCalled();
   });
 
   it('handles Escape key to close modal', () => {
@@ -167,11 +117,29 @@ describe('TradeRatingModal', () => {
         isOpen={true}
         onClose={onClose}
         trade={mockTrade}
-        onSaveRating={vi.fn()}
+        onSelectRating={vi.fn()}
       />
     );
 
     fireEvent.keyDown(window, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it('handles number key 1~5 to quick rate and close', () => {
+    const onSelectRating = vi.fn();
+    const onClose = vi.fn();
+
+    render(
+      <TradeRatingModal
+        isOpen={true}
+        onClose={onClose}
+        trade={mockTrade}
+        onSelectRating={onSelectRating}
+      />
+    );
+
+    fireEvent.keyDown(window, { key: '5' });
+    expect(onSelectRating).toHaveBeenCalledWith(101, 5);
     expect(onClose).toHaveBeenCalled();
   });
 });

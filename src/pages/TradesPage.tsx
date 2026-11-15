@@ -8,6 +8,7 @@ import DateRangePicker from '../components/common/DateRangePicker';
 import CSVUploader from '../components/CSVUploader';
 import TradeExecutionChart from '../components/TradeExecutionChart';
 import TradeRatingModal from '../components/TradeRatingModal';
+import TradeRatingAnimationOverlay, { RatingAnimationData } from '../components/TradeRatingAnimationOverlay';
 import { getUserTrades, updateTrade, SERVER_BASE_URL as API_BASE_URL } from '../services/api';
 
 interface Trade {
@@ -224,6 +225,7 @@ const TradesPage: React.FC = () => {
   const [viewingTrade, setViewingTrade] = useState<Trade | null>(null);
   const [chartModalTrade, setChartModalTrade] = useState<Trade | null>(null);
   const [ratingModalTrade, setRatingModalTrade] = useState<Trade | null>(null);
+  const [ratingAnimationData, setRatingAnimationData] = useState<RatingAnimationData | null>(null);
 
   const [lightboxImage, setLightboxImage] = useState<{ urls: string[]; index: number } | null>(null);
   const [searchSymbol, setSearchSymbol] = useState('');
@@ -254,15 +256,30 @@ const TradesPage: React.FC = () => {
 
   const handleSaveRating = async (tradeId: number, newRating: number) => {
     const activeToken = localStorage.getItem('token');
+    const targetTrade = trades.find((t) => t.id === tradeId) || ratingModalTrade;
+
+    // 1. 点完星星后立即关闭弹窗
+    setRatingModalTrade(null);
+
+    // 2. 弹窗关闭后再出动效 (Rating > 0 时触发专属动效)
+    if (newRating > 0 && targetTrade) {
+      setRatingAnimationData({
+        rating: newRating,
+        symbol: targetTrade.symbol,
+        tradeId: targetTrade.id,
+      });
+    }
+
+    // 3. 立即响应式更新本地列表
+    setTrades((prev) =>
+      prev.map((t) => (t.id === tradeId ? { ...t, rating: newRating === 0 ? undefined : newRating } : t))
+    );
+
     if (!activeToken) return;
     try {
       await updateTrade(activeToken, tradeId, { rating: newRating === 0 ? null : newRating });
-      setTrades((prev) =>
-        prev.map((t) => (t.id === tradeId ? { ...t, rating: newRating === 0 ? undefined : newRating } : t))
-      );
     } catch (err) {
       console.error('Failed to update trade discipline rating:', err);
-      throw err;
     }
   };
 
@@ -1030,7 +1047,13 @@ const TradesPage: React.FC = () => {
         isOpen={!!ratingModalTrade}
         trade={ratingModalTrade}
         onClose={() => setRatingModalTrade(null)}
-        onSaveRating={handleSaveRating}
+        onSelectRating={handleSaveRating}
+      />
+
+      {/* Post-Rating Animation Overlay (点完星星之后关闭弹窗后再出动效) */}
+      <TradeRatingAnimationOverlay
+        data={ratingAnimationData}
+        onClose={() => setRatingAnimationData(null)}
       />
     </div>
   );

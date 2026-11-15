@@ -223,19 +223,20 @@ describe('TradesPage', () => {
     expect(screen.getByText('设置交易纪律评分')).toBeInTheDocument();
     expect(screen.getByText('#42')).toBeInTheDocument();
 
-    // Select 5-star rating (triggers 5-star animation/feedback)
+    // Click 5-star rating: Modal immediately closes, and animation overlay appears!
     const star5Btn = screen.getByTitle('评定为 5 星');
     fireEvent.click(star5Btn);
-    expect(screen.getByText('知行合一 / 大师级执行！')).toBeInTheDocument();
 
-    // Click Save
-    const saveBtn = screen.getByRole('button', { name: '保存评分' });
-    fireEvent.click(saveBtn);
+    // 1. Modal is now closed
+    expect(screen.queryByText('设置交易纪律评分')).not.toBeInTheDocument();
 
+    // 2. updateTrade was called
     expect(updateSpy).toHaveBeenCalledWith('test-token', 42, { rating: 5 });
 
+    // 3. Animation overlay is now rendered on screen with 5-star feedback
     await waitFor(() => {
-      expect(screen.getByText('已保存')).toBeInTheDocument();
+      expect(screen.getByText('知行合一 / 大师级执行！')).toBeInTheDocument();
+      expect(screen.getByText(/知行合一 · 完美典范/)).toBeInTheDocument();
     });
   });
 });

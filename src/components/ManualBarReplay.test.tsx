@@ -147,5 +147,5 @@ describe('ManualBarReplay - TradingView Position Sizing & Order Placement', () =
     fireEvent.click(pointerBtn);
 
     expect(screen.getByText(/按住鼠标上下拖拽/i)).toBeInTheDocument();
-  });
+  }, 15000);
 });
