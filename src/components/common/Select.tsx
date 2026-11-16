@@ -13,6 +13,9 @@ interface SelectProps {
     placeholder?: string;
     className?: string;
     disabled?: boolean;
+    buttonClassName?: string;
+    menuClassName?: string;
+    'aria-label'?: string;
 }
 
 export default function Select({
@@ -22,6 +25,9 @@ export default function Select({
     placeholder = 'Select...',
     className = '',
     disabled = false,
+    buttonClassName = '',
+    menuClassName = '',
+    'aria-label': ariaLabel,
 }: SelectProps) {
     const [open, setOpen] = useState(false);
     const ref = useRef<HTMLDivElement>(null);
@@ -53,8 +59,9 @@ export default function Select({
             <button
                 type="button"
                 disabled={disabled}
+                aria-label={ariaLabel}
                 onClick={() => setOpen((o) => !o)}
-                className="w-full h-[38px] flex items-center justify-between px-3.5 text-sm border border-gray-200 dark:border-white/10 rounded-xl bg-white dark:bg-[#070a13] text-gray-900 dark:text-white hover:border-purple-400 dark:hover:border-purple-500/80 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all shadow-2xs disabled:opacity-50 disabled:cursor-not-allowed"
+                className={`w-full h-[38px] flex items-center justify-between px-3.5 text-sm border border-gray-200 dark:border-white/10 rounded-xl bg-white dark:bg-[#070a13] text-gray-900 dark:text-white hover:border-purple-400 dark:hover:border-purple-500/80 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all shadow-2xs disabled:opacity-50 disabled:cursor-not-allowed ${buttonClassName}`}
             >
                 <span className={`truncate text-sm ${selected ? 'text-gray-900 dark:text-white' : 'text-gray-400 dark:text-gray-500'}`}>
                     {selected ? selected.label : placeholder}
@@ -65,7 +72,7 @@ export default function Select({
                 />
             </button>
             {open && (
-                <div className="absolute z-50 mt-1.5 w-full bg-white dark:bg-[#0c101c] border border-gray-200 dark:border-white/10 rounded-xl shadow-xl py-1 max-h-60 overflow-auto">
+                <div className={`absolute z-50 mt-1.5 w-full bg-white dark:bg-[#0c101c] border border-gray-200 dark:border-white/10 rounded-xl shadow-xl py-1 max-h-60 overflow-auto ${menuClassName}`}>
                     {options.map((opt) => (
                         <button
                             key={opt.value}

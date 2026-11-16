@@ -22,6 +22,7 @@ import { CalendarWeekModal } from '../components/calendar/CalendarWeekModal';
 import { CalendarYearMonthMatrix } from '../components/calendar/CalendarYearMonthMatrix';
 import { CalendarDailyPnLBarChart } from '../components/calendar/CalendarDailyPnLBarChart';
 import TradeExecutionChart from '../components/TradeExecutionChart';
+import Select, { SelectOption } from '../components/common/Select';
 import {
   ChevronLeft,
   ChevronRight,
@@ -39,10 +40,19 @@ const WEEKDAYS = [
   { short: 'Sun', label: '周日' },
 ];
 
-const MONTH_NAMES = [
-  'January (1月)', 'February (2月)', 'March (3月)', 'April (4月)',
-  'May (5月)', 'June (6月)', 'July (7月)', 'August (8月)',
-  'September (9月)', 'October (10月)', 'November (11月)', 'December (12月)'
+const MONTH_OPTIONS: SelectOption[] = [
+  { value: '0', label: '1月' },
+  { value: '1', label: '2月' },
+  { value: '2', label: '3月' },
+  { value: '3', label: '4月' },
+  { value: '4', label: '5月' },
+  { value: '5', label: '6月' },
+  { value: '6', label: '7月' },
+  { value: '7', label: '8月' },
+  { value: '8', label: '9月' },
+  { value: '9', label: '10月' },
+  { value: '10', label: '11月' },
+  { value: '11', label: '12月' },
 ];
 
 const StatsPage: React.FC = () => {
@@ -148,7 +158,7 @@ const StatsPage: React.FC = () => {
     return rows;
   }, [currentDate]);
 
-  // Month navigation
+  // Month & Year navigation
   const prevMonth = () => {
     setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1));
   };
@@ -158,9 +168,36 @@ const StatsPage: React.FC = () => {
   const goToday = () => {
     setCurrentDate(new Date());
   };
+  const handleYearChange = (year: number) => {
+    setCurrentDate(new Date(year, currentDate.getMonth(), 1));
+  };
   const handleMonthChange = (monthIdx: number) => {
     setCurrentDate(new Date(currentDate.getFullYear(), monthIdx, 1));
   };
+
+  // Dynamically compute year options based on trade data and current year window
+  const yearOptions: SelectOption[] = useMemo(() => {
+    const years = new Set<number>();
+    const currentYear = new Date().getFullYear();
+    for (let y = currentYear - 3; y <= currentYear + 1; y++) {
+      years.add(y);
+    }
+    trades.forEach((t) => {
+      const timeStr = getTradeEntryTime(t);
+      if (timeStr && timeStr.length >= 4) {
+        const y = parseInt(timeStr.substring(0, 4), 10);
+        if (!isNaN(y)) years.add(y);
+      }
+    });
+    years.add(currentDate.getFullYear());
+
+    return Array.from(years)
+      .sort((a, b) => b - a)
+      .map((y) => ({
+        value: String(y),
+        label: `${y}年`,
+      }));
+  }, [trades, currentDate]);
 
   const todayStr = useMemo(() => {
     const d = new Date();
@@ -194,33 +231,43 @@ const StatsPage: React.FC = () => {
             onSelectDay={(dateStr) => setSelectedDay(dateStr)}
           />
 
-          {/* 2. Month Navigator Bar (Left/Right Aligned Arrows, Centered Month & Today) */}
-          <div className="px-4 sm:px-5 py-3 border-b border-gray-200 dark:border-white/10 flex items-center justify-between bg-gray-50/50 dark:bg-navy-950/30">
+          {/* 2. Month Navigator Bar (Left/Right Aligned Arrows, Centered Month/Year & Today) */}
+          <div className="relative z-20 px-4 sm:px-5 py-3 border-b border-gray-200 dark:border-white/10 flex items-center justify-between bg-gray-50/50 dark:bg-navy-950/30">
             {/* Left: Previous Month Arrow */}
             <button
               onClick={prevMonth}
-              className="p-1.5 rounded-lg border border-gray-200 dark:border-white/10 hover:bg-gray-100 dark:hover:bg-navy-800 transition text-gray-600 dark:text-gray-300 shadow-2xs"
+              className="w-[38px] h-[38px] flex items-center justify-center rounded-xl border border-gray-200 dark:border-white/10 bg-white dark:bg-[#070a13] text-gray-600 dark:text-gray-300 hover:text-purple-600 dark:hover:text-purple-400 hover:border-purple-400 dark:hover:border-purple-500/80 transition-all shadow-2xs shrink-0"
               title="上个月"
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
 
-            {/* Center: Month Selector & Back to Today */}
+            {/* Center: Year & Month Selectors & Back to Today */}
             <div className="flex items-center space-x-2">
-              <select
-                value={currentDate.getMonth()}
-                onChange={(e) => handleMonthChange(Number(e.target.value))}
-                className="bg-white dark:bg-navy-900 border border-gray-200 dark:border-white/10 text-xs font-bold rounded-lg px-3 py-1.5 text-gray-900 dark:text-white focus:outline-hidden focus:ring-2 focus:ring-purple-500 shadow-2xs"
-              >
-                {MONTH_NAMES.map((name, idx) => (
-                  <option key={idx} value={idx}>{name}</option>
-                ))}
-              </select>
+              <div className="w-[95px] sm:w-[105px]">
+                <Select
+                  value={String(currentDate.getFullYear())}
+                  onChange={(val) => handleYearChange(Number(val))}
+                  options={yearOptions}
+                  aria-label="选择年份"
+                  className="w-full"
+                />
+              </div>
+
+              <div className="w-[90px] sm:w-[100px]">
+                <Select
+                  value={String(currentDate.getMonth())}
+                  onChange={(val) => handleMonthChange(Number(val))}
+                  options={MONTH_OPTIONS}
+                  aria-label="选择月份"
+                  className="w-full"
+                />
+              </div>
 
               {!isCurrentMonthAndYear && (
                 <button
                   onClick={goToday}
-                  className="px-3 py-1.5 rounded-lg bg-white hover:bg-gray-100 dark:bg-navy-900 dark:hover:bg-navy-800 text-xs font-semibold text-gray-700 dark:text-gray-200 border border-gray-200 dark:border-white/10 transition whitespace-nowrap shrink-0 shadow-2xs animate-in fade-in duration-150"
+                  className="h-[38px] px-3.5 rounded-xl bg-white dark:bg-[#070a13] hover:bg-purple-50 dark:hover:bg-purple-950/40 text-xs font-semibold text-purple-700 dark:text-purple-300 border border-purple-200/80 dark:border-purple-800/60 hover:border-purple-400 dark:hover:border-purple-500 transition-all whitespace-nowrap shrink-0 shadow-2xs animate-in fade-in duration-150"
                   title="回到当前月份"
                 >
                   回到今日
@@ -231,7 +278,7 @@ const StatsPage: React.FC = () => {
             {/* Right: Next Month Arrow */}
             <button
               onClick={nextMonth}
-              className="p-1.5 rounded-lg border border-gray-200 dark:border-white/10 hover:bg-gray-100 dark:hover:bg-navy-800 transition text-gray-600 dark:text-gray-300 shadow-2xs"
+              className="w-[38px] h-[38px] flex items-center justify-center rounded-xl border border-gray-200 dark:border-white/10 bg-white dark:bg-[#070a13] text-gray-600 dark:text-gray-300 hover:text-purple-600 dark:hover:text-purple-400 hover:border-purple-400 dark:hover:border-purple-500/80 transition-all shadow-2xs shrink-0"
               title="下个月"
             >
               <ChevronRight className="w-4 h-4" />

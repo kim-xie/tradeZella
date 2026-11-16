@@ -72,4 +72,39 @@ describe('StatsPage (Trading Calendar)', () => {
     fireEvent.click(screen.getByText('回到今日'));
     expect(screen.queryByText('回到今日')).toBeNull();
   });
+
+  it('renders modern Select components for year and month and supports selection', async () => {
+    const mockTrades = [
+      {
+        id: 1,
+        symbol: 'XAUUSD',
+        direction: 'long',
+        size: 1.0,
+        entryprice: 2600,
+        exitprice: 2620,
+        entry_time: '2026-06-15T10:00:00',
+        createdat: '2026-06-15T10:00:00',
+        manual_pnl: 200,
+      },
+    ];
+    vi.spyOn(api, 'getUserTrades').mockResolvedValue(mockTrades as any);
+    localStorage.setItem('token', 'test-token');
+
+    renderWithProviders(<StatsPage />);
+
+    // Check that aria-label "选择年份" and "选择月份" buttons exist
+    const monthSelectBtn = await screen.findByRole('button', { name: '选择月份' });
+    const yearSelectBtn = screen.getByRole('button', { name: '选择年份' });
+    expect(monthSelectBtn).toBeInTheDocument();
+    expect(yearSelectBtn).toBeInTheDocument();
+
+    // Click month select dropdown and choose a specific month (e.g. 5月)
+    fireEvent.click(monthSelectBtn);
+    const mayOption = screen.getByRole('button', { name: '5月' });
+    expect(mayOption).toBeInTheDocument();
+    fireEvent.click(mayOption);
+
+    // Verify month changed: month select button now displays '5月'
+    expect(monthSelectBtn).toHaveTextContent('5月');
+  });
 });
