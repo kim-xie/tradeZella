@@ -40,6 +40,7 @@ interface ReplayTrade {
 
 interface ManualBarReplayProps {
   initialSymbol?: string;
+  initialTimeframe?: string;
   popularSymbols?: string[];
   allSymbols?: string[];
 }
@@ -86,11 +87,12 @@ function drawRoundedRect(
 
 export default function ManualBarReplay({ 
   initialSymbol = 'EURUSD', 
+  initialTimeframe = 'M5',
   popularSymbols = [],
   allSymbols = [] 
 }: ManualBarReplayProps) {
   const [symbol, setSymbol] = useState(initialSymbol);
-  const [timeframe, setTimeframe] = useState('H1');
+  const [timeframe, setTimeframe] = useState(initialTimeframe);
   const [allCandles, setAllCandles] = useState<CandleItem[]>([]);
   const [contractSize, setContractSize] = useState<number>(100000);
   const [currentIndex, setCurrentIndex] = useState<number>(50); // Start showing first 50 bars
@@ -1257,8 +1259,10 @@ export default function ManualBarReplay({
           </div>
 
           <div>
-            <label className="block text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-0.5">K线周期</label>
+            <label htmlFor="manual-replay-timeframe" className="block text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-0.5">K线周期</label>
             <select
+              id="manual-replay-timeframe"
+              aria-label="K线周期"
               value={timeframe}
               onChange={(e) => setTimeframe(e.target.value)}
               className="text-xs px-2.5 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-navy-700 dark:text-white font-semibold"

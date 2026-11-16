@@ -14,16 +14,40 @@ if hasattr(sys.stdout, 'reconfigure'):
 
 TIMEFRAME_MAP = {
     'M1': mt5.TIMEFRAME_M1,
+    '1M': mt5.TIMEFRAME_M1,
     'M5': mt5.TIMEFRAME_M5,
+    '5M': mt5.TIMEFRAME_M5,
     'M15': mt5.TIMEFRAME_M15,
+    '15M': mt5.TIMEFRAME_M15,
     'M30': mt5.TIMEFRAME_M30,
+    '30M': mt5.TIMEFRAME_M30,
     'H1': mt5.TIMEFRAME_H1,
+    '1H': mt5.TIMEFRAME_H1,
     'H4': mt5.TIMEFRAME_H4,
+    '4H': mt5.TIMEFRAME_H4,
     'D1': mt5.TIMEFRAME_D1,
+    '1D': mt5.TIMEFRAME_D1,
 }
 
-def generate_synthetic_candles(start_dt, count=300, base_price=1.1000):
-    dates = pd.date_range(start=start_dt, periods=count, freq='h')
+FREQ_MAP = {
+    'M1': '1min',
+    '1M': '1min',
+    'M5': '5min',
+    '5M': '5min',
+    'M15': '15min',
+    '15M': '15min',
+    'M30': '30min',
+    '30M': '30min',
+    'H1': '1h',
+    '1H': '1h',
+    'H4': '4h',
+    '4H': '4h',
+    'D1': '1D',
+    '1D': '1D',
+}
+
+def generate_synthetic_candles(start_dt, count=300, base_price=1.1000, freq='5min'):
+    dates = pd.date_range(start=start_dt, periods=count, freq=freq)
     returns = np.random.normal(0.0001, 0.002, count)
     prices = base_price * np.exp(np.cumsum(returns))
     
@@ -89,7 +113,8 @@ def get_candles(symbol="EURUSD", timeframe_str="H1", count=300, start_date=None)
         data_source = "Synthetic Replay Data"
         contract_size = 100.0
         s_dt = datetime.datetime.now() - datetime.timedelta(days=15)
-        candles = generate_synthetic_candles(s_dt, count=count)
+        freq = FREQ_MAP.get(timeframe_str.upper(), '5min')
+        candles = generate_synthetic_candles(s_dt, count=count, freq=freq)
 
     return {
         "success": True,
@@ -104,7 +129,7 @@ def get_candles(symbol="EURUSD", timeframe_str="H1", count=300, start_date=None)
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("--symbol", type=str, default="EURUSD")
-    parser.add_argument("--timeframe", type=str, default="H1")
+    parser.add_argument("--timeframe", type=str, default="M5")
     parser.add_argument("--count", type=int, default=300)
     parser.add_argument("--start", type=str, default=None)
     args = parser.parse_args()

@@ -39,9 +39,26 @@ describe('ManualBarReplay - TradingView Position Sizing & Order Placement', () =
 
     vi.spyOn(api, 'fetchCandles').mockResolvedValue({
       symbol: 'EURUSD',
-      timeframe: 'H1',
+      timeframe: 'M5',
       contractSize: 100000,
       candles: mockCandles,
+    });
+  });
+
+  it('defaults to 5m (M5) timeframe for K-line replay', async () => {
+    const fetchCandlesSpy = vi.spyOn(api, 'fetchCandles');
+    render(<ManualBarReplay initialSymbol="EURUSD" />);
+
+    const select = screen.getByLabelText(/K线周期/i) as HTMLSelectElement;
+    expect(select.value).toBe('M5');
+
+    await waitFor(() => {
+      expect(fetchCandlesSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          symbol: 'EURUSD',
+          timeframe: 'M5',
+        })
+      );
     });
   });
 

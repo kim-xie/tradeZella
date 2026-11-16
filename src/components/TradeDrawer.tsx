@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import Button from './common/Button';
 import { createTrade, updateTrade, uploadScreenshot, deleteTrade, CreateTradeData, SERVER_BASE_URL as API_BASE_URL } from '../services/api';
-import { X, Upload, Trash2, Star, ChevronLeft, ChevronRight, ChevronDown } from 'lucide-react';
+import { X, Upload, Trash2, Star, ChevronLeft, ChevronRight, ChevronDown, Layers, Target, Compass, FileText } from 'lucide-react';
 import DateTimePicker from './common/DateTimePicker';
 import Select from './common/Select';
 interface Trade {
@@ -89,6 +89,7 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, o
     const [lightboxImage, setLightboxImage] = useState<{ urls: string[]; index: number } | null>(null);
     const [symbolSuggestions, setSymbolSuggestions] = useState<string[]>([]);
     const [showSymbolDropdown, setShowSymbolDropdown] = useState(false);
+    const [activeTab, setActiveTab] = useState<'all' | 'details' | 'strategy' | 'journal'>('all');
     const symbolInputRef = useRef<HTMLInputElement>(null);
     const symbolDropdownRef = useRef<HTMLDivElement>(null);
 
@@ -338,7 +339,8 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, o
         }
 
         if (!formData.entryConditions || formData.entryConditions.length === 0) {
-            setError('请至少选择一个入场条件/信号。');
+            setActiveTab('strategy');
+            setError('请至少选择一个入场形态或信号条件（已为您定位至「信号与心智」分类）。');
             setLoading(false);
             return;
         }
@@ -500,478 +502,628 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, o
 
             {/* Drawer */}
             <div
-                className={`fixed top-0 right-0 z-[1000] h-full w-full md:w-1/2 bg-white dark:bg-gray-800 shadow-2xl transform transition-transform duration-300 ease-in-out ${isOpen ? 'translate-x-0' : 'translate-x-full'
+                className={`fixed top-0 right-0 z-[1000] h-full w-full sm:w-[580px] md:w-[680px] lg:w-[760px] xl:w-[820px] max-w-full bg-white dark:bg-gray-800 shadow-2xl transform transition-transform duration-300 ease-in-out ${isOpen ? 'translate-x-0' : 'translate-x-full'
                     }`}
                 onWheel={(e) => e.stopPropagation()}
             >
                 <div className="flex flex-col h-full overflow-hidden">
                     {/* Header */}
-                    <div className="flex justify-between items-center p-4 border-b dark:border-gray-700 shrink-0 select-none">
-                        <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
-                            {isEditMode ? '编辑交易' : '新建交易'}
-                        </h2>
+                    <div className="flex justify-between items-center px-6 py-4 border-b border-gray-100 dark:border-gray-700/80 shrink-0 select-none bg-white dark:bg-gray-800">
+                        <div className="flex items-center space-x-3">
+                            <div className="p-2 bg-purple-50 dark:bg-purple-950/50 text-purple-600 dark:text-purple-400 rounded-xl">
+                                <Layers className="w-5 h-5" />
+                            </div>
+                            <div>
+                                <h2 className="text-lg font-bold text-gray-900 dark:text-white">
+                                    {isEditMode ? '编辑交易记录' : '新建交易记录'}
+                                </h2>
+                                <p className="text-xs text-gray-400 mt-0.5">
+                                    {isEditMode ? `正在修改订单 · ${formData.symbol || '未命名标的'}` : '规范记录交易执行、入场逻辑与心智情绪'}
+                                </p>
+                            </div>
+                        </div>
                         <button
                             onClick={onClose}
-                            className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                            className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
                         >
-                            <X size={24} />
+                            <X size={20} />
                         </button>
                     </div>
 
+                    {/* Navigation Filter Tabs */}
+                    <div className="px-6 py-2.5 bg-gray-50/80 dark:bg-gray-900/40 border-b border-gray-100 dark:border-gray-700/60 flex items-center space-x-2 shrink-0 select-none overflow-x-auto no-scrollbar">
+                        {[
+                            { id: 'all' as const, label: '全部内容', icon: Layers },
+                            { id: 'details' as const, label: '订单参数', icon: Target },
+                            { id: 'strategy' as const, label: '信号与心智', icon: Compass },
+                            { id: 'journal' as const, label: '复盘与笔记', icon: FileText },
+                        ].map(tab => (
+                            <button
+                                key={tab.id}
+                                type="button"
+                                onClick={() => setActiveTab(tab.id)}
+                                className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all flex items-center space-x-1.5 shrink-0 ${
+                                    activeTab === tab.id
+                                        ? 'bg-purple-600 text-white shadow-xs'
+                                        : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-200/60 dark:hover:bg-gray-700/60'
+                                }`}
+                            >
+                                <tab.icon className="w-3.5 h-3.5" />
+                                <span>{tab.label}</span>
+                            </button>
+                        ))}
+                    </div>
+
                     {/* Form (scrollable) */}
-                    <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto overflow-x-hidden overscroll-contain p-4 space-y-4">
+                    <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto overflow-x-hidden overscroll-contain p-6 space-y-6">
 
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">交易标的 (Symbol)</label>
-                            <div className="relative" ref={symbolDropdownRef}>
-                                <input
-                                    ref={symbolInputRef}
-                                    type="text"
-                                    required
-                                    value={formData.symbol}
-                                    onChange={(e) => {
-                                        const newSymbol = e.target.value.toUpperCase();
-                                        setFormData({ ...formData, symbol: newSymbol });
-                                        setShowSymbolDropdown(true);
-                                    }}
-                                    onFocus={() => setShowSymbolDropdown(true)}
-                                    className="w-full pl-3 pr-9 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-purple-500 focus:border-purple-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-                                    placeholder="例如 BTCUSD, XAUUSD, EURUSD"
-                                    autoComplete="off"
-                                />
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        setShowSymbolDropdown((v) => !v);
-                                        symbolInputRef.current?.focus();
-                                    }}
-                                    className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
-                                    tabIndex={-1}
-                                >
-                                    <ChevronDown size={16} />
-                                </button>
-                                {showSymbolDropdown && filteredSymbolSuggestions.length > 0 && (
-                                    <div className="absolute z-20 mt-1 w-full bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-md shadow-lg py-1 max-h-60 overflow-auto">
-                                        {filteredSymbolSuggestions.map((s) => (
-                                            <button
-                                                key={s}
-                                                type="button"
-                                                onClick={() => {
-                                                    setFormData({ ...formData, symbol: s });
-                                                    setShowSymbolDropdown(false);
-                                                }}
-                                                className="w-full text-left px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-purple-50 dark:hover:bg-gray-600 transition-colors"
-                                            >
-                                                {s}
-                                            </button>
-                                        ))}
+                        {/* Card 1: 订单基础核心参数 */}
+                        {(activeTab === 'all' || activeTab === 'details') && (
+                            <div className="bg-gray-50/70 dark:bg-gray-900/40 border border-gray-200/80 dark:border-gray-700/70 rounded-2xl p-5 sm:p-6 space-y-5">
+                                <div className="flex items-center justify-between pb-3 border-b border-gray-200/60 dark:border-gray-700/60">
+                                    <div className="flex items-center space-x-2.5">
+                                        <div className="p-1.5 bg-purple-100 dark:bg-purple-950/60 text-purple-600 dark:text-purple-400 rounded-lg">
+                                            <Target className="w-4 h-4" />
+                                        </div>
+                                        <div>
+                                            <h3 className="text-sm font-bold text-gray-900 dark:text-white">订单核心参数</h3>
+                                            <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">标的、多空方向、点位与仓位执行</p>
+                                        </div>
                                     </div>
-                                )}
-                            </div>
-                        </div>
-
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">交易时段 (Market Session)</label>
-                            <div className="flex flex-wrap gap-2">
-                                {[
-                                    { value: 'Asia' as const, label: '亚盘时段 (Asia)' },
-                                    { value: 'Europe' as const, label: '欧盘时段 (Europe)' },
-                                    { value: 'US' as const, label: '美盘时段 (US)' },
-                                ].map((option) => {
-                                    const selected = formData.session === option.value;
-                                    return (
-                                        <button
-                                            key={option.value}
-                                            type="button"
-                                            onClick={() => setFormData({ ...formData, session: selected ? undefined : option.value })}
-                                            className={`px-3 py-1.5 text-xs rounded-full border transition-colors ${selected ? 'bg-purple-600 text-white border-purple-600' : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:border-purple-400'}`}
-                                        >
-                                            {option.label}
-                                        </button>
-                                    );
-                                })}
-                            </div>
-                            <p className="mt-1 text-xs text-gray-400">标记此笔交易发生时的交易时段 (选填)</p>
-                        </div>
-
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">入场心理 / 情绪状态 (Sentiment)</label>
-                            <div className="flex flex-wrap gap-2">
-                                {SENTIMENT_OPTIONS.map((option) => {
-                                    const selected = formData.sentiment === option.value;
-                                    return (
-                                        <button
-                                            key={option.value}
-                                            type="button"
-                                            onClick={() => setFormData({ ...formData, sentiment: selected ? undefined : option.value })}
-                                            className={`px-3 py-1.5 text-xs rounded-full border transition-colors ${selected ? option.selectedClass : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:border-purple-400'}`}
-                                        >
-                                            {option.emoji} {option.label}
-                                        </button>
-                                    );
-                                })}
-                            </div>
-                            <p className="mt-1 text-xs text-gray-400">记录入场时的心智状态，从焦虑、冲动到知行合一心流 (选填)</p>
-                        </div>
-
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                入场信号与条件 (Entry Conditions) <span className="text-red-500">*</span>
-                            </label>
-                            <div className="flex flex-wrap gap-2">
-                                {ENTRY_CONDITION_OPTIONS.map((condition) => {
-                                    const selected = (formData.entryConditions || []).includes(condition);
-                                    return (
-                                        <button
-                                            key={condition}
-                                            type="button"
-                                            onClick={() => toggleEntryCondition(condition)}
-                                            className={`px-3 py-1.5 text-xs rounded-full border transition-colors ${selected ? 'bg-purple-600 text-white border-purple-600' : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:border-purple-400'}`}
-                                        >
-                                            {condition}
-                                        </button>
-                                    );
-                                })}
-                            </div>
-                            <p className="mt-1 text-xs text-gray-400">请至少选择一个入场形态或信号条件</p>
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-3">
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">多空方向 (Direction)</label>
-                                <Select
-                                    value={formData.direction}
-                                    onChange={(v) => setFormData({ ...formData, direction: v as CreateTradeData['direction'] })}
-                                    options={[
-                                        { value: 'long', label: '做多' },
-                                        { value: 'short', label: '做空' },
-                                    ]}
-                                    placeholder="选择方向"
-                                    className="w-full"
-                                />
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">仓位手数 / 规模 (Size)</label>
-                                <input
-                                    type="number"
-                                    required
-                                    min="0"
-                                    step="0.01"
-                                    value={formData.size}
-                                    onChange={(e) => setFormData({ ...formData, size: parseFloat(e.target.value) })}
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-purple-500 focus:border-purple-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-                                />
-                            </div>
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-3">
-                            <div className="min-w-0">
-                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">入场价格 (Entry Price)</label>
-                                <input
-                                    type="number"
-                                    required
-                                    min="0"
-                                    step="0.01"
-                                    value={formData.entryPrice}
-                                    onChange={(e) => setFormData({ ...formData, entryPrice: parseFloat(e.target.value) })}
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-purple-500 focus:border-purple-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-                                />
-                            </div>
-                            <div className="min-w-0">
-                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">出场价格 (Exit Price，选填)</label>
-                                <input
-                                    type="number"
-                                    min="0"
-                                    step="0.01"
-                                    value={formData.exitPrice || ''}
-                                    onChange={(e) =>
-                                        setFormData({ ...formData, exitPrice: e.target.value ? parseFloat(e.target.value) : undefined })
-                                    }
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-purple-500 focus:border-purple-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-                                    placeholder="持仓中可留空"
-                                />
-                            </div>
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-3">
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">止损点位 (Stop Loss)</label>
-                                <input
-                                    type="number"
-                                    min="0"
-                                    step="0.01"
-                                    value={formData.stopLoss || ''}
-                                    onChange={(e) =>
-                                        setFormData({ ...formData, stopLoss: e.target.value ? parseFloat(e.target.value) : undefined })
-                                    }
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-purple-500 focus:border-purple-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-                                    placeholder="SL 价格"
-                                />
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">止盈点位 (Take Profit)</label>
-                                <input
-                                    type="number"
-                                    min="0"
-                                    step="0.01"
-                                    value={formData.takeProfit || ''}
-                                    onChange={(e) =>
-                                        setFormData({ ...formData, takeProfit: e.target.value ? parseFloat(e.target.value) : undefined })
-                                    }
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-purple-500 focus:border-purple-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-                                    placeholder="TP 价格"
-                                />
-                            </div>
-                        </div>
-
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">平仓净盈亏金额 (Final P/L)</label>
-                            <input
-                                type="number"
-                                step="0.01"
-                                value={(() => {
-                                    if (formData.manualPnl !== undefined && formData.manualPnl !== null && !isNaN(formData.manualPnl)) {
-                                        return formData.manualPnl;
-                                    }
-                                    const auto = calculateAutoPnL();
-                                    return auto ? auto.pnl : '';
-                                })()}
-                                onChange={(e) => {
-                                    const val = e.target.value;
-                                    setFormData({ ...formData, manualPnl: val === '' ? undefined : parseFloat(val) });
-                                }}
-                                placeholder="留空则按入离场价格自动测算"
-                                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-purple-500 focus:border-purple-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-                            />
-                            <p className="mt-1 text-xs text-gray-400">
-                                {(() => {
-                                    const auto = calculateAutoPnL();
-                                    if (!auto) return `杠杆倍数: ${formData.leverage ?? 1}x`;
-                                    return `自动测算: ${auto.pnl >= 0 ? '+' : ''}${auto.pnl.toFixed(2)} (${auto.pnlPercent.toFixed(2)}%) | 杠杆: ${formData.leverage ?? 1}x`;
-                                })()}
-                            </p>
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-4">
-                            <div className="min-w-0">
-                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">入场时间 (Entry Time)</label>
-                                <DateTimePicker
-                                    value={formData.entryTime || ''}
-                                    onChange={(v) => validateEntryTime(v)}
-                                    max={nowLocal}
-                                    error={entryTimeError}
-                                    placeholder="选择入场时间"
-                                    className="w-full"
-                                />
-                            </div>
-                            <div className="min-w-0">
-                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">出场时间 (Exit Time)</label>
-                                <DateTimePicker
-                                    value={formData.exitTime || ''}
-                                    onChange={(v) => validateExitTime(v)}
-                                    max={nowLocal}
-                                    error={exitTimeError}
-                                    placeholder="选择出场时间 (选填)"
-                                    className="w-full"
-                                />
-                            </div>
-                        </div>
-
-                        {/* Trade Summary */}
-                        <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4 space-y-2">
-                            <div className="flex justify-between items-center">
-                                <span className="text-sm font-medium text-gray-600 dark:text-gray-400">交易状态</span>
-                                {(() => {
-                                    const status = getTradeStatus();
-                                    return (
-                                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${status === 'completed' ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' : 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400'}`}>
-                                            {status === 'completed' ? '已平仓结算' : '持仓中'}
-                                        </span>
-                                    );
-                                })()}
-                            </div>
-                            {(() => {
-                                const autoPnl = calculateAutoPnL();
-                                if (autoPnl) {
-                                    return (
-                                        <div className="flex justify-between items-center">
-                                            <span className="text-sm font-medium text-gray-600 dark:text-gray-400">系统估算盈亏</span>
-                                            <span className={`text-sm font-semibold ${autoPnl.pnl >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                                                {autoPnl.pnl >= 0 ? '+' : ''}${autoPnl.pnl.toFixed(2)} ({autoPnl.pnlPercent.toFixed(2)}%)
-                                            </span>
-                                        </div>
-                                    );
-                                }
-                                return null;
-                            })()}
-                            {(() => {
-                                const targetRR = calculateTargetRR();
-                                if (targetRR) {
-                                    return (
-                                        <div className="flex justify-between items-center">
-                                            <span className="text-sm font-medium text-gray-600 dark:text-gray-400">目标盈亏比 (Target R/R)</span>
-                                            <span className="text-sm font-semibold text-gray-900 dark:text-white">1 : {targetRR.toFixed(2)}</span>
-                                        </div>
-                                    );
-                                }
-                                return null;
-                            })()}
-                            {(() => {
-                                const actualRR = calculateActualRR();
-                                const pnl = calculatePnL();
-                                if (actualRR) {
-                                    const isProfit = (pnl?.pnl ?? 0) >= 0;
-                                    return (
-                                        <div className="flex justify-between items-center">
-                                            <span className="text-sm font-medium text-gray-600 dark:text-gray-400">实际盈亏比 (Actual R/R)</span>
-                                            <span className={`text-sm font-semibold ${isProfit ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>1 : {Math.abs(actualRR).toFixed(2)}</span>
-                                        </div>
-                                    );
-                                }
-                                return null;
-                            })()}
-                        </div>
-
-                        {isEditMode && (
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                    执行纪律评分 (Rating，选填)
-                                </label>
-                                <div className="flex items-center gap-1">
-                                    {[1, 2, 3, 4, 5].map((star) => {
-                                        const filled = (formData.rating || 0) >= star;
-                                        return (
-                                            <button
-                                                key={star}
-                                                type="button"
-                                                onClick={() => {
-                                                    const current = formData.rating || 0;
-                                                    setFormData({
-                                                        ...formData,
-                                                        rating: current === star ? 0 : star,
-                                                    });
-                                                }}
-                                                className="p-1 hover:scale-110 transition-transform"
-                                                title={`${star} 星`}
-                                            >
-                                                <Star
-                                                    size={24}
-                                                    className={filled
-                                                        ? 'text-yellow-400 fill-yellow-400'
-                                                        : 'text-gray-300 dark:text-gray-600'}
-                                                />
-                                            </button>
-                                        );
-                                    })}
-                                    {(formData.rating || 0) > 0 && (
-                                        <button
-                                            type="button"
-                                            onClick={() => setFormData({ ...formData, rating: 0 })}
-                                            className="ml-2 text-xs text-gray-400 hover:text-red-500"
-                                        >
-                                            清空
-                                        </button>
-                                    )}
+                                    <span className="text-[11px] px-2.5 py-0.5 rounded-full font-semibold bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300 border border-purple-200 dark:border-purple-800/50">
+                                        Execution
+                                    </span>
                                 </div>
-                                <p className="mt-1 text-xs text-gray-400">给这笔交易的计划执行力与纪律度打分 (1~5 星)</p>
+
+                                {/* 交易标的 */}
+                                <div>
+                                    <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-2">
+                                        交易标的 (Symbol) <span className="text-red-500">*</span>
+                                    </label>
+                                    <div className="relative" ref={symbolDropdownRef}>
+                                        <input
+                                            ref={symbolInputRef}
+                                            type="text"
+                                            required
+                                            value={formData.symbol}
+                                            onChange={(e) => {
+                                                const newSymbol = e.target.value.toUpperCase();
+                                                setFormData({ ...formData, symbol: newSymbol });
+                                                setShowSymbolDropdown(true);
+                                            }}
+                                            onFocus={() => setShowSymbolDropdown(true)}
+                                            className="w-full pl-3.5 pr-10 py-2.5 border border-gray-300 dark:border-gray-600 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 dark:bg-gray-800 dark:text-white transition-all"
+                                            placeholder="例如 BTCUSD, XAUUSD, EURUSD"
+                                            autoComplete="off"
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setShowSymbolDropdown((v) => !v);
+                                                symbolInputRef.current?.focus();
+                                            }}
+                                            className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 rounded-md transition-colors"
+                                            tabIndex={-1}
+                                        >
+                                            <ChevronDown size={18} />
+                                        </button>
+                                        {showSymbolDropdown && filteredSymbolSuggestions.length > 0 && (
+                                            <div className="absolute z-20 mt-1.5 w-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-xl shadow-xl py-1.5 max-h-60 overflow-auto">
+                                                {filteredSymbolSuggestions.map((s) => (
+                                                    <button
+                                                        key={s}
+                                                        type="button"
+                                                        onClick={() => {
+                                                            setFormData({ ...formData, symbol: s });
+                                                            setShowSymbolDropdown(false);
+                                                        }}
+                                                        className="w-full text-left px-3.5 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-purple-50 dark:hover:bg-gray-700 transition-colors flex items-center justify-between"
+                                                    >
+                                                        <span className="font-semibold">{s}</span>
+                                                        <span className="text-xs text-gray-400">选择标的</span>
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* 多空方向 & 仓位手数 */}
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-2">
+                                            多空方向 (Direction) <span className="text-red-500">*</span>
+                                        </label>
+                                        <Select
+                                            value={formData.direction}
+                                            onChange={(v) => setFormData({ ...formData, direction: v as CreateTradeData['direction'] })}
+                                            options={[
+                                                { value: 'long', label: '做多 (BUY / LONG)' },
+                                                { value: 'short', label: '做空 (SELL / SHORT)' },
+                                            ]}
+                                            placeholder="选择方向"
+                                            className="w-full"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-2">
+                                            仓位手数 / 规模 (Size) <span className="text-red-500">*</span>
+                                        </label>
+                                        <input
+                                            type="number"
+                                            required
+                                            min="0"
+                                            step="0.01"
+                                            value={formData.size}
+                                            onChange={(e) => setFormData({ ...formData, size: parseFloat(e.target.value) })}
+                                            className="w-full px-3.5 py-2.5 border border-gray-300 dark:border-gray-600 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 dark:bg-gray-800 dark:text-white transition-all"
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* 入场价格 & 出场价格 */}
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="min-w-0">
+                                        <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-2">
+                                            入场价格 (Entry Price) <span className="text-red-500">*</span>
+                                        </label>
+                                        <input
+                                            type="number"
+                                            required
+                                            min="0"
+                                            step="0.00001"
+                                            value={formData.entryPrice}
+                                            onChange={(e) => setFormData({ ...formData, entryPrice: parseFloat(e.target.value) })}
+                                            className="w-full px-3.5 py-2.5 border border-gray-300 dark:border-gray-600 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 dark:bg-gray-800 dark:text-white transition-all"
+                                        />
+                                    </div>
+                                    <div className="min-w-0">
+                                        <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-2">
+                                            出场价格 (Exit Price，选填)
+                                        </label>
+                                        <input
+                                            type="number"
+                                            min="0"
+                                            step="0.00001"
+                                            value={formData.exitPrice || ''}
+                                            onChange={(e) =>
+                                                setFormData({ ...formData, exitPrice: e.target.value ? parseFloat(e.target.value) : undefined })
+                                            }
+                                            className="w-full px-3.5 py-2.5 border border-gray-300 dark:border-gray-600 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 dark:bg-gray-800 dark:text-white transition-all"
+                                            placeholder="持仓中可留空"
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* 止损点位 & 止盈点位 */}
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-2">
+                                            止损点位 (Stop Loss)
+                                        </label>
+                                        <input
+                                            type="number"
+                                            min="0"
+                                            step="0.00001"
+                                            value={formData.stopLoss || ''}
+                                            onChange={(e) =>
+                                                setFormData({ ...formData, stopLoss: e.target.value ? parseFloat(e.target.value) : undefined })
+                                            }
+                                            className="w-full px-3.5 py-2.5 border border-gray-300 dark:border-gray-600 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 dark:bg-gray-800 dark:text-white transition-all"
+                                            placeholder="SL 价格"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-2">
+                                            止盈点位 (Take Profit)
+                                        </label>
+                                        <input
+                                            type="number"
+                                            min="0"
+                                            step="0.00001"
+                                            value={formData.takeProfit || ''}
+                                            onChange={(e) =>
+                                                setFormData({ ...formData, takeProfit: e.target.value ? parseFloat(e.target.value) : undefined })
+                                            }
+                                            className="w-full px-3.5 py-2.5 border border-gray-300 dark:border-gray-600 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 dark:bg-gray-800 dark:text-white transition-all"
+                                            placeholder="TP 价格"
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* 入场时间 & 出场时间 */}
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="min-w-0">
+                                        <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-2">
+                                            入场时间 (Entry Time)
+                                        </label>
+                                        <DateTimePicker
+                                            value={formData.entryTime || ''}
+                                            onChange={(v) => validateEntryTime(v)}
+                                            max={nowLocal}
+                                            error={entryTimeError}
+                                            placeholder="选择入场时间"
+                                            className="w-full"
+                                        />
+                                    </div>
+                                    <div className="min-w-0">
+                                        <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-2">
+                                            出场时间 (Exit Time)
+                                        </label>
+                                        <DateTimePicker
+                                            value={formData.exitTime || ''}
+                                            onChange={(v) => validateExitTime(v)}
+                                            max={nowLocal}
+                                            error={exitTimeError}
+                                            placeholder="选择出场时间 (选填)"
+                                            className="w-full"
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* 平仓净盈亏金额 */}
+                                <div>
+                                    <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-2">
+                                        平仓净盈亏金额 (Final P/L)
+                                    </label>
+                                    <input
+                                        type="number"
+                                        step="0.01"
+                                        value={(() => {
+                                            if (formData.manualPnl !== undefined && formData.manualPnl !== null && !isNaN(formData.manualPnl)) {
+                                                return formData.manualPnl;
+                                            }
+                                            const auto = calculateAutoPnL();
+                                            return auto ? auto.pnl : '';
+                                        })()}
+                                        onChange={(e) => {
+                                            const val = e.target.value;
+                                            setFormData({ ...formData, manualPnl: val === '' ? undefined : parseFloat(val) });
+                                        }}
+                                        placeholder="留空则按入离场价格自动测算"
+                                        className="w-full px-3.5 py-2.5 border border-gray-300 dark:border-gray-600 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 dark:bg-gray-800 dark:text-white transition-all"
+                                    />
+                                    <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                                        {(() => {
+                                            const auto = calculateAutoPnL();
+                                            if (!auto) return `杠杆倍数: ${formData.leverage ?? 1}x`;
+                                            return `自动测算: ${auto.pnl >= 0 ? '+' : ''}${auto.pnl.toFixed(2)} (${auto.pnlPercent.toFixed(2)}%) | 杠杆: ${formData.leverage ?? 1}x`;
+                                        })()}
+                                    </p>
+                                </div>
+
+                                {/* 实时测算与盈亏汇总 */}
+                                <div className="bg-white/80 dark:bg-gray-800/80 rounded-xl p-4 border border-gray-200/60 dark:border-gray-700/60 space-y-2.5">
+                                    <div className="flex justify-between items-center text-sm">
+                                        <span className="font-medium text-gray-500 dark:text-gray-400">交易状态</span>
+                                        {(() => {
+                                            const status = getTradeStatus();
+                                            return (
+                                                <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${status === 'completed' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/40' : 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-800/40'}`}>
+                                                    {status === 'completed' ? '已平仓结算' : '持仓中'}
+                                                </span>
+                                            );
+                                        })()}
+                                    </div>
+                                    {(() => {
+                                        const autoPnl = calculateAutoPnL();
+                                        if (autoPnl) {
+                                            return (
+                                                <div className="flex justify-between items-center text-sm">
+                                                    <span className="font-medium text-gray-500 dark:text-gray-400">系统估算盈亏</span>
+                                                    <span className={`font-bold font-mono ${autoPnl.pnl >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                                                        {autoPnl.pnl >= 0 ? '+' : ''}${autoPnl.pnl.toFixed(2)} ({autoPnl.pnlPercent.toFixed(2)}%)
+                                                    </span>
+                                                </div>
+                                            );
+                                        }
+                                        return null;
+                                    })()}
+                                    {(() => {
+                                        const targetRR = calculateTargetRR();
+                                        if (targetRR) {
+                                            return (
+                                                <div className="flex justify-between items-center text-sm">
+                                                    <span className="font-medium text-gray-500 dark:text-gray-400">目标盈亏比 (Target R/R)</span>
+                                                    <span className="font-bold font-mono text-gray-900 dark:text-white">1 : {targetRR.toFixed(2)}</span>
+                                                </div>
+                                            );
+                                        }
+                                        return null;
+                                    })()}
+                                    {(() => {
+                                        const actualRR = calculateActualRR();
+                                        const pnl = calculatePnL();
+                                        if (actualRR) {
+                                            const isProfit = (pnl?.pnl ?? 0) >= 0;
+                                            return (
+                                                <div className="flex justify-between items-center text-sm">
+                                                    <span className="font-medium text-gray-500 dark:text-gray-400">实际盈亏比 (Actual R/R)</span>
+                                                    <span className={`font-bold font-mono ${isProfit ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>1 : {Math.abs(actualRR).toFixed(2)}</span>
+                                                </div>
+                                            );
+                                        }
+                                        return null;
+                                    })()}
+                                </div>
                             </div>
                         )}
 
-                        {isEditMode && (<div>
-                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                平仓触发方式 (选填)
-                            </label>
-                            <div className="flex flex-wrap gap-2">
-                                {[
-                                    { value: 'takeProfit' as const, label: '止盈触发 (TP)' },
-                                    { value: 'stopLoss' as const, label: '止损触发 (SL)' },
-                                ].map((option) => {
-                                    const selected = formData.finalTrigger === option.value;
-                                    const activeStyles = option.value === 'takeProfit'
-                                        ? 'bg-green-600 text-white border-green-600'
-                                        : 'bg-red-600 text-white border-red-600';
-                                    return (
-                                        <button
-                                            key={option.value}
-                                            type="button"
-                                            onClick={() => setFormData({ ...formData, finalTrigger: selected ? undefined : option.value })}
-                                            className={`px-3 py-1.5 text-xs rounded-full border transition-colors ${selected ? activeStyles : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:border-purple-400'}`}
-                                        >
-                                            {option.label}
-                                        </button>
-                                    );
-                                })}
-                            </div>
-                            <p className="mt-1 text-xs text-gray-400">标记本单平仓是触发止盈线还是止损线离场（手动平仓可不填）</p>
-                        </div>)}
-
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                复盘心得与笔记 (Notes，选填)
-                            </label>
-                            <textarea
-                                value={formData.notes || ''}
-                                onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                                rows={4}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-purple-500 focus:border-purple-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-                                placeholder="记录这笔交易的思考、犯错原因或心理总结..."
-                            />
-                        </div>
-
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                行情走势与执行截图 (Screenshots，选填)
-                            </label>
-                            <div className="flex items-center justify-center w-full">
-                                <label
-                                    className={`flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 ${uploadingImage ? 'opacity-50 cursor-not-allowed' : ''}`}
-                                >
-                                    <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                                        <Upload className="w-8 h-8 mb-2 text-gray-400" />
-                                        <p className="text-sm text-gray-500 dark:text-gray-400">
-                                            {uploadingImage ? '正在上传图片...' : '点击上传图表截图'}
-                                        </p>
-                                        <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">支持 PNG, JPG, GIF, WEBP (单张最大 5MB)</p>
-                                    </div>
-                                    <input
-                                        type="file"
-                                        multiple
-                                        accept="image/jpeg,image/png,image/gif,image/webp"
-                                        onChange={handleImageUpload}
-                                        disabled={uploadingImage}
-                                        className="hidden"
-                                    />
-                                </label>
-                            </div>
-                            {formData.screenshots && formData.screenshots.length > 0 && (
-                                <div className="grid grid-cols-3 gap-2 mt-3">
-                                    {formData.screenshots.map((url, index) => (
-                                        <div key={index} className="relative group">
-                                            <img
-                                                src={url.startsWith('http') ? url : `${API_BASE_URL}${url}`}
-                                                alt={`Screenshot ${index + 1}`}
-                                                onClick={() => setLightboxImage({
-                                                    urls: (formData.screenshots || []).map(u => u.startsWith('http') ? u : `${API_BASE_URL}${u}`),
-                                                    index
-                                                })}
-                                                className="w-full h-20 object-cover rounded-md cursor-pointer hover:opacity-80 transition-opacity"
-                                            />
-                                            <button
-                                                type="button"
-                                                onClick={() => handleRemoveImage(index)}
-                                                className="absolute top-1 right-1 bg-red-600 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
-                                            >
-                                                <Trash2 size={12} />
-                                            </button>
+                        {/* Card 2: 策略信号与交易心智 */}
+                        {(activeTab === 'all' || activeTab === 'strategy') && (
+                            <div className="bg-gray-50/70 dark:bg-gray-900/40 border border-gray-200/80 dark:border-gray-700/70 rounded-2xl p-5 sm:p-6 space-y-6">
+                                <div className="flex items-center justify-between pb-3 border-b border-gray-200/60 dark:border-gray-700/60">
+                                    <div className="flex items-center space-x-2.5">
+                                        <div className="p-1.5 bg-indigo-100 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 rounded-lg">
+                                            <Compass className="w-4 h-4" />
                                         </div>
-                                    ))}
+                                        <div>
+                                            <h3 className="text-sm font-bold text-gray-900 dark:text-white">策略信号与交易心智</h3>
+                                            <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">入场形态、交易时段与心理情绪量化</p>
+                                        </div>
+                                    </div>
+                                    <span className="text-[11px] px-2.5 py-0.5 rounded-full font-semibold bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/50">
+                                        Strategy & Mindset
+                                    </span>
                                 </div>
-                            )}
-                        </div>
+
+                                {/* 交易时段 */}
+                                <div>
+                                    <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-2">
+                                        交易时段 (Market Session)
+                                    </label>
+                                    <div className="flex flex-wrap gap-2.5">
+                                        {[
+                                            { value: 'Asia' as const, label: '亚盘时段 (Asia)' },
+                                            { value: 'Europe' as const, label: '欧盘时段 (Europe)' },
+                                            { value: 'US' as const, label: '美盘时段 (US)' },
+                                        ].map((option) => {
+                                            const selected = formData.session === option.value;
+                                            return (
+                                                <button
+                                                    key={option.value}
+                                                    type="button"
+                                                    onClick={() => setFormData({ ...formData, session: selected ? undefined : option.value })}
+                                                    className={`px-3.5 py-2 text-xs font-medium rounded-xl border transition-all ${
+                                                        selected
+                                                            ? 'bg-purple-600 text-white border-purple-600 shadow-xs'
+                                                            : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:border-purple-400 hover:bg-purple-50/50 dark:hover:bg-gray-750'
+                                                    }`}
+                                                >
+                                                    {option.label}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                    <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">标记此笔交易发生时的交易时段 (选填)</p>
+                                </div>
+
+                                {/* 入场信号与条件 */}
+                                <div>
+                                    <div className="flex items-center justify-between mb-2">
+                                        <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
+                                            入场信号与条件 (Entry Conditions) <span className="text-red-500">*</span>
+                                        </label>
+                                        {(formData.entryConditions || []).length > 0 && (
+                                            <span className="text-[11px] text-purple-600 dark:text-purple-400 font-medium">
+                                                已选 {(formData.entryConditions || []).length} 项
+                                            </span>
+                                        )}
+                                    </div>
+                                    <div className="flex flex-wrap gap-2">
+                                        {ENTRY_CONDITION_OPTIONS.map((condition) => {
+                                            const selected = (formData.entryConditions || []).includes(condition);
+                                            return (
+                                                <button
+                                                    key={condition}
+                                                    type="button"
+                                                    onClick={() => toggleEntryCondition(condition)}
+                                                    className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-all ${
+                                                        selected
+                                                            ? 'bg-purple-600 text-white border-purple-600 shadow-xs'
+                                                            : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:border-purple-400 hover:bg-purple-50/50 dark:hover:bg-gray-750'
+                                                    }`}
+                                                >
+                                                    {condition}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                    <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">请至少选择一个入场形态或信号条件（多选）</p>
+                                </div>
+
+                                {/* 入场心理 / 情绪状态 */}
+                                <div>
+                                    <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-2">
+                                        入场心理 / 情绪状态 (Sentiment)
+                                    </label>
+                                    <div className="flex flex-wrap gap-2.5">
+                                        {SENTIMENT_OPTIONS.map((option) => {
+                                            const selected = formData.sentiment === option.value;
+                                            return (
+                                                <button
+                                                    key={option.value}
+                                                    type="button"
+                                                    onClick={() => setFormData({ ...formData, sentiment: selected ? undefined : option.value })}
+                                                    className={`px-3.5 py-2 text-xs font-medium rounded-xl border transition-all flex items-center space-x-1.5 ${
+                                                        selected
+                                                            ? option.selectedClass + ' shadow-xs'
+                                                            : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:border-purple-400 hover:bg-purple-50/50 dark:hover:bg-gray-750'
+                                                    }`}
+                                                >
+                                                    <span>{option.emoji}</span>
+                                                    <span>{option.label}</span>
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                    <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">记录入场时的心智状态，从焦虑、冲动到知行合一心流 (选填)</p>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Card 3: 复盘反思与执行评估 */}
+                        {(activeTab === 'all' || activeTab === 'journal') && (
+                            <div className="bg-gray-50/70 dark:bg-gray-900/40 border border-gray-200/80 dark:border-gray-700/70 rounded-2xl p-5 sm:p-6 space-y-6">
+                                <div className="flex items-center justify-between pb-3 border-b border-gray-200/60 dark:border-gray-700/60">
+                                    <div className="flex items-center space-x-2.5">
+                                        <div className="p-1.5 bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 rounded-lg">
+                                            <FileText className="w-4 h-4" />
+                                        </div>
+                                        <div>
+                                            <h3 className="text-sm font-bold text-gray-900 dark:text-white">复盘反思与执行评估</h3>
+                                            <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">纪律打分、离场触发机制、笔记与图表走势</p>
+                                        </div>
+                                    </div>
+                                    <span className="text-[11px] px-2.5 py-0.5 rounded-full font-semibold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/50">
+                                        Journal
+                                    </span>
+                                </div>
+
+                                {isEditMode && (
+                                    <div>
+                                        <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-2">
+                                            执行纪律评分 (Rating，选填)
+                                        </label>
+                                        <div className="flex items-center gap-2">
+                                            {[1, 2, 3, 4, 5].map((star) => {
+                                                const filled = (formData.rating || 0) >= star;
+                                                return (
+                                                    <button
+                                                        key={star}
+                                                        type="button"
+                                                        onClick={() => {
+                                                            const current = formData.rating || 0;
+                                                            setFormData({
+                                                                ...formData,
+                                                                rating: current === star ? 0 : star,
+                                                            });
+                                                        }}
+                                                        className="p-1 hover:scale-110 transition-transform"
+                                                        title={`${star} 星`}
+                                                    >
+                                                        <Star
+                                                            size={24}
+                                                            className={filled
+                                                                ? 'text-yellow-400 fill-yellow-400'
+                                                                : 'text-gray-300 dark:text-gray-600'}
+                                                        />
+                                                    </button>
+                                                );
+                                            })}
+                                            {(formData.rating || 0) > 0 && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setFormData({ ...formData, rating: 0 })}
+                                                    className="ml-3 text-xs text-gray-400 hover:text-red-500 transition-colors"
+                                                >
+                                                    清空
+                                                </button>
+                                            )}
+                                        </div>
+                                        <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">给这笔交易的计划执行力与纪律度打分 (1~5 星)</p>
+                                    </div>
+                                )}
+
+                                {isEditMode && (
+                                    <div>
+                                        <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-2">
+                                            平仓触发方式 (选填)
+                                        </label>
+                                        <div className="flex flex-wrap gap-2.5">
+                                            {[
+                                                { value: 'takeProfit' as const, label: '止盈触发 (TP)' },
+                                                { value: 'stopLoss' as const, label: '止损触发 (SL)' },
+                                            ].map((option) => {
+                                                const selected = formData.finalTrigger === option.value;
+                                                const activeStyles = option.value === 'takeProfit'
+                                                    ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                                                    : 'bg-rose-600 text-white border-rose-600 shadow-xs';
+                                                return (
+                                                    <button
+                                                        key={option.value}
+                                                        type="button"
+                                                        onClick={() => setFormData({ ...formData, finalTrigger: selected ? undefined : option.value })}
+                                                        className={`px-4 py-2 text-xs font-medium rounded-xl border transition-all ${selected ? activeStyles : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:border-purple-400'}`}
+                                                    >
+                                                        {option.label}
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                        <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">标记本单平仓是触发止盈线还是止损线离场（手动平仓可不填）</p>
+                                    </div>
+                                )}
+
+                                <div>
+                                    <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-2">
+                                        复盘心得与笔记 (Notes，选填)
+                                    </label>
+                                    <textarea
+                                        value={formData.notes || ''}
+                                        onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                                        rows={4}
+                                        className="w-full px-3.5 py-3 border border-gray-300 dark:border-gray-600 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 dark:bg-gray-800 dark:text-white transition-all leading-relaxed"
+                                        placeholder="记录这笔交易的思考、犯错原因或心理总结..."
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-2">
+                                        行情走势与执行截图 (Screenshots，选填)
+                                    </label>
+                                    <div className="flex items-center justify-center w-full">
+                                        <label
+                                            className={`flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl cursor-pointer hover:bg-white dark:hover:bg-gray-800 bg-white/50 dark:bg-gray-800/50 transition-colors ${uploadingImage ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                        >
+                                            <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                                                <Upload className="w-8 h-8 mb-2 text-gray-400" />
+                                                <p className="text-sm text-gray-600 dark:text-gray-300 font-medium">
+                                                    {uploadingImage ? '正在上传图片...' : '点击上传图表截图'}
+                                                </p>
+                                                <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">支持 PNG, JPG, GIF, WEBP (单张最大 5MB)</p>
+                                            </div>
+                                            <input
+                                                type="file"
+                                                multiple
+                                                accept="image/jpeg,image/png,image/gif,image/webp"
+                                                onChange={handleImageUpload}
+                                                disabled={uploadingImage}
+                                                className="hidden"
+                                            />
+                                        </label>
+                                    </div>
+                                    {formData.screenshots && formData.screenshots.length > 0 && (
+                                        <div className="grid grid-cols-3 gap-3 mt-3">
+                                            {formData.screenshots.map((url, index) => (
+                                                <div key={index} className="relative group rounded-xl overflow-hidden border border-gray-200 dark:border-gray-700 shadow-xs">
+                                                    <img
+                                                        src={url.startsWith('http') ? url : `${API_BASE_URL}${url}`}
+                                                        alt={`Screenshot ${index + 1}`}
+                                                        onClick={() => setLightboxImage({
+                                                            urls: (formData.screenshots || []).map(u => u.startsWith('http') ? u : `${API_BASE_URL}${u}`),
+                                                            index
+                                                        })}
+                                                        className="w-full h-24 object-cover cursor-pointer hover:scale-105 transition-transform"
+                                                    />
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleRemoveImage(index)}
+                                                        className="absolute top-1.5 right-1.5 bg-red-600 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity shadow-md"
+                                                    >
+                                                        <Trash2 size={12} />
+                                                    </button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
                     </form>
 
                     {/* Footer */}
-                    <div className="flex items-center justify-between p-4 border-t dark:border-gray-700">
+                    <div className="flex items-center justify-between px-6 py-4 border-t border-gray-100 dark:border-gray-700/80 bg-gray-50/50 dark:bg-gray-800/80 shrink-0">
                         <div>
                             {isEditMode && (
                                 <button

@@ -11,7 +11,7 @@ const __dirname = path.dirname(__filename);
 export class BacktestingController {
   static async getCandles(req, res, next) {
     try {
-      const { symbol = 'EURUSD', timeframe = 'H1', count = 300, start } = req.query;
+      const { symbol = 'EURUSD', timeframe = 'M5', count = 300, start } = req.query;
       const scriptPath = path.join(__dirname, '../../scripts/mt5_candles.py');
       const args = [scriptPath, '--symbol', symbol, '--timeframe', timeframe, '--count', String(count)];
       if (start) args.push('--start', start);

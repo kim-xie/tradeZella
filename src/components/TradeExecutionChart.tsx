@@ -39,6 +39,7 @@ export interface TradeExecutionChartProps {
   session?: string;
   exitReason?: string;
   contractSize?: number;
+  initialTimeframe?: string;
 }
 
 // Format price with appropriate decimals
@@ -96,6 +97,7 @@ export const TradeExecutionChart: React.FC<TradeExecutionChartProps> = ({
   session,
   exitReason,
   contractSize: customContractSize,
+  initialTimeframe = 'M5',
 }) => {
   const chartContainerRef = useRef<HTMLDivElement | null>(null);
   const chartInstanceRef = useRef<IChartApi | null>(null);
@@ -109,7 +111,7 @@ export const TradeExecutionChart: React.FC<TradeExecutionChartProps> = ({
   const maeLineRef = useRef<any>(null);
   const mfeLineRef = useRef<any>(null);
 
-  const [timeframe, setTimeframe] = useState<string>('M15');
+  const [timeframe, setTimeframe] = useState<string>(initialTimeframe);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [candles, setCandles] = useState<CandleItem[]>([]);
@@ -533,18 +535,22 @@ export const TradeExecutionChart: React.FC<TradeExecutionChartProps> = ({
     chart.timeScale().fitContent();
 
     // Responsive resize observer
-    const resizeObserver = new ResizeObserver(entries => {
-      if (!entries || entries.length === 0) return;
-      const { width: newWidth } = entries[0].contentRect;
-      if (newWidth > 0 && chartInstanceRef.current) {
-        chartInstanceRef.current.applyOptions({ width: newWidth });
-      }
-    });
-
-    resizeObserver.observe(container);
+    let resizeObserver: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined') {
+      resizeObserver = new ResizeObserver(entries => {
+        if (!entries || entries.length === 0) return;
+        const { width: newWidth } = entries[0].contentRect;
+        if (newWidth > 0 && chartInstanceRef.current) {
+          chartInstanceRef.current.applyOptions({ width: newWidth });
+        }
+      });
+      resizeObserver.observe(container);
+    }
 
     return () => {
-      resizeObserver.disconnect();
+      if (resizeObserver) {
+        resizeObserver.disconnect();
+      }
       if (chartInstanceRef.current) {
         chartInstanceRef.current.remove();
         chartInstanceRef.current = null;
