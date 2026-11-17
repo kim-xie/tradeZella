@@ -73,7 +73,7 @@ describe('StatsPage (Trading Calendar)', () => {
     expect(screen.queryByText('回到今日')).toBeNull();
   });
 
-  it('renders modern Select components for year and month and supports selection', async () => {
+  it('renders modern Select component for month and removed year dropdown', async () => {
     const mockTrades = [
       {
         id: 1,
@@ -92,11 +92,12 @@ describe('StatsPage (Trading Calendar)', () => {
 
     renderWithProviders(<StatsPage />);
 
-    // Check that aria-label "选择年份" and "选择月份" buttons exist
+    // Verify year select dropdown is NOT present
+    expect(screen.queryByRole('button', { name: '选择年份' })).toBeNull();
+
+    // Check that aria-label "选择月份" button exists
     const monthSelectBtn = await screen.findByRole('button', { name: '选择月份' });
-    const yearSelectBtn = screen.getByRole('button', { name: '选择年份' });
     expect(monthSelectBtn).toBeInTheDocument();
-    expect(yearSelectBtn).toBeInTheDocument();
 
     // Click month select dropdown and choose a specific month (e.g. 5月)
     fireEvent.click(monthSelectBtn);

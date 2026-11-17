@@ -158,7 +158,7 @@ const StatsPage: React.FC = () => {
     return rows;
   }, [currentDate]);
 
-  // Month & Year navigation
+  // Month navigation
   const prevMonth = () => {
     setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1));
   };
@@ -168,36 +168,9 @@ const StatsPage: React.FC = () => {
   const goToday = () => {
     setCurrentDate(new Date());
   };
-  const handleYearChange = (year: number) => {
-    setCurrentDate(new Date(year, currentDate.getMonth(), 1));
-  };
   const handleMonthChange = (monthIdx: number) => {
     setCurrentDate(new Date(currentDate.getFullYear(), monthIdx, 1));
   };
-
-  // Dynamically compute year options based on trade data and current year window
-  const yearOptions: SelectOption[] = useMemo(() => {
-    const years = new Set<number>();
-    const currentYear = new Date().getFullYear();
-    for (let y = currentYear - 3; y <= currentYear + 1; y++) {
-      years.add(y);
-    }
-    trades.forEach((t) => {
-      const timeStr = getTradeEntryTime(t);
-      if (timeStr && timeStr.length >= 4) {
-        const y = parseInt(timeStr.substring(0, 4), 10);
-        if (!isNaN(y)) years.add(y);
-      }
-    });
-    years.add(currentDate.getFullYear());
-
-    return Array.from(years)
-      .sort((a, b) => b - a)
-      .map((y) => ({
-        value: String(y),
-        label: `${y}年`,
-      }));
-  }, [trades, currentDate]);
 
   const todayStr = useMemo(() => {
     const d = new Date();
@@ -242,17 +215,11 @@ const StatsPage: React.FC = () => {
               <ChevronLeft className="w-4 h-4" />
             </button>
 
-            {/* Center: Year & Month Selectors & Back to Today */}
+            {/* Center: Month Selector & Back to Today */}
             <div className="flex items-center space-x-2">
-              <div className="w-[95px] sm:w-[105px]">
-                <Select
-                  value={String(currentDate.getFullYear())}
-                  onChange={(val) => handleYearChange(Number(val))}
-                  options={yearOptions}
-                  aria-label="选择年份"
-                  className="w-full"
-                />
-              </div>
+              <span className="text-sm font-bold text-gray-900 dark:text-white font-mono px-1">
+                {currentDate.getFullYear()}年
+              </span>
 
               <div className="w-[90px] sm:w-[100px]">
                 <Select
