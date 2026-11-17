@@ -114,7 +114,8 @@ export default function Navbar() {
               onClick={toggleTheme} 
               data-testid="theme-switcher" 
               className="p-2 rounded-xl text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-navy-800 border border-gray-200 dark:border-white/10 transition-colors"
-              title="切换明暗主题"
+              title={theme === 'light' ? '当前为白天白色模式（点击切换夜间黑色）' : '当前为夜间黑色模式（点击切换白天白色）'}
+              aria-label="切换明暗主题"
             >
               {theme === 'light' ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4 text-amber-400" />}
             </button>

@@ -32,6 +32,20 @@
     
     <!-- Additional SEO Tags -->
     <link rel="canonical" href="https://tradezen.app/" />
+
+    <!-- Prevent Theme Flash: 随时间自动设置默认值（夜间18:00~06:00黑，白天6:00~18:00白），支持手动设置 -->
+    <script>
+      (function() {
+        try {
+          var saved = localStorage.getItem('theme');
+          var hour = new Date().getHours();
+          var isNight = hour >= 18 || hour < 6;
+          var theme = (saved === 'light' || saved === 'dark') ? saved : (isNight ? 'dark' : 'light');
+          document.documentElement.classList.remove('light', 'dark');
+          document.documentElement.classList.add(theme);
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
