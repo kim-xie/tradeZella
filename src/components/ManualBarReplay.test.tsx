@@ -165,4 +165,49 @@ describe('ManualBarReplay - TradingView Position Sizing & Order Placement', () =
 
     expect(screen.getByText(/按住鼠标上下拖拽/i)).toBeInTheDocument();
   }, 15000);
+
+  it('supports multi-window linked backtesting layouts and timeframe controls up to 4 windows', async () => {
+    render(<ManualBarReplay initialSymbol="EURUSD" />);
+
+    await waitFor(() => {
+      expect(screen.getByText('1 图')).toBeInTheDocument();
+      expect(screen.getByText('2 联屏')).toBeInTheDocument();
+      expect(screen.getByText('3 联屏')).toBeInTheDocument();
+      expect(screen.getByText('4 宫格')).toBeInTheDocument();
+    });
+
+    // Default is 1-window mode
+    expect(screen.getByText('主控窗口')).toBeInTheDocument();
+    expect(screen.queryByText('联动窗口 2')).not.toBeInTheDocument();
+
+    // Switch to 2-window mode
+    const btn2 = screen.getByText('2 联屏');
+    fireEvent.click(btn2);
+
+    expect(screen.getByText('主控窗口')).toBeInTheDocument();
+    expect(screen.getByText('联动窗口 2')).toBeInTheDocument();
+    expect(screen.queryByText('联动窗口 3')).not.toBeInTheDocument();
+
+    // Switch to 4-window mode
+    const btn4 = screen.getByText('4 宫格');
+    fireEvent.click(btn4);
+
+    expect(screen.getByText('主控窗口')).toBeInTheDocument();
+    expect(screen.getByText('联动窗口 2')).toBeInTheDocument();
+    expect(screen.getByText('联动窗口 3')).toBeInTheDocument();
+    expect(screen.getByText('联动窗口 4')).toBeInTheDocument();
+
+    // Sub-window timeframe select exists
+    const win2Select = screen.getByLabelText('窗口2周期') as HTMLSelectElement;
+    expect(win2Select).toBeInTheDocument();
+    fireEvent.change(win2Select, { target: { value: 'H1' } });
+    expect(win2Select.value).toBe('H1');
+
+    // Switch back to 1-window mode
+    const btn1 = screen.getByText('1 图');
+    fireEvent.click(btn1);
+
+    expect(screen.getByText('主控窗口')).toBeInTheDocument();
+    expect(screen.queryByText('联动窗口 2')).not.toBeInTheDocument();
+  }, 15000);
 });
