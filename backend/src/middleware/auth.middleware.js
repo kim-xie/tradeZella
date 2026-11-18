@@ -27,10 +27,10 @@ export const protect = async (req, res, next) => {
       const decoded = jwt.verify(token, JWT_SECRET);
       console.log('Decoded token:', decoded);
 
-      // Sliding expiration: check inactivity timeout
+      // Sliding expiration: check inactivity timeout (skip for long-lived EA sync tokens)
       const now = Math.floor(Date.now() / 1000);
       const lastActivity = decoded.lastActivity || decoded.iat;
-      if (now - lastActivity > INACTIVITY_TIMEOUT) {
+      if (!decoded.isSyncToken && (now - lastActivity > INACTIVITY_TIMEOUT)) {
         console.log('Token expired due to inactivity');
         return res.status(401).json({ message: 'Session expired due to inactivity' });
       }

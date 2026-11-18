@@ -1,7 +1,7 @@
 import TradeDrawer from '../components/TradeDrawer';
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { X, Star, ChevronLeft, ChevronRight, RefreshCw, Upload, Database, CheckCircle2, BarChart2, Calendar, PenLine } from 'lucide-react';
+import { X, Star, ChevronLeft, ChevronRight, RefreshCw, Upload, Database, CheckCircle2, BarChart2, Calendar, PenLine, Trash2, AlertTriangle } from 'lucide-react';
 import Button from '../components/common/Button';
 import Select from '../components/common/Select';
 import DateRangePicker from '../components/common/DateRangePicker';
@@ -9,7 +9,7 @@ import CSVUploader from '../components/CSVUploader';
 import TradeExecutionChart from '../components/TradeExecutionChart';
 import TradeRatingModal from '../components/TradeRatingModal';
 import TradeRatingAnimationOverlay, { RatingAnimationData } from '../components/TradeRatingAnimationOverlay';
-import { getUserTrades, updateTrade, SERVER_BASE_URL as API_BASE_URL } from '../services/api';
+import { getUserTrades, updateTrade, clearAllTrades, SERVER_BASE_URL as API_BASE_URL } from '../services/api';
 
 interface Trade {
   id: number;
@@ -216,6 +216,19 @@ const sortByEntryTimeDesc = (a: Trade, b: Trade): number => {
   return timeB - timeA;
 };
 
+const generatePageNumbers = (current: number, total: number): (number | string)[] => {
+  if (total <= 7) {
+    return Array.from({ length: total }, (_, i) => i + 1);
+  }
+  if (current <= 4) {
+    return [1, 2, 3, 4, 5, '...', total];
+  }
+  if (current >= total - 3) {
+    return [1, '...', total - 4, total - 3, total - 2, total - 1, total];
+  }
+  return [1, '...', current - 1, current, current + 1, '...', total];
+};
+
 const TradesPage: React.FC = () => {
   const [trades, setTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(true);
@@ -238,7 +251,27 @@ const TradesPage: React.FC = () => {
   const [searchSource, setSearchSource] = useState('');
   const [quickFilter, setQuickFilter] = useState('today');
   const [showUploader, setShowUploader] = useState(false);
+  const [showClearModal, setShowClearModal] = useState(false);
+  const [clearing, setClearing] = useState(false);
+  const [clearSuccessMsg, setClearSuccessMsg] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [pageSize, setPageSize] = useState<number>(50);
   const navigate = useNavigate();
+
+  const handleClearAllTrades = async () => {
+    try {
+      setClearing(true);
+      const res = await clearAllTrades();
+      setShowClearModal(false);
+      setClearSuccessMsg(res?.message || '全部历史交易订单已清空');
+      setTimeout(() => setClearSuccessMsg(null), 4000);
+      await fetchTrades();
+    } catch (err: any) {
+      alert(err.message || '清空历史订单失败');
+    } finally {
+      setClearing(false);
+    }
+  };
 
   const handleAddClick = () => {
     setEditingTrade(null);
@@ -417,6 +450,19 @@ const TradesPage: React.FC = () => {
     trades.forEach((t) => { if (t.symbol) symbols.add(t.symbol); });
     return Array.from(symbols).sort();
   }, [trades]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredTrades.length / pageSize));
+
+  // 当筛选条件或每页条数发生变动时，自动回退到第 1 页
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchSymbol, searchEntryDateStart, searchEntryDateEnd, searchStatus, searchDirection, searchExitMethod, searchSource, searchResult, quickFilter, pageSize]);
+
+  // 根据当前页码与每页条数切片数据
+  const paginatedTrades = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredTrades.slice(start, start + pageSize);
+  }, [filteredTrades, currentPage, pageSize]);
 
   if (loading && trades.length === 0) {
     return (
@@ -819,8 +865,61 @@ const TradesPage: React.FC = () => {
           <span>共</span>
           <span className="font-semibold text-gray-700 dark:text-gray-300">{trades.length}</span>
           <span>笔交易记录</span>
+          {clearSuccessMsg && (
+            <span className="ml-3 text-xs text-emerald-600 dark:text-emerald-400 font-sans font-medium animate-in fade-in">
+              ✓ {clearSuccessMsg}
+            </span>
+          )}
         </div>
+
+        {trades.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setShowClearModal(true)}
+            className="text-[11px] text-gray-400/80 dark:text-gray-500/80 hover:text-red-500 dark:hover:text-red-400 transition-colors flex items-center space-x-1 px-2 py-0.5 rounded hover:bg-red-50/50 dark:hover:bg-red-950/20 cursor-pointer"
+            title="一键清空全部历史交易订单数据"
+          >
+            <Trash2 className="w-3 h-3 text-gray-400/70 hover:text-red-500" />
+            <span>清空全部订单</span>
+          </button>
+        )}
       </div>
+
+      {/* 清空历史订单二次确认弹窗 */}
+      {showClearModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-150">
+          <div className="bg-white dark:bg-[#0f1422] rounded-2xl max-w-sm w-full p-5 shadow-2xl border border-gray-200 dark:border-white/10 text-center">
+            <div className="w-12 h-12 rounded-full bg-red-100 dark:bg-red-950/50 text-red-600 dark:text-red-400 mx-auto flex items-center justify-center mb-3">
+              <AlertTriangle className="w-6 h-6" />
+            </div>
+            <h4 className="text-base font-bold text-gray-900 dark:text-white">
+              确定要清空全部历史订单吗？
+            </h4>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-2 leading-relaxed">
+              此操作将永久清空您当前账户下的全部 <b>{trades.length}</b> 笔历史交易记录，且<b>不可恢复</b>。
+            </p>
+            <div className="mt-5 flex items-center justify-center space-x-3">
+              <button
+                type="button"
+                onClick={() => setShowClearModal(false)}
+                disabled={clearing}
+                className="px-4 py-2 text-xs font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-white/5 hover:bg-gray-200 dark:hover:bg-white/10 rounded-xl transition"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={handleClearAllTrades}
+                disabled={clearing}
+                className="px-4 py-2 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 disabled:opacity-50 rounded-xl transition shadow-md flex items-center space-x-1.5"
+              >
+                {clearing && <RefreshCw className="w-3 h-3 animate-spin" />}
+                <span>{clearing ? '正在清空...' : '确认一键清空'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="bg-white dark:bg-[#0b0f19] border border-gray-200/80 dark:border-white/10 shadow-sm rounded-2xl overflow-hidden">
         <div className="overflow-x-auto">
@@ -842,8 +941,8 @@ const TradesPage: React.FC = () => {
             </thead>
             <tbody className="text-gray-900 dark:text-white divide-y divide-gray-100 dark:divide-white/5">
               {(() => {
-                if (filteredTrades.length > 0) {
-                  return filteredTrades.map((trade) => {
+                if (paginatedTrades.length > 0) {
+                  return paginatedTrades.map((trade) => {
                     const pnl = calculateTradePnL(trade);
                     const targetRR = calculateTargetRR(trade);
                     const isCompleted = !!trade.exitprice;
@@ -983,6 +1082,103 @@ const TradesPage: React.FC = () => {
             </tbody>
           </table>
         </div>
+
+        {/* 分页控制栏 (默认每页 50 条) */}
+        {filteredTrades.length > 0 && (
+          <div className="px-4 py-3 bg-gray-50/70 dark:bg-[#070a13]/80 border-t border-gray-200/80 dark:border-white/10 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-gray-500 dark:text-gray-400">
+            {/* 左侧：条数显示与每页大小切换 */}
+            <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+              <div className="flex items-center space-x-1 font-mono">
+                <span>显示第</span>
+                <span className="font-semibold text-gray-800 dark:text-gray-200">
+                  {(currentPage - 1) * pageSize + 1}
+                </span>
+                <span>-</span>
+                <span className="font-semibold text-gray-800 dark:text-gray-200">
+                  {Math.min(currentPage * pageSize, filteredTrades.length)}
+                </span>
+                <span>条，共</span>
+                <span className="font-semibold text-purple-600 dark:text-purple-400">
+                  {filteredTrades.length}
+                </span>
+                <span>条数据</span>
+              </div>
+
+              {/* 每页条数选择器 */}
+              <div className="flex items-center space-x-1.5 pl-2 sm:pl-3 border-l border-gray-200 dark:border-white/10">
+                <span>每页</span>
+                <select
+                  value={pageSize}
+                  onChange={(e) => {
+                    setPageSize(Number(e.target.value));
+                    setCurrentPage(1);
+                  }}
+                  className="bg-white dark:bg-[#0b0f19] border border-gray-200 dark:border-white/10 text-gray-800 dark:text-gray-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-purple-500 font-mono cursor-pointer"
+                  title="选择每页显示条数"
+                >
+                  <option value={20}>20 条</option>
+                  <option value={50}>50 条 (默认)</option>
+                  <option value={100}>100 条</option>
+                  <option value={200}>200 条</option>
+                </select>
+              </div>
+            </div>
+
+            {/* 右侧：页码导航与翻页操作 */}
+            <div className="flex items-center space-x-1">
+              <button
+                type="button"
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                disabled={currentPage <= 1}
+                className="p-1.5 rounded-lg border border-gray-200 dark:border-white/10 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/5 disabled:opacity-30 disabled:cursor-not-allowed transition flex items-center space-x-0.5"
+                title="上一页"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline text-xs">上一页</span>
+              </button>
+
+              {/* 页码按钮 */}
+              <div className="flex items-center space-x-1 px-1">
+                {generatePageNumbers(currentPage, totalPages).map((p, idx) => {
+                  if (p === '...') {
+                    return (
+                      <span key={`ellipsis-${idx}`} className="px-1.5 py-0.5 text-gray-400 select-none">
+                        ...
+                      </span>
+                    );
+                  }
+                  const pageNum = Number(p);
+                  const isActive = pageNum === currentPage;
+                  return (
+                    <button
+                      key={pageNum}
+                      type="button"
+                      onClick={() => setCurrentPage(pageNum)}
+                      className={`min-w-[28px] h-7 px-2 text-xs font-mono font-medium rounded-lg transition-all ${
+                        isActive
+                          ? 'bg-purple-600 text-white font-bold shadow-sm'
+                          : 'border border-gray-200 dark:border-white/10 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/5'
+                      }`}
+                    >
+                      {pageNum}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                disabled={currentPage >= totalPages}
+                className="p-1.5 rounded-lg border border-gray-200 dark:border-white/10 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/5 disabled:opacity-30 disabled:cursor-not-allowed transition flex items-center space-x-0.5"
+                title="下一页"
+              >
+                <span className="hidden sm:inline text-xs">下一页</span>
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+        )}
       </div>
       {/* Trade Execution Chart Modal (TradingView 独立弹窗) */}
       {chartModalTrade && (

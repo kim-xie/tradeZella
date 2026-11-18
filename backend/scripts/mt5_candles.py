@@ -68,7 +68,7 @@ def generate_synthetic_candles(start_dt, count=300, base_price=1.1000, freq='5mi
         })
     return rows
 
-def get_candles(symbol="EURUSD", timeframe_str="H1", count=300, start_date=None):
+def get_candles(symbol="EURUSD", timeframe_str="H1", count=300, start_date=None, end_date=None):
     tf = TIMEFRAME_MAP.get(timeframe_str.upper(), mt5.TIMEFRAME_H1)
     connected = mt5.initialize()
     candles = []
@@ -86,7 +86,10 @@ def get_candles(symbol="EURUSD", timeframe_str="H1", count=300, start_date=None)
             if start_date:
                 try:
                     s_dt = datetime.datetime.fromisoformat(start_date.replace('Z', ''))
-                    rates = mt5.copy_rates_from_pos(symbol, tf, 0, count)
+                    e_dt = datetime.datetime.fromisoformat(end_date.replace('Z', '')) if end_date else datetime.datetime.now()
+                    rates = mt5.copy_rates_range(symbol, tf, s_dt, e_dt)
+                    if rates is None or len(rates) == 0:
+                        rates = mt5.copy_rates_from_pos(symbol, tf, 0, count)
                 except Exception:
                     rates = mt5.copy_rates_from_pos(symbol, tf, 0, count)
             else:
@@ -132,7 +135,8 @@ if __name__ == '__main__':
     parser.add_argument("--timeframe", type=str, default="M5")
     parser.add_argument("--count", type=int, default=300)
     parser.add_argument("--start", type=str, default=None)
+    parser.add_argument("--end", type=str, default=None)
     args = parser.parse_args()
 
-    result = get_candles(symbol=args.symbol, timeframe_str=args.timeframe, count=args.count, start_date=args.start)
+    result = get_candles(symbol=args.symbol, timeframe_str=args.timeframe, count=args.count, start_date=args.start, end_date=args.end)
     print(json.dumps(result, ensure_ascii=False))

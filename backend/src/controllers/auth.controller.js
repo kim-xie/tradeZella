@@ -1,4 +1,5 @@
 import { AuthService } from '../services/auth.service.js';
+import jwt from 'jsonwebtoken';
 
 export class AuthController {
   static async register(req, res, next) {
@@ -67,6 +68,23 @@ export class AuthController {
           message: error.message 
         });
       }
+      next(error);
+    }
+  }
+
+  static async getSyncToken(req, res, next) {
+    try {
+      const JWT_SECRET = process.env.NODE_ENV === 'test' ? 'test-secret' : process.env.JWT_SECRET;
+      const syncToken = jwt.sign(
+        { userId: req.user.id, isSyncToken: true },
+        JWT_SECRET,
+        { expiresIn: '365d' }
+      );
+      res.json({
+        success: true,
+        data: { syncToken },
+      });
+    } catch (error) {
       next(error);
     }
   }

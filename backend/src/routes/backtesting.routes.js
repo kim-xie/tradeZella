@@ -10,6 +10,7 @@ router.use(protect);
 // MT5 status endpoint
 router.get('/mt5/status', BacktestingController.getMT5Status);
 router.get('/candles', BacktestingController.getCandles);
+router.post('/candles/sync', BacktestingController.syncCandles);
 
 router.route('/')
   .get(BacktestingController.getBacktestingResults)

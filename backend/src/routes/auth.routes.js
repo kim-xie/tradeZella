@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import passport from 'passport';
 import { AuthController } from '../controllers/auth.controller.js';
+import { protect } from '../middleware/auth.middleware.js';
 import {
   registerValidationRules,
   loginValidationRules,
@@ -12,6 +13,7 @@ const router = Router();
 
 router.post('/register', registerValidationRules(), validate, AuthController.register);
 router.post('/login', loginValidationRules(), validate, AuthController.login);
+router.get('/sync-token', protect, AuthController.getSyncToken);
 
 router.get('/google', passport.authenticate('google', { scope: ['profile', 'email'] }));
 

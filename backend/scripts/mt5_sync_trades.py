@@ -40,7 +40,7 @@ def format_iso_time(ts):
     dt = datetime.datetime.fromtimestamp(ts)
     return dt.strftime('%Y-%m-%dT%H:%M:%S')
 
-def sync_trades(days=30, limit=None, all_history=False):
+def sync_trades(days=30, limit=None, all_history=False, from_date=None, to_date=None):
     if not mt5.initialize():
         return {
             "success": False,
@@ -49,12 +49,34 @@ def sync_trades(days=30, limit=None, all_history=False):
 
     try:
         now = datetime.datetime.now()
-        if all_history:
-            from_dt = datetime.datetime(2020, 1, 1)
+        
+        # Determine to_dt
+        if to_date:
+            try:
+                if len(to_date) == 10:
+                    to_dt = datetime.datetime.strptime(to_date, '%Y-%m-%d').replace(hour=23, minute=59, second=59)
+                else:
+                    to_dt = datetime.datetime.fromisoformat(to_date.replace('Z', ''))
+            except Exception:
+                to_dt = now
         else:
-            from_dt = now - datetime.timedelta(days=days)
+            to_dt = now
 
-        deals = mt5.history_deals_get(from_dt, now)
+        # Determine from_dt
+        if all_history:
+            from_dt = datetime.datetime(2010, 1, 1)
+        elif from_date:
+            try:
+                if len(from_date) == 10:
+                    from_dt = datetime.datetime.strptime(from_date, '%Y-%m-%d').replace(hour=0, minute=0, second=0)
+                else:
+                    from_dt = datetime.datetime.fromisoformat(from_date.replace('Z', ''))
+            except Exception:
+                from_dt = to_dt - datetime.timedelta(days=days or 30)
+        else:
+            from_dt = to_dt - datetime.timedelta(days=days or 30)
+
+        deals = mt5.history_deals_get(from_dt, to_dt)
         if deals is None:
             return {
                 "success": True,
@@ -151,13 +173,15 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Sync closed trades from MT5")
     parser.add_argument("--days", type=int, default=30, help="Days of history to fetch")
     parser.add_argument("--all", action="store_true", help="Fetch all history")
+    parser.add_argument("--from-date", type=str, default=None, help="Start date (YYYY-MM-DD or ISO)")
+    parser.add_argument("--to-date", type=str, default=None, help="End date (YYYY-MM-DD or ISO)")
     parser.add_argument("--limit", type=int, default=None, help="Limit number of trades")
     parser.add_argument("--csv", type=str, default=None, help="Export to CSV file path")
     parser.add_argument("--json", action="store_true", help="Output JSON to stdout")
 
     args = parser.parse_args()
 
-    result = sync_trades(days=args.days, limit=args.limit, all_history=args.all)
+    result = sync_trades(days=args.days, limit=args.limit, all_history=args.all, from_date=args.from_date, to_date=args.to_date)
 
     if args.csv and result.get("success") and result.get("trades"):
         import csv

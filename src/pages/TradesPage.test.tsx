@@ -239,4 +239,100 @@ describe('TradesPage', () => {
       expect(screen.getByText(/知行合一 · 完美典范/)).toBeInTheDocument();
     });
   });
+
+  it('renders "清空全部订单" button, opens confirmation modal and clears all trades', async () => {
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const now = new Date();
+    const today = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+    const mockTrades = [
+      { id: 1, symbol: 'BTCUSD', direction: 'long', size: 1, entryprice: 60000, entry_time: `${today}T10:00:00`, createdat: `${today}T10:00:00` },
+    ];
+    vi.spyOn(api, 'getUserTrades').mockResolvedValue(mockTrades);
+    const clearSpy = vi.spyOn(api, 'clearAllTrades').mockResolvedValue({ success: true, count: 1 });
+    localStorage.setItem('token', 'test-token');
+
+    render(
+      <MemoryRouter>
+        <TradesPage />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('BTCUSD')).toBeInTheDocument();
+    });
+
+    const clearBtn = screen.getByTitle('一键清空全部历史交易订单数据');
+    expect(clearBtn).toBeInTheDocument();
+    expect(screen.getByText('清空全部订单')).toBeInTheDocument();
+
+    // Click clear button opens confirmation modal
+    fireEvent.click(clearBtn);
+    expect(screen.getByText('确定要清空全部历史订单吗？')).toBeInTheDocument();
+
+    // Click confirm
+    const confirmBtn = screen.getByRole('button', { name: '确认一键清空' });
+    fireEvent.click(confirmBtn);
+
+    await waitFor(() => {
+      expect(clearSpy).toHaveBeenCalled();
+    });
+  });
+
+  it('supports pagination with default 50 items per page and page controls', async () => {
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const now = new Date();
+    const today = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+
+    // Create 60 mock trades
+    const mockTrades = Array.from({ length: 60 }, (_, i) => ({
+      id: i + 1,
+      symbol: `SYM${i + 1}`,
+      direction: 'long' as const,
+      size: 1,
+      entryprice: 100 + i,
+      entry_time: `${today}T10:00:00`,
+      createdat: `${today}T10:00:00`,
+    }));
+
+    vi.spyOn(api, 'getUserTrades').mockResolvedValue(mockTrades);
+    localStorage.setItem('token', 'test-token');
+
+    render(
+      <MemoryRouter>
+        <TradesPage />
+      </MemoryRouter>
+    );
+
+    // Initial render should show page 1 items (up to 50)
+    await waitFor(() => {
+      expect(screen.getByText('SYM1')).toBeInTheDocument();
+      expect(screen.getByText('SYM50')).toBeInTheDocument();
+      expect(screen.queryByText('SYM51')).not.toBeInTheDocument();
+    });
+
+    // Check pagination information
+    expect(screen.getByText('50 条 (默认)')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '1' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '2' })).toBeInTheDocument();
+
+    // Click page 2
+    fireEvent.click(screen.getByRole('button', { name: '2' }));
+
+    // Now page 2 items should appear
+    await waitFor(() => {
+      expect(screen.queryByText('SYM1')).not.toBeInTheDocument();
+      expect(screen.getByText('SYM51')).toBeInTheDocument();
+      expect(screen.getByText('SYM60')).toBeInTheDocument();
+    });
+
+    // Change page size to 100
+    const pageSizeSelect = screen.getByTitle('选择每页显示条数');
+    fireEvent.change(pageSizeSelect, { target: { value: '100' } });
+
+    // Now all 60 items should fit on page 1
+    await waitFor(() => {
+      expect(screen.getByText('SYM1')).toBeInTheDocument();
+      expect(screen.getByText('SYM60')).toBeInTheDocument();
+    });
+  });
 });

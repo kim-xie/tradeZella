@@ -37,12 +37,17 @@ const PRESETS = [
     },
   },
   {
-    label: '昨日',
+    label: '本周',
     getValue: () => {
-      const d = new Date();
-      d.setDate(d.getDate() - 1);
-      const s = toISODate(d.getFullYear(), d.getMonth(), d.getDate());
-      return { start: s, end: s };
+      const now = new Date();
+      const day = now.getDay();
+      const diff = (day === 0 ? -6 : 1) - day;
+      const monday = new Date(now);
+      monday.setDate(now.getDate() + diff);
+      return {
+        start: toISODate(monday.getFullYear(), monday.getMonth(), monday.getDate()),
+        end: toISODate(now.getFullYear(), now.getMonth(), now.getDate()),
+      };
     },
   },
   {
@@ -53,6 +58,15 @@ const PRESETS = [
       const d = new Date();
       d.setDate(d.getDate() - 6);
       const start = toISODate(d.getFullYear(), d.getMonth(), d.getDate());
+      return { start, end };
+    },
+  },
+  {
+    label: '本月',
+    getValue: () => {
+      const now = new Date();
+      const start = toISODate(now.getFullYear(), now.getMonth(), 1);
+      const end = toISODate(now.getFullYear(), now.getMonth(), now.getDate());
       return { start, end };
     },
   },
@@ -68,12 +82,13 @@ const PRESETS = [
     },
   },
   {
-    label: '本月',
+    label: '今年',
     getValue: () => {
       const now = new Date();
-      const start = toISODate(now.getFullYear(), now.getMonth(), 1);
-      const end = toISODate(now.getFullYear(), now.getMonth(), now.getDate());
-      return { start, end };
+      return {
+        start: toISODate(now.getFullYear(), 0, 1),
+        end: toISODate(now.getFullYear(), now.getMonth(), now.getDate()),
+      };
     },
   },
   {

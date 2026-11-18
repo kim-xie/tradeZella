@@ -29,6 +29,9 @@ const csvUpload = multer({
 router.get('/mt5/status', protect, TradeController.getMT5Status);
 router.post('/mt5/sync', protect, TradeController.syncMT5Trades);
 
+// MQL EA direct auto-sync route
+router.post('/sync', protect, TradeController.syncEATrades);
+
 router.route('/')
   .get(protect, TradeController.getTrades)
   .post(protect, tradeValidationRules(), validate, TradeController.createTrade);
@@ -37,6 +40,9 @@ router.post('/bulk', protect, TradeController.createBulkTrades);
 
 router.post('/upload', protect, csvUpload.single('file'), TradeController.uploadTrades);
 router.post('/screenshots', protect, imageUpload.single('file'), TradeController.uploadScreenshot);
+
+// Bulk clear all trades for authenticated user
+router.delete('/all', protect, TradeController.deleteAllTrades);
 
 router.route('/:id')
   .get(protect, TradeController.getTrade)

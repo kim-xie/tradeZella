@@ -345,13 +345,32 @@ export const getMT5Status = async (): Promise<MT5StatusData> => {
 /**
  * 一键直连同步本地 MT5 终端的历史平仓交易记录
  */
-export const syncMT5Trades = async (options?: { days?: number; all?: boolean; limit?: number }) => {
+export const syncMT5Trades = async (options?: {
+  days?: number;
+  all?: boolean;
+  limit?: number;
+  startDate?: string;
+  endDate?: string;
+}) => {
   try {
     const response = await apiClient.post('/trades/mt5/sync', options || { days: 30 });
     return response.data;
   } catch (error: any) {
     console.error('Failed to sync MT5 trades:', error);
     throw new Error(error.response?.data?.message || 'Failed to sync trades from MT5');
+  }
+};
+
+/**
+ * 一键清空当前登录用户的全部历史交易订单
+ */
+export const clearAllTrades = async () => {
+  try {
+    const response = await apiClient.delete('/trades/all');
+    return response.data;
+  } catch (error: any) {
+    console.error('Failed to clear all trades:', error);
+    throw new Error(error.response?.data?.message || '清空历史交易记录失败');
   }
 };
 
@@ -433,6 +452,16 @@ export const deleteBrokerConnection = async (id: string): Promise<void> => {
 export const syncBrokerConnection = async (id: string): Promise<any> => {
   const response = await apiClient.post(`/brokers/${id}/sync`);
   return response.data;
+};
+
+export const getSyncToken = async (): Promise<string> => {
+  try {
+    const response = await apiClient.get('/auth/sync-token');
+    return response.data?.data?.syncToken || '';
+  } catch (error: any) {
+    console.error('Failed to get sync token:', error);
+    throw new Error(error.response?.data?.message || 'Failed to generate sync token');
+  }
 };
 
 

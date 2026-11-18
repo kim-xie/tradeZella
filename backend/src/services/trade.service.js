@@ -134,19 +134,28 @@ export class TradeService {
     }
   }
 
-  static async getTradesByUserId(userId) {
+  static async getTradesByUserId(userId, options = {}) {
     const client = await pool.connect();
     try {
-      const result = await client.query(
-        `SELECT id, userId, ticket, symbol, direction, size, entryPrice, exitPrice, notes, trade_date, tags, sentiment, screenshots,
+      let query = `SELECT id, userId, ticket, symbol, direction, size, entryPrice, exitPrice, notes, trade_date, tags, sentiment, screenshots,
                 TO_CHAR(entry_time, 'YYYY-MM-DD"T"HH24:MI:SS') AS entry_time,
                 TO_CHAR(exit_time, 'YYYY-MM-DD"T"HH24:MI:SS') AS exit_time,
                 stop_loss, take_profit, entry_conditions, rating, manual_pnl, leverage, session, final_trigger,
                 TO_CHAR(createdat, 'YYYY-MM-DD"T"HH24:MI:SS') AS createdat,
                 TO_CHAR(updatedat, 'YYYY-MM-DD"T"HH24:MI:SS') AS updatedat
-         FROM trades WHERE userId = $1 ORDER BY createdat DESC`,
-        [userId]
-      );
+         FROM trades WHERE userId = $1 ORDER BY createdat DESC`;
+      const params = [userId];
+
+      if (options.limit && options.limit > 0) {
+        params.push(options.limit);
+        query += ` LIMIT $${params.length}`;
+        if (options.offset && options.offset > 0) {
+          params.push(options.offset);
+          query += ` OFFSET $${params.length}`;
+        }
+      }
+
+      const result = await client.query(query, params);
       return result.rows;
     } finally {
       client.release();
@@ -254,6 +263,19 @@ export class TradeService {
         [id, userId]
       );
       return result.rowCount > 0;
+    } finally {
+      client.release();
+    }
+  }
+
+  static async deleteAllTrades(userId) {
+    const client = await pool.connect();
+    try {
+      const result = await client.query(
+        'DELETE FROM trades WHERE userId = $1',
+        [userId]
+      );
+      return result.rowCount;
     } finally {
       client.release();
     }
