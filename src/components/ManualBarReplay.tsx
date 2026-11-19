@@ -2260,24 +2260,7 @@ export default function ManualBarReplay({
             </select>
           </div>
 
-          {/* 快捷热门品种切换 */}
-          <div className="hidden xl:flex items-center space-x-1 pt-3.5">
-            {['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', '纳斯达克100', 'BTCUSD'].map(s => (
-              <button
-                key={s}
-                type="button"
-                onClick={() => setSymbol(s)}
-                className={`px-2 py-1 rounded text-[11px] font-semibold transition ${
-                  symbol === s 
-                    ? 'bg-purple-600 text-white shadow-xs' 
-                    : 'bg-white dark:bg-navy-700 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-navy-600 border border-gray-200 dark:border-gray-600'
-                }`}
-              >
-                {s === 'XAUUSD' ? '黄金' : s}
-              </button>
-            ))}
-          </div>
-
+          {/* 重新加载 */}
           <div className="self-end pb-0.5">
             <button
               onClick={loadCandleData}
