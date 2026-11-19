@@ -5,7 +5,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
-import { parseUniversalTradeFile } from '../parsers/universalTradeParser.js';
+import { parseUniversalTradeFile, convertToShanghaiTime } from '../parsers/universalTradeParser.js';
 
 const execFileAsync = promisify(execFile);
 const __filename = fileURLToPath(import.meta.url);
@@ -124,7 +124,8 @@ export class TradeController {
       }
 
       const originalFilename = req.file.originalname || '';
-      const parsedResult = await parseUniversalTradeFile(req.file.buffer, originalFilename);
+      const timezone = req.body.timezone || 'broker';
+      const parsedResult = await parseUniversalTradeFile(req.file.buffer, originalFilename, { timezone });
       const { platform, trades: extractedTrades } = parsedResult;
 
       if (!extractedTrades || extractedTrades.length === 0) {
@@ -187,6 +188,7 @@ export class TradeController {
       }
 
       const platform = req.body.platform || 'MQL EA';
+      const timezone = req.body.timezone || 'broker';
 
       const tradesToCreate = rawTrades.map(t => {
         const symbol = String(t.symbol || '').trim().toUpperCase();
@@ -194,8 +196,10 @@ export class TradeController {
         const size = parseFloat(t.size || t.volume) || 1.0;
         const entryPrice = parseFloat(t.entryPrice || t.price || t.openPrice) || null;
         const exitPrice = parseFloat(t.exitPrice || t.closePrice) || entryPrice;
-        const entryTime = t.entryTime || t.openTime || null;
-        const exitTime = t.exitTime || t.closeTime || entryTime;
+        const rawEntryTime = t.entryTime || t.openTime || null;
+        const rawExitTime = t.exitTime || t.closeTime || rawEntryTime;
+        const entryTime = rawEntryTime ? convertToShanghaiTime(rawEntryTime, timezone) : null;
+        const exitTime = rawExitTime ? convertToShanghaiTime(rawExitTime, timezone) : (entryTime || null);
         const ticket = t.ticket ? String(t.ticket).trim() : null;
 
         const profit = parseFloat(t.profit) || 0;

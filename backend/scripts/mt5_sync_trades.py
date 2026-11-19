@@ -34,13 +34,53 @@ def parse_sl_tp(comment):
             
     return sl, tp
 
-def format_iso_time(ts):
+def is_us_dst(dt):
+    """Check if datetime falls within US Daylight Saving Time (DST)"""
+    year, month, day, hour = dt.year, dt.month, dt.day, dt.hour
+    if month < 3 or month > 11:
+        return False
+    if month > 3 and month < 11:
+        return True
+    if month == 3:
+        w = datetime.date(year, 3, 1).weekday()  # 0 is Monday, 6 is Sunday
+        first_sun = 1 + ((6 - w) % 7)
+        second_sun = first_sun + 7
+        if day < second_sun:
+            return False
+        if day > second_sun:
+            return True
+        return hour >= 2
+    if month == 11:
+        w = datetime.date(year, 11, 1).weekday()
+        first_sun = 1 + ((6 - w) % 7)
+        if day < first_sun:
+            return True
+        if day > first_sun:
+            return False
+        return hour < 2
+    return False
+
+def format_iso_time(ts, target_tz='shanghai'):
     if not ts:
         return None
-    dt = datetime.datetime.fromtimestamp(ts)
-    return dt.strftime('%Y-%m-%dT%H:%M:%S')
+    # MT5 deal.time represents Broker Server Time seconds since 1970-01-01
+    dt_broker = datetime.datetime.fromtimestamp(ts, tz=datetime.timezone.utc).replace(tzinfo=None)
+    if target_tz == 'shanghai':
+        offset_hours = 5 if is_us_dst(dt_broker) else 6
+        dt_shanghai = dt_broker + datetime.timedelta(hours=offset_hours)
+        return dt_shanghai.strftime('%Y-%m-%dT%H:%M:%S')
+    elif target_tz in ('broker', 'raw'):
+        return dt_broker.strftime('%Y-%m-%dT%H:%M:%S')
+    elif target_tz == 'utc':
+        offset_hours = -3 if is_us_dst(dt_broker) else -2
+        dt_utc = dt_broker + datetime.timedelta(hours=offset_hours)
+        return dt_utc.strftime('%Y-%m-%dT%H:%M:%S')
+    else:
+        offset_hours = 5 if is_us_dst(dt_broker) else 6
+        dt_shanghai = dt_broker + datetime.timedelta(hours=offset_hours)
+        return dt_shanghai.strftime('%Y-%m-%dT%H:%M:%S')
 
-def sync_trades(days=30, limit=None, all_history=False, from_date=None, to_date=None):
+def sync_trades(days=30, limit=None, all_history=False, from_date=None, to_date=None, target_tz='shanghai'):
     if not mt5.initialize():
         return {
             "success": False,
@@ -126,8 +166,8 @@ def sync_trades(days=30, limit=None, all_history=False, from_date=None, to_date=
             elif '[tp' in all_comments.lower() or any(d.reason == 5 for d in out_deals):
                 final_trigger = 'takeProfit'
 
-            entry_iso = format_iso_time(first_in.time)
-            exit_iso = format_iso_time(last_out.time)
+            entry_iso = format_iso_time(first_in.time, target_tz=target_tz)
+            exit_iso = format_iso_time(last_out.time, target_tz=target_tz)
 
             trade = {
                 "ticket": str(pos_id),
@@ -178,10 +218,11 @@ if __name__ == '__main__':
     parser.add_argument("--limit", type=int, default=None, help="Limit number of trades")
     parser.add_argument("--csv", type=str, default=None, help="Export to CSV file path")
     parser.add_argument("--json", action="store_true", help="Output JSON to stdout")
+    parser.add_argument("--timezone", type=str, default="shanghai", help="Target timezone (default: shanghai)")
 
     args = parser.parse_args()
 
-    result = sync_trades(days=args.days, limit=args.limit, all_history=args.all, from_date=args.from_date, to_date=args.to_date)
+    result = sync_trades(days=args.days, limit=args.limit, all_history=args.all, from_date=args.from_date, to_date=args.to_date, target_tz=args.timezone)
 
     if args.csv and result.get("success") and result.get("trades"):
         import csv

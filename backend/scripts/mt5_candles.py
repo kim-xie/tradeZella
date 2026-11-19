@@ -46,6 +46,32 @@ FREQ_MAP = {
     '1D': '1D',
 }
 
+def is_us_dst(dt):
+    """Check if datetime falls within US Daylight Saving Time (DST)"""
+    year, month, day, hour = dt.year, dt.month, dt.day, dt.hour
+    if month < 3 or month > 11:
+        return False
+    if month > 3 and month < 11:
+        return True
+    if month == 3:
+        w = datetime.date(year, 3, 1).weekday()
+        first_sun = 1 + ((6 - w) % 7)
+        second_sun = first_sun + 7
+        if day < second_sun:
+            return False
+        if day > second_sun:
+            return True
+        return hour >= 2
+    if month == 11:
+        w = datetime.date(year, 11, 1).weekday()
+        first_sun = 1 + ((6 - w) % 7)
+        if day < first_sun:
+            return True
+        if day > first_sun:
+            return False
+        return hour < 2
+    return False
+
 def generate_synthetic_candles(start_dt, count=300, base_price=1.1000, freq='5min'):
     dates = pd.date_range(start=start_dt, periods=count, freq=freq)
     returns = np.random.normal(0.0001, 0.002, count)
@@ -97,10 +123,12 @@ def get_candles(symbol="EURUSD", timeframe_str="H1", count=300, start_date=None,
 
             if rates is not None and len(rates) > 0:
                 for r in rates:
-                    dt = datetime.datetime.fromtimestamp(r['time'])
+                    dt_broker = datetime.datetime.fromtimestamp(r['time'], tz=datetime.timezone.utc).replace(tzinfo=None)
+                    offset_hours = 5 if is_us_dst(dt_broker) else 6
+                    dt_shanghai = dt_broker + datetime.timedelta(hours=offset_hours)
                     candles.append({
-                        "time": dt.strftime('%Y-%m-%d %H:%M'),
-                        "timestamp": int(r['time']),
+                        "time": dt_shanghai.strftime('%Y-%m-%d %H:%M'),
+                        "timestamp": int(dt_shanghai.replace(tzinfo=datetime.timezone.utc).timestamp()),
                         "open": round(float(r['open']), 5),
                         "high": round(float(r['high']), 5),
                         "low": round(float(r['low']), 5),

@@ -3,7 +3,7 @@ import axios from 'axios';
 import Button from './common/Button';
 import DateRangePicker from './common/DateRangePicker';
 import { SERVER_BASE_URL as API_BASE_URL, getMT5Status, syncMT5Trades, getSyncToken, MT5StatusData } from '../services/api';
-import { RefreshCw, Upload, CheckCircle2, AlertCircle, Laptop, Download, Database, FileSpreadsheet, FileCode, Radio, Copy, Check, BarChart2, Zap, Calendar, X } from 'lucide-react';
+import { RefreshCw, Upload, CheckCircle2, AlertCircle, Laptop, Download, Database, FileSpreadsheet, FileCode, Radio, Copy, Check, BarChart2, Zap, Calendar, X, Globe } from 'lucide-react';
 
 export interface UploadSuccessInfo {
   count?: number;
@@ -110,6 +110,7 @@ const CSVUploader: React.FC<CSVUploaderProps> = ({ onUploadSuccess }) => {
   const [customEndDate, setCustomEndDate] = useState<string>(() => formatDateYMD(new Date()));
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [sourceTimezone, setSourceTimezone] = useState<string>('broker');
   const [mt5Status, setMt5Status] = useState<MT5StatusData | null>(null);
   const [loadingStatus, setLoadingStatus] = useState<boolean>(false);
 
@@ -201,6 +202,7 @@ const CSVUploader: React.FC<CSVUploaderProps> = ({ onUploadSuccess }) => {
 
     const formData = new FormData();
     formData.append('file', selectedFile);
+    formData.append('timezone', sourceTimezone);
 
     setUploading(true);
     setError(null);
@@ -464,6 +466,9 @@ const CSVUploader: React.FC<CSVUploaderProps> = ({ onUploadSuccess }) => {
                       : 'bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-900/30 dark:text-amber-300'
                   }`}>
                     {mt5Status?.connected ? 'Live API Connected' : 'Terminal Offline'}
+                  </span>
+                  <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-purple-50 text-purple-700 border border-purple-200 dark:bg-purple-900/30 dark:text-purple-300">
+                    时区: 自动转上海时间 (UTC+8)
                   </span>
                 </div>
                 {mt5Status?.connected && mt5Status.account ? (
@@ -748,6 +753,31 @@ const CSVUploader: React.FC<CSVUploaderProps> = ({ onUploadSuccess }) => {
       {/* Tab 3: 报表文件全格式导入 */}
       {activeTab === 'file' && (
         <div className="space-y-4">
+          {/* 报表时区转换配置 */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 bg-white dark:bg-navy-800 rounded-lg border border-gray-200 dark:border-gray-700 text-xs">
+            <div className="flex items-center space-x-2">
+              <Globe className="w-4 h-4 text-purple-600 dark:text-purple-400 flex-shrink-0" />
+              <div>
+                <span className="font-semibold text-gray-800 dark:text-gray-200">
+                  报表来源时区转换：
+                </span>
+                <span className="text-gray-500 dark:text-gray-400 ml-1">
+                  (导入后将自动转换为上海/北京时间 UTC+8)
+                </span>
+              </div>
+            </div>
+            <select
+              value={sourceTimezone}
+              onChange={(e) => setSourceTimezone(e.target.value)}
+              className="px-2.5 py-1.5 bg-gray-50 dark:bg-navy-900 border border-gray-300 dark:border-gray-600 rounded-md text-xs text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-1 focus:ring-purple-500 font-medium"
+            >
+              <option value="broker">券商服务器时区 (EET/EEST 智能夏令时: 冬+6h/夏+5h) - 默认推荐</option>
+              <option value="utc">UTC 零时区 (+8h 换算为上海时间)</option>
+              <option value="est">美东时间 (EST/EDT: 冬+13h/夏+12h 换算为上海时间)</option>
+              <option value="shanghai">原报表已是上海时间 (无需转换)</option>
+            </select>
+          </div>
+
           <div className="flex flex-col sm:flex-row items-center space-y-3 sm:space-y-0 sm:space-x-4">
             <input
               ref={fileInputRef}

@@ -33,23 +33,98 @@ export function parseDirection(val) {
 }
 
 /**
- * Standardize date string into ISO YYYY-MM-DDTHH:mm:ss format
+ * Checks if a given year, month (1-12), day, hour falls within US Daylight Saving Time (DST).
+ * Standard MT4/MT5 Forex/CFD brokers follow US DST calendar:
+ * Starts on the second Sunday of March at 02:00,
+ * Ends on the first Sunday of November at 02:00.
  */
-export function parseDateISO(val) {
-  if (!val) return null;
-  try {
-    const raw = String(val).trim();
-    // Handle "2026.11.14 03:34:56" or "2026-11-14 03:34:56"
-    const s = raw.replace(/\./g, '-').replace(/\//g, '-');
-    const d = new Date(s);
-    if (!isNaN(d.getTime())) {
-      const pad = (n) => String(n).padStart(2, '0');
-      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-    }
-    return raw;
-  } catch {
-    return String(val).trim();
+export function isUSDST(year, month, day, hour = 0) {
+  if (month < 3 || month > 11) return false;
+  if (month > 3 && month < 11) return true;
+
+  if (month === 3) {
+    const march1DayOfWeek = new Date(Date.UTC(year, 2, 1)).getUTCDay();
+    const firstSunday = 1 + ((7 - march1DayOfWeek) % 7);
+    const secondSunday = firstSunday + 7;
+    if (day < secondSunday) return false;
+    if (day > secondSunday) return true;
+    return hour >= 2;
   }
+
+  if (month === 11) {
+    const nov1DayOfWeek = new Date(Date.UTC(year, 10, 1)).getUTCDay();
+    const firstSunday = 1 + ((7 - nov1DayOfWeek) % 7);
+    if (day < firstSunday) return true;
+    if (day > firstSunday) return false;
+    return hour < 2;
+  }
+
+  return false;
+}
+
+/**
+ * Converts a raw date string into Shanghai Time (Asia/Shanghai, UTC+8) in ISO format (YYYY-MM-DDTHH:mm:ss).
+ * Supported source timezones:
+ * - 'broker' | 'mt' | 'eet': MT4/MT5 Broker Server Time (EET/EEST with US DST: winter UTC+2 -> +6h, summer UTC+3 -> +5h)
+ * - 'utc' | 'gmt': UTC (UTC+0 -> +8h)
+ * - 'shanghai' | 'beijing' | 'none': Already Shanghai time (+0h)
+ * - 'est' | 'us_eastern': US Eastern Time (winter UTC-5 -> +13h, summer UTC-4 -> +12h)
+ * - number or numeric string: explicit offset hours to add (e.g. 6 or "+6")
+ */
+export function convertToShanghaiTime(val, sourceTimezone = 'broker') {
+  if (!val) return null;
+  const raw = String(val).trim();
+  const match = raw.match(/(\d{4})[./-](\d{1,2})[./-](\d{1,2})[T\s](\d{1,2}):(\d{1,2})(?::(\d{1,2}))?/);
+  if (!match) {
+    try {
+      const s = raw.replace(/\./g, '-').replace(/\//g, '-');
+      const d = new Date(s);
+      if (!isNaN(d.getTime())) {
+        const pad = (n) => String(n).padStart(2, '0');
+        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+      }
+    } catch {}
+    return raw;
+  }
+
+  const year = parseInt(match[1], 10);
+  const month = parseInt(match[2], 10);
+  const day = parseInt(match[3], 10);
+  const hour = parseInt(match[4], 10);
+  const minute = parseInt(match[5], 10);
+  const second = match[6] ? parseInt(match[6], 10) : 0;
+
+  let offsetHours = 0;
+  const tz = String(sourceTimezone || 'broker').toLowerCase().trim();
+
+  if (tz === 'broker' || tz === 'mt' || tz === 'eet') {
+    const inDST = isUSDST(year, month, day, hour);
+    offsetHours = inDST ? 5 : 6;
+  } else if (tz === 'utc' || tz === 'gmt' || tz === 'z') {
+    offsetHours = 8;
+  } else if (tz === 'shanghai' || tz === 'beijing' || tz === 'none' || tz === 'cst' || tz === 'utc+8' || tz === 'gmt+8') {
+    offsetHours = 0;
+  } else if (tz === 'est' || tz === 'us_eastern' || tz === 'edt') {
+    const inDST = isUSDST(year, month, day, hour);
+    offsetHours = inDST ? 12 : 13;
+  } else if (/^[+-]?\d+$/.test(tz)) {
+    offsetHours = parseInt(tz, 10);
+  } else {
+    const inDST = isUSDST(year, month, day, hour);
+    offsetHours = inDST ? 5 : 6;
+  }
+
+  const d = new Date(Date.UTC(year, month - 1, day, hour + offsetHours, minute, second));
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}T${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`;
+}
+
+/**
+ * Standardize date string into ISO YYYY-MM-DDTHH:mm:ss format, converting to Shanghai Time by default
+ */
+export function parseDateISO(val, sourceTimezone = 'broker') {
+  if (!val) return null;
+  return convertToShanghaiTime(val, sourceTimezone);
 }
 
 /**
@@ -310,10 +385,12 @@ async function parseXLSXBuffer(buffer) {
 /**
  * Core Normalizer: Converts raw 2D row array into normalized Trade objects
  */
-export function normalizeRowsToTrades(rows, detectedFormat = 'UNKNOWN', originalFilename = '') {
+export function normalizeRowsToTrades(rows, detectedFormat = 'UNKNOWN', originalFilename = '', options = {}) {
   if (!rows || rows.length < 2) {
     throw new Error('报表数据为空或行数过少，无法解析。');
   }
+
+  const timezone = options.timezone || 'broker';
 
   // 1. Locate the header row
   let headerRowIndex = -1;
@@ -606,8 +683,8 @@ export function normalizeRowsToTrades(rows, detectedFormat = 'UNKNOWN', original
       manualPnl = Math.round((rawProfit + swap + commission + taxes) * 100) / 100;
     }
 
-    const entryTime = openTimeIdx >= 0 ? parseDateISO(row[openTimeIdx]) : null;
-    const exitTime = closeTimeIdx >= 0 ? parseDateISO(row[closeTimeIdx]) : (entryTime || null);
+    const entryTime = openTimeIdx >= 0 ? convertToShanghaiTime(row[openTimeIdx], timezone) : null;
+    const exitTime = closeTimeIdx >= 0 ? convertToShanghaiTime(row[closeTimeIdx], timezone) : (entryTime || null);
     const stopLoss = slIdx >= 0 ? cleanNumber(row[slIdx]) : null;
     const takeProfit = tpIdx >= 0 ? cleanNumber(row[tpIdx]) : null;
 
@@ -651,9 +728,9 @@ export function normalizeRowsToTrades(rows, detectedFormat = 'UNKNOWN', original
 /**
  * Universal Trade File Parser:
  * Accepts buffer & filename, auto-detects format (HTML, XML SpreadsheetML, XLSX, CSV, TSV),
- * decodes and normalizes into trade objects.
+ * decodes and normalizes into trade objects. Supports timezone conversion to Shanghai time.
  */
-export async function parseUniversalTradeFile(buffer, originalFilename = '') {
+export async function parseUniversalTradeFile(buffer, originalFilename = '', options = {}) {
   if (!buffer || buffer.length === 0) {
     throw new Error('上传的文件为空。');
   }
@@ -664,7 +741,7 @@ export async function parseUniversalTradeFile(buffer, originalFilename = '') {
   const isZipMagic = buffer.length >= 4 && buffer[0] === 0x50 && buffer[1] === 0x4b && buffer[2] === 0x03 && buffer[3] === 0x04;
   if (isZipMagic || fname.endsWith('.xlsx')) {
     const rows = await parseXLSXBuffer(buffer);
-    return normalizeRowsToTrades(rows, 'MT5/Excel (XLSX)', originalFilename);
+    return normalizeRowsToTrades(rows, 'MT5/Excel (XLSX)', originalFilename, options);
   }
 
   // 2. Decode text buffer
@@ -677,7 +754,7 @@ export async function parseUniversalTradeFile(buffer, originalFilename = '') {
     fname.endsWith('.xml')
   ) {
     const rows = extractRowsFromSpreadsheetML(textContent);
-    return normalizeRowsToTrades(rows, 'MT5 XML (SpreadsheetML)', originalFilename);
+    return normalizeRowsToTrades(rows, 'MT5 XML (SpreadsheetML)', originalFilename, options);
   }
 
   // 4. Check if HTML (<html, <!DOCTYPE, <table, Statement:, Report)
@@ -691,7 +768,7 @@ export async function parseUniversalTradeFile(buffer, originalFilename = '') {
     fname.endsWith('.htm')
   ) {
     const rows = extractRowsFromHTML(textContent);
-    return normalizeRowsToTrades(rows, 'MT4/MT5 HTML', originalFilename);
+    return normalizeRowsToTrades(rows, 'MT4/MT5 HTML', originalFilename, options);
   }
 
   // 5. Delimited text (CSV, TSV, TXT)
@@ -700,5 +777,5 @@ export async function parseUniversalTradeFile(buffer, originalFilename = '') {
     skipEmptyLines: true,
   });
 
-  return normalizeRowsToTrades(parsed.data, 'CSV/TSV', originalFilename);
+  return normalizeRowsToTrades(parsed.data, 'CSV/TSV', originalFilename, options);
 }

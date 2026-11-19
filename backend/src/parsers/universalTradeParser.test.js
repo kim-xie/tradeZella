@@ -3,6 +3,8 @@ import {
   extractRowsFromHTML,
   extractRowsFromSpreadsheetML,
   decodeBufferToString,
+  convertToShanghaiTime,
+  isUSDST,
 } from './universalTradeParser.js';
 import path from 'path';
 import fs from 'fs';
@@ -54,8 +56,8 @@ describe('Universal Trade Parser', () => {
     expect(trade1.size).toBe(0.5);
     expect(trade1.entryPrice).toBe(1.085);
     expect(trade1.exitPrice).toBe(1.0895);
-    expect(trade1.entryTime).toBe('2026-11-13T14:20:00');
-    expect(trade1.exitTime).toBe('2026-11-13T18:35:10');
+    expect(trade1.entryTime).toBe('2026-11-13T20:20:00'); // Broker Time 14:20 + 6h winter offset -> Shanghai Time
+    expect(trade1.exitTime).toBe('2026-11-14T00:35:10'); // Broker Time 18:35 + 6h winter offset -> next day Shanghai Time
     expect(trade1.manualPnl).toBe(221.5); // 225.00 - 3.50 commission
     expect(trade1.stopLoss).toBe(1.082);
     expect(trade1.takeProfit).toBe(1.091);
@@ -126,8 +128,8 @@ describe('Universal Trade Parser', () => {
     expect(res.trades[0].ticket).toBe('50671100');
     expect(res.trades[0].symbol).toBe('NAS100');
     expect(res.trades[0].direction).toBe('short');
-    expect(res.trades[0].entryTime).toBe('2026-11-14T03:34:56');
-    expect(res.trades[0].exitTime).toBe('2026-11-14T06:51:12');
+    expect(res.trades[0].entryTime).toBe('2026-11-14T09:34:56'); // Broker 03:34:56 + 6h winter offset -> Shanghai Time
+    expect(res.trades[0].exitTime).toBe('2026-11-14T12:51:12'); // Broker 06:51:12 + 6h winter offset -> Shanghai Time
     expect(res.trades[0].entryPrice).toBe(27828.9);
     expect(res.trades[0].exitPrice).toBe(28005.1);
 
@@ -304,5 +306,40 @@ describe('Universal Trade Parser', () => {
     expect(trade.entryPrice).toBe(87.673);
     expect(trade.exitPrice).toBe(86.888);
     expect(trade.manualPnl).toBe(7.85);
+  });
+
+  // Test 10: Timezone conversions to Shanghai Time
+  describe('Timezone conversion to Shanghai Time (UTC+8)', () => {
+    test('should accurately convert winter broker time (+6 hours) to Shanghai time', () => {
+      // November 14 is winter (EET, UTC+2) -> Shanghai (UTC+8) is +6h
+      expect(convertToShanghaiTime('2026.11.14 03:34:56', 'broker')).toBe('2026-11-14T09:34:56');
+      expect(convertToShanghaiTime('2026-11-14 20:00:00', 'broker')).toBe('2026-11-15T02:00:00'); // next day
+    });
+
+    test('should accurately convert summer broker time (+5 hours) to Shanghai time', () => {
+      // July 15 is summer (EEST, UTC+3) -> Shanghai (UTC+8) is +5h
+      expect(convertToShanghaiTime('2026.07.15 10:00:00', 'broker')).toBe('2026-07-15T15:00:00');
+    });
+
+    test('should convert UTC (+8 hours) to Shanghai time', () => {
+      expect(convertToShanghaiTime('2026-11-14 01:00:00', 'utc')).toBe('2026-11-14T09:00:00');
+    });
+
+    test('should keep raw time when timezone is shanghai', () => {
+      expect(convertToShanghaiTime('2026-11-14 09:34:56', 'shanghai')).toBe('2026-11-14T09:34:56');
+    });
+
+    test('should respect custom options in parseUniversalTradeFile', async () => {
+      const csv = "Position,Time,Symbol,Type,Volume,Price,S / L,T / P,Time,Price,Commission,Swap,Profit\n" +
+        "1001,2026.11.14 08:00:00,EURUSD,buy,1.0,1.1000,0,0,2026.11.14 09:00:00,1.1050,0,0,500";
+      
+      // With shanghai option: no offset
+      const res1 = await parseUniversalTradeFile(Buffer.from(csv, 'utf8'), 'test.csv', { timezone: 'shanghai' });
+      expect(res1.trades[0].entryTime).toBe('2026-11-14T08:00:00');
+
+      // With default broker option: winter +6h
+      const res2 = await parseUniversalTradeFile(Buffer.from(csv, 'utf8'), 'test.csv');
+      expect(res2.trades[0].entryTime).toBe('2026-11-14T14:00:00');
+    });
   });
 });
