@@ -5,23 +5,31 @@ import json
 import argparse
 import datetime
 import math
-import numpy as np
-import pandas as pd
-import MetaTrader5 as mt5
+try:
+    import numpy as np
+    import pandas as pd
+except ImportError:
+    np = None
+    pd = None
+
+try:
+    import MetaTrader5 as mt5
+except ImportError:
+    mt5 = None
 
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8')
     sys.stderr.reconfigure(encoding='utf-8')
 
 TIMEFRAME_MAP = {
-    'M1': mt5.TIMEFRAME_M1,
-    'M5': mt5.TIMEFRAME_M5,
-    'M15': mt5.TIMEFRAME_M15,
-    'M30': mt5.TIMEFRAME_M30,
-    'H1': mt5.TIMEFRAME_H1,
-    'H4': mt5.TIMEFRAME_H4,
-    'D1': mt5.TIMEFRAME_D1,
-}
+    'M1': getattr(mt5, 'TIMEFRAME_M1', 1),
+    'M5': getattr(mt5, 'TIMEFRAME_M5', 5),
+    'M15': getattr(mt5, 'TIMEFRAME_M15', 15),
+    'M30': getattr(mt5, 'TIMEFRAME_M30', 30),
+    'H1': getattr(mt5, 'TIMEFRAME_H1', 16385),
+    'H4': getattr(mt5, 'TIMEFRAME_H4', 16388),
+    'D1': getattr(mt5, 'TIMEFRAME_D1', 16408),
+} if mt5 else {}
 
 def calculate_rsi(series, period=14):
     delta = series.diff()

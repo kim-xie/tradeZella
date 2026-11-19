@@ -1,13 +1,21 @@
 import sys
 import io
 import json
-import MetaTrader5 as mt5
+try:
+    import MetaTrader5 as mt5
+except ImportError:
+    mt5 = None
 
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8')
     sys.stderr.reconfigure(encoding='utf-8')
 
 def get_status():
+    if not mt5:
+        return {
+            "connected": False,
+            "error": "MetaTrader5 Python module not available in this environment (available on Windows with MT5 installed)."
+        }
     try:
         init_res = mt5.initialize()
         if not init_res:

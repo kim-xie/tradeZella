@@ -1,49 +1,58 @@
 #!/usr/bin/env python3
+"""
+MT5 Candles / Market Data Fetcher & Replay Generator:
+- When MT5 is available (local Windows with MT5 installed), fetches real historical candles and converts to Shanghai time.
+- When MT5 or dependencies are unavailable (e.g. Linux, Render, cloud servers), generates high-fidelity synthetic market candles in pure Python without requiring pandas, numpy, or MetaTrader5.
+"""
 import sys
 import io
 import json
 import argparse
 import datetime
-import pandas as pd
-import numpy as np
-import MetaTrader5 as mt5
+import math
+import random
+
+try:
+    import MetaTrader5 as mt5
+except ImportError:
+    mt5 = None
 
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8')
     sys.stderr.reconfigure(encoding='utf-8')
 
 TIMEFRAME_MAP = {
-    'M1': mt5.TIMEFRAME_M1,
-    '1M': mt5.TIMEFRAME_M1,
-    'M5': mt5.TIMEFRAME_M5,
-    '5M': mt5.TIMEFRAME_M5,
-    'M15': mt5.TIMEFRAME_M15,
-    '15M': mt5.TIMEFRAME_M15,
-    'M30': mt5.TIMEFRAME_M30,
-    '30M': mt5.TIMEFRAME_M30,
-    'H1': mt5.TIMEFRAME_H1,
-    '1H': mt5.TIMEFRAME_H1,
-    'H4': mt5.TIMEFRAME_H4,
-    '4H': mt5.TIMEFRAME_H4,
-    'D1': mt5.TIMEFRAME_D1,
-    '1D': mt5.TIMEFRAME_D1,
-}
+    'M1': getattr(mt5, 'TIMEFRAME_M1', 1),
+    '1M': getattr(mt5, 'TIMEFRAME_M1', 1),
+    'M5': getattr(mt5, 'TIMEFRAME_M5', 5),
+    '5M': getattr(mt5, 'TIMEFRAME_M5', 5),
+    'M15': getattr(mt5, 'TIMEFRAME_M15', 15),
+    '15M': getattr(mt5, 'TIMEFRAME_M15', 15),
+    'M30': getattr(mt5, 'TIMEFRAME_M30', 30),
+    '30M': getattr(mt5, 'TIMEFRAME_M30', 30),
+    'H1': getattr(mt5, 'TIMEFRAME_H1', 16385),
+    '1H': getattr(mt5, 'TIMEFRAME_H1', 16385),
+    'H4': getattr(mt5, 'TIMEFRAME_H4', 16388),
+    '4H': getattr(mt5, 'TIMEFRAME_H4', 16388),
+    'D1': getattr(mt5, 'TIMEFRAME_D1', 16408),
+    '1D': getattr(mt5, 'TIMEFRAME_D1', 16408),
+} if mt5 else {}
 
-FREQ_MAP = {
-    'M1': '1min',
-    '1M': '1min',
-    'M5': '5min',
-    '5M': '5min',
-    'M15': '15min',
-    '15M': '15min',
-    'M30': '30min',
-    '30M': '30min',
-    'H1': '1h',
-    '1H': '1h',
-    'H4': '4h',
-    '4H': '4h',
-    'D1': '1D',
-    '1D': '1D',
+STEP_SECONDS_MAP = {
+    'M1': 60,
+    '1M': 60,
+    'M5': 300,
+    '5M': 300,
+    'M15': 900,
+    '15M': 900,
+    'M30': 1800,
+    '30M': 1800,
+    'H1': 3600,
+    '1H': 3600,
+    'H4': 14400,
+    '4H': 14400,
+    'D1': 86400,
+    '1D': 86400,
 }
 
 def is_us_dst(dt):
@@ -72,80 +81,109 @@ def is_us_dst(dt):
         return hour < 2
     return False
 
-def generate_synthetic_candles(start_dt, count=300, base_price=1.1000, freq='5min'):
-    dates = pd.date_range(start=start_dt, periods=count, freq=freq)
-    returns = np.random.normal(0.0001, 0.002, count)
-    prices = base_price * np.exp(np.cumsum(returns))
-    
+def get_base_price(symbol):
+    sym = (symbol or 'EURUSD').upper()
+    if 'JPY' in sym:
+        return 155.0
+    if 'XAU' in sym or '黄金' in sym or 'GOLD' in sym:
+        return 2650.0
+    if 'BTC' in sym or '比特币' in sym:
+        return 68000.0
+    if 'NAS' in sym or 'US100' in sym or '纳斯达克' in sym:
+        return 20500.0
+    if 'US30' in sym or '道琼斯' in sym:
+        return 43000.0
+    if 'GBP' in sym:
+        return 1.2850
+    if 'AUD' in sym:
+        return 0.6550
+    return 1.1000
+
+def generate_synthetic_candles(start_dt, count=300, base_price=1.1000, timeframe_str='M5'):
+    """Generate high-fidelity candle data in pure Python without pandas or numpy"""
+    step_sec = STEP_SECONDS_MAP.get(str(timeframe_str).upper(), 300)
+    current_time = start_dt
+    current_close = base_price
+    digits = 2 if base_price > 100 else 5
+
     rows = []
-    for i in range(count):
-        close_p = prices[i]
-        high_p = close_p * (1 + abs(np.random.normal(0, 0.0015)))
-        low_p = close_p * (1 - abs(np.random.normal(0, 0.0015)))
-        open_p = (high_p + low_p) / 2.0
+    for _ in range(count):
+        change_pct = (random.random() - 0.495) * 0.003
+        open_p = current_close
+        close_p = open_p * (1.0 + change_pct)
+        high_p = max(open_p, close_p) * (1.0 + random.random() * 0.0015)
+        low_p = min(open_p, close_p) * (1.0 - random.random() * 0.0015)
+        current_close = close_p
+
+        time_str = current_time.strftime('%Y-%m-%d %H:%M')
+        ts = int(current_time.timestamp())
+
         rows.append({
-            "time": dates[i].strftime('%Y-%m-%d %H:%M'),
-            "timestamp": int(dates[i].timestamp()),
-            "open": round(float(open_p), 5),
-            "high": round(float(max(high_p, open_p, close_p)), 5),
-            "low": round(float(min(low_p, open_p, close_p)), 5),
-            "close": round(float(close_p), 5),
-            "volume": int(np.random.randint(100, 2000))
+            "time": time_str,
+            "timestamp": ts,
+            "open": round(open_p, digits),
+            "high": round(high_p, digits),
+            "low": round(low_p, digits),
+            "close": round(close_p, digits),
+            "volume": random.randint(100, 2000)
         })
+        current_time += datetime.timedelta(seconds=step_sec)
+
     return rows
 
 def get_candles(symbol="EURUSD", timeframe_str="H1", count=300, start_date=None, end_date=None):
-    tf = TIMEFRAME_MAP.get(timeframe_str.upper(), mt5.TIMEFRAME_H1)
-    connected = mt5.initialize()
     candles = []
-    data_source = "MT5 Direct Terminal"
-    contract_size = 100000.0
+    data_source = "Synthetic Replay Data"
+    contract_size = 100000.0 if not any(c in symbol for c in ['JPY', 'XAU', '黄金', 'BTC']) else 1.0
 
-    if connected:
+    if mt5 is not None:
         try:
-            sym_info = mt5.symbol_info(symbol)
-            if sym_info:
-                contract_size = sym_info.trade_contract_size or 1.0
-            else:
-                contract_size = 100000.0 if any(cur in symbol for cur in ['EUR', 'GBP', 'AUD', 'USD', 'JPY']) else 1.0
+            connected = mt5.initialize()
+            if connected:
+                tf = TIMEFRAME_MAP.get(timeframe_str.upper(), getattr(mt5, 'TIMEFRAME_H1', 16385))
+                sym_info = mt5.symbol_info(symbol)
+                if sym_info:
+                    contract_size = sym_info.trade_contract_size or 1.0
+                else:
+                    contract_size = 100000.0 if any(cur in symbol for cur in ['EUR', 'GBP', 'AUD', 'USD']) else 1.0
 
-            if start_date:
-                try:
-                    s_dt = datetime.datetime.fromisoformat(start_date.replace('Z', ''))
-                    e_dt = datetime.datetime.fromisoformat(end_date.replace('Z', '')) if end_date else datetime.datetime.now()
-                    rates = mt5.copy_rates_range(symbol, tf, s_dt, e_dt)
-                    if rates is None or len(rates) == 0:
+                if start_date:
+                    try:
+                        s_dt = datetime.datetime.fromisoformat(start_date.replace('Z', ''))
+                        e_dt = datetime.datetime.fromisoformat(end_date.replace('Z', '')) if end_date else datetime.datetime.now()
+                        rates = mt5.copy_rates_range(symbol, tf, s_dt, e_dt)
+                        if rates is None or len(rates) == 0:
+                            rates = mt5.copy_rates_from_pos(symbol, tf, 0, count)
+                    except Exception:
                         rates = mt5.copy_rates_from_pos(symbol, tf, 0, count)
-                except Exception:
+                else:
                     rates = mt5.copy_rates_from_pos(symbol, tf, 0, count)
-            else:
-                rates = mt5.copy_rates_from_pos(symbol, tf, 0, count)
 
-            if rates is not None and len(rates) > 0:
-                for r in rates:
-                    dt_broker = datetime.datetime.fromtimestamp(r['time'], tz=datetime.timezone.utc).replace(tzinfo=None)
-                    offset_hours = 5 if is_us_dst(dt_broker) else 6
-                    dt_shanghai = dt_broker + datetime.timedelta(hours=offset_hours)
-                    candles.append({
-                        "time": dt_shanghai.strftime('%Y-%m-%d %H:%M'),
-                        "timestamp": int(dt_shanghai.replace(tzinfo=datetime.timezone.utc).timestamp()),
-                        "open": round(float(r['open']), 5),
-                        "high": round(float(r['high']), 5),
-                        "low": round(float(r['low']), 5),
-                        "close": round(float(r['close']), 5),
-                        "volume": int(r['tick_volume'])
-                    })
-        except Exception as e:
+                if rates is not None and len(rates) > 0:
+                    data_source = "MT5 Direct Terminal"
+                    for r in rates:
+                        dt_broker = datetime.datetime.fromtimestamp(r['time'], tz=datetime.timezone.utc).replace(tzinfo=None)
+                        offset_hours = 5 if is_us_dst(dt_broker) else 6
+                        dt_shanghai = dt_broker + datetime.timedelta(hours=offset_hours)
+                        candles.append({
+                            "time": dt_shanghai.strftime('%Y-%m-%d %H:%M'),
+                            "timestamp": int(dt_shanghai.replace(tzinfo=datetime.timezone.utc).timestamp()),
+                            "open": round(float(r['open']), 5),
+                            "high": round(float(r['high']), 5),
+                            "low": round(float(r['low']), 5),
+                            "close": round(float(r['close']), 5),
+                            "volume": int(r['tick_volume'])
+                        })
+                mt5.shutdown()
+        except Exception:
             candles = []
-        finally:
-            mt5.shutdown()
 
     if not candles:
         data_source = "Synthetic Replay Data"
-        contract_size = 100.0
-        s_dt = datetime.datetime.now() - datetime.timedelta(days=15)
-        freq = FREQ_MAP.get(timeframe_str.upper(), '5min')
-        candles = generate_synthetic_candles(s_dt, count=count, freq=freq)
+        base_price = get_base_price(symbol)
+        step_sec = STEP_SECONDS_MAP.get(str(timeframe_str).upper(), 300)
+        s_dt = datetime.datetime.now() - datetime.timedelta(seconds=step_sec * count)
+        candles = generate_synthetic_candles(s_dt, count=count, base_price=base_price, timeframe_str=timeframe_str)
 
     return {
         "success": True,

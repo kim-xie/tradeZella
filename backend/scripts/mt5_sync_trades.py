@@ -6,7 +6,10 @@ import argparse
 import datetime
 import re
 from collections import defaultdict
-import MetaTrader5 as mt5
+try:
+    import MetaTrader5 as mt5
+except ImportError:
+    mt5 = None
 
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8')
@@ -81,6 +84,11 @@ def format_iso_time(ts, target_tz='shanghai'):
         return dt_shanghai.strftime('%Y-%m-%dT%H:%M:%S')
 
 def sync_trades(days=30, limit=None, all_history=False, from_date=None, to_date=None, target_tz='shanghai'):
+    if not mt5:
+        return {
+            "success": False,
+            "error": "MetaTrader5 Python module not available in this environment (available on Windows with MT5 installed)."
+        }
     if not mt5.initialize():
         return {
             "success": False,
