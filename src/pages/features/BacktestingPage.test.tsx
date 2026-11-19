@@ -61,20 +61,20 @@ describe('BacktestingPage - Dedicated TradingView K-Line Backtest & Strategy Tes
     });
   });
 
-  it('renders the rewritten page title, MT5 status banner, and NO legacy strategy builder tab', async () => {
+  it('renders immersive replay workspace without redundant top header or MT5 banner, and NO legacy strategy builder tab', async () => {
     render(<BacktestingPage />);
 
-    // 1. Page Title & Description
-    expect(screen.getByText(/TradingView 风格 K线重播回测系统/i)).toBeInTheDocument();
-    expect(screen.getByText(/参考 TradingView 实现的逐根K线重播与多空标尺回测引擎/i)).toBeInTheDocument();
-
-    // 2. MT5 Status Banner
     await waitFor(() => {
-      expect(screen.getByText(/MT5 终端行情直连引擎就绪/i)).toBeInTheDocument();
-      expect(screen.getByText(/MT5 Direct Online/i)).toBeInTheDocument();
+      expect(screen.getByTitle(/选择切片复盘起点/i)).toBeInTheDocument();
     });
 
-    // 3. LEGACY STRATEGY BUILDER IS GONE
+    // 1. Redundant Page Title & MT5 Banner are removed for clean immersive charting
+    expect(screen.queryByText(/TradingView 风格 K线重播回测系统/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/参考 TradingView 实现的逐根K线重播与多空标尺回测引擎/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/MT5 终端行情直连引擎就绪/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/未连接本地 MT5 终端/i)).not.toBeInTheDocument();
+
+    // 2. LEGACY STRATEGY BUILDER IS GONE
     expect(screen.queryByText(/自动策略回测 \(Strategy Builder\)/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/双均线交叉趋势策略/i)).not.toBeInTheDocument();
   });

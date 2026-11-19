@@ -25,8 +25,8 @@ const csvUpload = multer({
   limits: { fileSize: 20 * 1024 * 1024 },
 });
 
-// MT5 direct integration routes
-router.get('/mt5/status', protect, TradeController.getMT5Status);
+// MT5 direct integration routes (status check is public, sync requires user auth)
+router.get('/mt5/status', TradeController.getMT5Status);
 router.post('/mt5/sync', protect, TradeController.syncMT5Trades);
 
 // MQL EA direct auto-sync route

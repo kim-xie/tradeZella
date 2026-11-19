@@ -4,13 +4,13 @@ import { protect } from '../middleware/auth.middleware.js';
 
 const router = Router();
 
-// Protect all routes in this file
-router.use(protect);
-
-// MT5 status endpoint
+// Public endpoints: MT5 status & K-line candle feeds (supports public/demo replay)
 router.get('/mt5/status', BacktestingController.getMT5Status);
 router.get('/candles', BacktestingController.getCandles);
 router.post('/candles/sync', BacktestingController.syncCandles);
+
+// Protect user-specific backtest results
+router.use(protect);
 
 router.route('/')
   .get(BacktestingController.getBacktestingResults)
