@@ -29,20 +29,44 @@ def get_status():
         account = mt5.account_info()
         symbols_count = mt5.symbols_total()
 
-        # Get top popular symbols available
+        # Get only symbols that actually have K-line candle data available
         all_symbols = mt5.symbols_get()
+        symbols_with_candles = []
         popular_names = []
+
         if all_symbols:
-            # Sort or filter common symbols
+            # 1. Market Watch symbols (selected or visible in the MT5 terminal)
+            market_watch = [s for s in all_symbols if s.select or s.visible]
+            for s in market_watch:
+                try:
+                    rates = mt5.copy_rates_from_pos(s.name, mt5.TIMEFRAME_M5, 0, 1)
+                    if rates is not None and len(rates) > 0:
+                        symbols_with_candles.append(s.name)
+                except Exception:
+                    pass
+
+            # 2. Check common favs in case any have rates
             favs = ['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', 'BTCUSD', 'ETHUSD', 'US30', 'NAS100', 'SPX500', '纳斯达克100']
-            names = [s.name for s in all_symbols]
             for f in favs:
-                if f in names:
+                if f not in symbols_with_candles:
+                    try:
+                        rates = mt5.copy_rates_from_pos(f, mt5.TIMEFRAME_M5, 0, 1)
+                        if rates is not None and len(rates) > 0:
+                            symbols_with_candles.append(f)
+                    except Exception:
+                        pass
+
+            # Fallback to Market Watch list if candle check returned empty
+            if not symbols_with_candles and market_watch:
+                symbols_with_candles = [s.name for s in market_watch]
+
+            for f in favs:
+                if f in symbols_with_candles:
                     popular_names.append(f)
-            # Add other first 20 symbols
-            for n in names:
-                if n not in popular_names and len(popular_names) < 30:
-                    popular_names.append(n)
+
+            for name in symbols_with_candles:
+                if name not in popular_names and len(popular_names) < 20:
+                    popular_names.append(name)
 
         terminal_data = {
             "name": terminal.name if terminal else "Unknown",
@@ -63,13 +87,13 @@ def get_status():
             "company": account.company if account else ""
         } if account else None
 
-        all_symbol_names = [s.name for s in all_symbols] if all_symbols else []
+        all_symbol_names = symbols_with_candles
 
         return {
             "connected": True,
             "terminal": terminal_data,
             "account": account_data,
-            "symbolsTotal": symbols_count,
+            "symbolsTotal": len(symbols_with_candles) if symbols_with_candles else symbols_count,
             "popularSymbols": popular_names,
             "allSymbols": all_symbol_names
         }

@@ -152,6 +152,60 @@ export class BacktestingController {
     }
   }
 
+  /**
+   * Get symbols that actually have K-line candle data available
+   * (combines DB synced candles, MT5 Market Watch candles, and fallback default favorites)
+   */
+  static async getAvailableCandleSymbols(req, res, next) {
+    try {
+      // 1. Get symbols from database `market_candles`
+      const dbSymbols = await CandleService.getAvailableSymbols();
+
+      // 2. Query MT5 status script to get active symbols with candles
+      let mt5Symbols = [];
+      let mt5Popular = [];
+      try {
+        const scriptPath = path.join(__dirname, '../../scripts/mt5_status.py');
+        const { stdout } = await execFileAsync('python', [scriptPath], {
+          timeout: 10000,
+          env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
+        });
+        const statusData = JSON.parse(stdout);
+        if (statusData.connected && Array.isArray(statusData.allSymbols)) {
+          mt5Symbols = statusData.allSymbols;
+        }
+        if (Array.isArray(statusData.popularSymbols)) {
+          mt5Popular = statusData.popularSymbols;
+        }
+      } catch (e) {
+        // MT5 python execution failed or MT5 not connected
+      }
+
+      const defaultSymbols = ['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', '纳斯达克100', 'BTCUSD'];
+
+      // Merge and deduplicate
+      const symbolSet = new Set([...dbSymbols, ...mt5Symbols]);
+      if (symbolSet.size === 0) {
+        defaultSymbols.forEach(s => symbolSet.add(s));
+      }
+
+      const allSymbols = Array.from(symbolSet);
+
+      const popularSet = new Set([...mt5Popular, ...defaultSymbols.filter(s => symbolSet.has(s))]);
+      const popularSymbols = Array.from(popularSet).filter(s => symbolSet.has(s));
+
+      res.status(200).json({
+        success: true,
+        data: {
+          symbols: allSymbols,
+          popularSymbols: popularSymbols.length > 0 ? popularSymbols : defaultSymbols,
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
   static async runBacktest(req, res, next) {
     try {
       const backtestData = { ...req.body, userId: req.user.id };

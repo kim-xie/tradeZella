@@ -6,6 +6,7 @@ const router = Router();
 
 // Public endpoints: MT5 status & K-line candle feeds (supports public/demo replay)
 router.get('/mt5/status', BacktestingController.getMT5Status);
+router.get('/symbols', BacktestingController.getAvailableCandleSymbols);
 router.get('/candles', BacktestingController.getCandles);
 router.post('/candles/sync', BacktestingController.syncCandles);
 

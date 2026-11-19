@@ -52,10 +52,12 @@ export default function SymbolSearchSelect({
   const filteredSymbols = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     if (!q) {
-      // If empty query, show popular first, then others
-      const popularSet = new Set(popularSymbols);
+      // If empty query, show valid popular first, then others
+      const symbolSet = new Set(symbols);
+      const validPopular = popularSymbols.filter(s => symbolSet.has(s));
+      const popularSet = new Set(validPopular);
       const rest = symbols.filter(s => !popularSet.has(s));
-      return [...popularSymbols, ...rest];
+      return [...validPopular, ...rest];
     }
 
     return symbols.filter(s => s.toLowerCase().includes(q));
@@ -175,9 +177,9 @@ export default function SymbolSearchSelect({
             <span>
               {searchQuery.trim() 
                 ? `检索结果 (${filteredSymbols.length})` 
-                : `全部品种 (${symbols.length || filteredSymbols.length})`}
+                : `支持K线品种 (${symbols.length || filteredSymbols.length})`}
             </span>
-            <span className="text-[10px]">支持中英文模糊检索</span>
+            <span className="text-[10px]">仅展示有K线行情的品种</span>
           </div>
 
           {/* List items */}

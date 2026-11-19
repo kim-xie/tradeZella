@@ -327,6 +327,22 @@ export const fetchCandles = async (params: { symbol: string; timeframe: string; 
 };
 
 /**
+ * 获取当前环境拥有实际 K 线数据的品种列表（包含本地 MT5 活跃报价品种与云端数据库已同步品种）
+ */
+export const getAvailableCandleSymbols = async (): Promise<{ symbols: string[]; popularSymbols: string[] }> => {
+  try {
+    const response = await apiClient.get('/backtesting/symbols');
+    return response.data.data;
+  } catch (error: any) {
+    console.warn('Failed to fetch available candle symbols:', error);
+    return {
+      symbols: ['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', '纳斯达克100', 'BTCUSD'],
+      popularSymbols: ['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', '纳斯达克100', 'BTCUSD'],
+    };
+  }
+};
+
+/**
  * 获取本地 MT5 终端运行状态、账户信息与支持品种
  */
 export const getMT5Status = async (): Promise<MT5StatusData> => {

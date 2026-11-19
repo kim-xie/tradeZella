@@ -8,7 +8,7 @@ import {
   Scissors, X, ArrowUpRight, ArrowDownRight, Filter,
   Square, Maximize2, Minimize2, Activity, ChevronDown
 } from 'lucide-react';
-import { fetchCandles, CandleItem, createTrade, createBulkTrades } from '../services/api';
+import { fetchCandles, CandleItem, createTrade, createBulkTrades, getAvailableCandleSymbols } from '../services/api';
 import SymbolSearchSelect from './common/SymbolSearchSelect';
 import TradeExecutionChart from './TradeExecutionChart';
 
@@ -467,6 +467,41 @@ export default function ManualBarReplay({
   popularSymbols = [],
   allSymbols = [] 
 }: ManualBarReplayProps) {
+  const [internalSymbols, setInternalSymbols] = useState<string[]>(allSymbols);
+  const [internalPopular, setInternalPopular] = useState<string[]>(popularSymbols);
+
+  useEffect(() => {
+    if (allSymbols && allSymbols.length > 0) {
+      setInternalSymbols(allSymbols);
+    }
+  }, [allSymbols]);
+
+  useEffect(() => {
+    if (popularSymbols && popularSymbols.length > 0) {
+      setInternalPopular(popularSymbols);
+    }
+  }, [popularSymbols]);
+
+  useEffect(() => {
+    if (allSymbols.length === 0 && typeof getAvailableCandleSymbols === 'function') {
+      try {
+        const p = getAvailableCandleSymbols();
+        if (p && typeof p.then === 'function') {
+          p.then(res => {
+            if (res?.symbols && res.symbols.length > 0) {
+              setInternalSymbols(res.symbols);
+            }
+            if (res?.popularSymbols && res.popularSymbols.length > 0) {
+              setInternalPopular(res.popularSymbols);
+            }
+          }).catch(() => {});
+        }
+      } catch {
+        // Ignore fallback errors
+      }
+    }
+  }, []);
+
   const [symbol, setSymbol] = useState(initialSymbol);
   const [timeframe, setTimeframe] = useState(initialTimeframe);
   const [allCandles, setAllCandles] = useState<CandleItem[]>([]);
@@ -2235,8 +2270,8 @@ export default function ManualBarReplay({
             <SymbolSearchSelect
               value={symbol}
               onChange={(s) => setSymbol(s)}
-              symbols={allSymbols.length > 0 ? allSymbols : (popularSymbols.length > 0 ? popularSymbols : ['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', '纳斯达克100', 'BTCUSD'])}
-              popularSymbols={popularSymbols}
+              symbols={internalSymbols.length > 0 ? internalSymbols : (internalPopular.length > 0 ? internalPopular : ['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', '纳斯达克100', 'BTCUSD'])}
+              popularSymbols={internalPopular}
               placeholder="搜索复盘品种..."
             />
           </div>

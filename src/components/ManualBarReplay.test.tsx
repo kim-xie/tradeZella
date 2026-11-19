@@ -43,6 +43,11 @@ describe('ManualBarReplay - TradingView Position Sizing & Order Placement', () =
       contractSize: 100000,
       candles: mockCandles,
     });
+
+    vi.spyOn(api, 'getAvailableCandleSymbols').mockResolvedValue({
+      symbols: ['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', '纳斯达克100', 'BTCUSD'],
+      popularSymbols: ['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', '纳斯达克100', 'BTCUSD'],
+    });
   });
 
   it('defaults to 5m (M5) timeframe for K-line replay', async () => {

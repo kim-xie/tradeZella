@@ -138,4 +138,25 @@ export class CandleService {
       if (client) client.release();
     }
   }
+
+  /**
+   * Get distinct symbols that actually have candle data in the database
+   */
+  static async getAvailableSymbols() {
+    let client;
+    try {
+      client = await pool.connect();
+      const res = await client.query(`
+        SELECT DISTINCT symbol 
+        FROM market_candles
+        WHERE symbol IS NOT NULL
+        ORDER BY symbol ASC
+      `);
+      return res.rows.map(r => r.symbol);
+    } catch (err) {
+      return [];
+    } finally {
+      if (client) client.release();
+    }
+  }
 }

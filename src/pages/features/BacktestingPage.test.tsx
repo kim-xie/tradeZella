@@ -50,6 +50,11 @@ describe('BacktestingPage - Dedicated TradingView K-Line Backtest & Strategy Tes
       popularSymbols: ['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', '纳斯达克100', 'BTCUSD'],
     });
 
+    vi.spyOn(api, 'getAvailableCandleSymbols').mockResolvedValue({
+      symbols: ['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', '纳斯达克100', 'BTCUSD'],
+      popularSymbols: ['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', '纳斯达克100', 'BTCUSD'],
+    });
+
     vi.spyOn(api, 'fetchCandles').mockResolvedValue({
       success: true,
       symbol: 'EURUSD',
