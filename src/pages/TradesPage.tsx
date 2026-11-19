@@ -254,9 +254,37 @@ const TradesPage: React.FC = () => {
   const [showClearModal, setShowClearModal] = useState(false);
   const [clearing, setClearing] = useState(false);
   const [clearSuccessMsg, setClearSuccessMsg] = useState<string | null>(null);
+  const [importSuccessBanner, setImportSuccessBanner] = useState<{ message: string; count?: number; platform?: string } | null>(null);
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [pageSize, setPageSize] = useState<number>(50);
   const navigate = useNavigate();
+
+  const handleUploadSuccess = async (info?: { count?: number; message?: string; platform?: string }) => {
+    // 1. 自动切换为“全部”视图，重置分页到第 1 页，确保导入的各历史时间段交易立即可见
+    setSearchEntryDateStart('');
+    setSearchEntryDateEnd('');
+    setQuickFilter('all');
+    setCurrentPage(1);
+
+    // 2. 重新调用交易明细接口获取最新数据
+    await fetchTrades();
+
+    // 3. 展现醒目的全局成功提示
+    const msg = info?.message || (info?.count !== undefined && info.count > 0 
+      ? `成功从 ${info.platform || '报表'} 导入 ${info.count} 笔交易，交易明细已自动刷新！` 
+      : '交易报表解析导入完成，交易明细已自动刷新！');
+
+    setImportSuccessBanner({
+      message: msg,
+      count: info?.count,
+      platform: info?.platform,
+    });
+
+    // 8 秒后自动关闭全局 Banner
+    setTimeout(() => {
+      setImportSuccessBanner(null);
+    }, 8000);
+  };
 
   const handleClearAllTrades = async () => {
     try {
@@ -501,7 +529,37 @@ const TradesPage: React.FC = () => {
               <X className="w-5 h-5" />
             </button>
           </div>
-          <CSVUploader onUploadSuccess={() => { fetchTrades(); }} />
+          <CSVUploader onUploadSuccess={handleUploadSuccess} />
+        </div>
+      )}
+
+      {/* 导入成功全局醒目通知 Banner */}
+      {importSuccessBanner && (
+        <div className="mb-5 p-4 bg-emerald-50/95 dark:bg-emerald-950/50 border border-emerald-300/80 dark:border-emerald-700/70 rounded-2xl flex items-center justify-between text-sm text-emerald-900 dark:text-emerald-100 shadow-sm animate-in fade-in slide-in-from-top-2">
+          <div className="flex items-start sm:items-center space-x-3">
+            <div className="p-2 bg-emerald-100 dark:bg-emerald-900/60 rounded-xl text-emerald-700 dark:text-emerald-300">
+              <CheckCircle2 className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center space-x-2">
+                <span className="font-bold text-base">{importSuccessBanner.message}</span>
+                <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-200">
+                  交易明细已更新
+                </span>
+              </div>
+              <p className="text-xs text-emerald-700 dark:text-emerald-300/90 mt-0.5">
+                系统已自动切换至「全部历史」视图，最新导入的平仓交易已展示在下方表格中。
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setImportSuccessBanner(null)}
+            className="text-emerald-600 hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-200 p-1.5 rounded-lg hover:bg-emerald-100/60 dark:hover:bg-emerald-900/40 transition cursor-pointer"
+            title="关闭提示"
+          >
+            <X className="w-4 h-4" />
+          </button>
         </div>
       )}
 

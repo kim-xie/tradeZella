@@ -1,12 +1,19 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import Button from './common/Button';
 import DateRangePicker from './common/DateRangePicker';
 import { SERVER_BASE_URL as API_BASE_URL, getMT5Status, syncMT5Trades, getSyncToken, MT5StatusData } from '../services/api';
-import { RefreshCw, Upload, CheckCircle2, AlertCircle, Laptop, Download, Database, FileSpreadsheet, FileCode, Radio, Copy, Check, BarChart2, Zap, Calendar } from 'lucide-react';
+import { RefreshCw, Upload, CheckCircle2, AlertCircle, Laptop, Download, Database, FileSpreadsheet, FileCode, Radio, Copy, Check, BarChart2, Zap, Calendar, X } from 'lucide-react';
+
+export interface UploadSuccessInfo {
+  count?: number;
+  message?: string;
+  platform?: string;
+  skippedCount?: number;
+}
 
 interface CSVUploaderProps {
-  onUploadSuccess: () => void;
+  onUploadSuccess: (info?: UploadSuccessInfo) => void;
 }
 
 export type SyncRangePreset = 'week' | 'month' | 'year' | 'all' | 'days30' | 'custom';
@@ -90,6 +97,7 @@ const getRangeConfig = (
 const CSVUploader: React.FC<CSVUploaderProps> = ({ onUploadSuccess }) => {
   const [activeTab, setActiveTab] = useState<'mt5' | 'file' | 'ea'>('mt5');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [liveOrderSync, setLiveOrderSync] = useState<boolean>(true);
@@ -213,9 +221,23 @@ const CSVUploader: React.FC<CSVUploaderProps> = ({ onUploadSuccess }) => {
         },
       });
 
-      setSuccessMessage(response.data.message || '上传成功！已成功导入交易数据。');
+      const resData = response.data || {};
+      const count = resData.count ?? 0;
+      const skippedCount = resData.skippedCount ?? 0;
+      const platform = resData.platform || '报表';
+      const msg = resData.message || (count > 0 ? `成功从 ${platform} 解析导入 ${count} 笔交易！` : '上传成功！');
+
+      setSuccessMessage(msg);
       setSelectedFile(null);
-      onUploadSuccess();
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+      onUploadSuccess({
+        count,
+        skippedCount,
+        message: msg,
+        platform,
+      });
     } catch (err: any) {
       setError(err.response?.data?.message || '文件上传与解析失败，请检查文件格式。');
     } finally {
@@ -241,7 +263,12 @@ const CSVUploader: React.FC<CSVUploaderProps> = ({ onUploadSuccess }) => {
 
       const msg = res.message || (res.count > 0 ? `成功从 MT5 同步导入 ${res.count} 笔交易！` : '所有交易已是最新的，无新增订单。');
       setSuccessMessage(msg);
-      onUploadSuccess();
+      onUploadSuccess({
+        count: res.count,
+        skippedCount: res.skippedCount,
+        message: msg,
+        platform: 'MT5',
+      });
     } catch (err: any) {
       setError(err.message || '同步 MT5 交易失败，请确保本地 MT5 终端正在运行并允许交易接口。');
     } finally {
@@ -723,6 +750,7 @@ const CSVUploader: React.FC<CSVUploaderProps> = ({ onUploadSuccess }) => {
         <div className="space-y-4">
           <div className="flex flex-col sm:flex-row items-center space-y-3 sm:space-y-0 sm:space-x-4">
             <input
+              ref={fileInputRef}
               type="file"
               accept=".csv,.htm,.html,.xml,.xlsx,.xls,.tsv,.txt"
               onChange={handleFileChange}
@@ -845,9 +873,19 @@ const CSVUploader: React.FC<CSVUploaderProps> = ({ onUploadSuccess }) => {
       )}
 
       {successMessage && (
-        <div className="mt-3 p-3 bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 rounded-lg flex items-center space-x-2 text-xs text-green-700 dark:text-green-300">
-          <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
-          <span>{successMessage}</span>
+        <div className="mt-3 p-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-700/60 rounded-lg flex items-center justify-between text-xs text-emerald-800 dark:text-emerald-200 shadow-xs animate-in fade-in">
+          <div className="flex items-center space-x-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
+            <span className="font-medium">{successMessage}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setSuccessMessage(null)}
+            className="text-emerald-500 hover:text-emerald-700 dark:hover:text-emerald-200 p-0.5 ml-2 cursor-pointer"
+            title="关闭提示"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
         </div>
       )}
     </div>
