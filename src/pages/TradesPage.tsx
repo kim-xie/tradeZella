@@ -162,6 +162,21 @@ const getTradeRatingValue = (trade: Trade): number => {
   return typeof trade.rating === 'number' && !isNaN(trade.rating) && trade.rating > 0 ? trade.rating : 0;
 };
 
+const getTradeSizeValue = (trade: Trade): number | null => {
+  if (typeof trade.size === 'number' && !isNaN(trade.size)) {
+    return trade.size;
+  }
+  return null;
+};
+
+const getTradeRRValue = (trade: Trade): number | null => {
+  const calculated = calculateTradePnL(trade);
+  if (calculated && calculated.rr != null && !isNaN(calculated.rr)) {
+    return calculated.rr;
+  }
+  return null;
+};
+
 const formatLocalTime = (dateStr?: string): string => {
   if (!dateStr) return '-';
   // 直接字符串截取显示，不走 Date 对象避免任何时区转换
@@ -253,8 +268,26 @@ const generatePageNumbers = (current: number, total: number): (number | string)[
   return [1, '...', current - 1, current, current + 1, '...', total];
 };
 
-type SortField = 'entry_time' | 'pnl' | 'duration' | 'rating';
+type SortField = 'entry_time' | 'size' | 'duration' | 'pnl' | 'rr' | 'rating';
 type SortOrder = 'asc' | 'desc';
+
+const getSortFieldLabel = (field: SortField): string => {
+  switch (field) {
+    case 'size':
+      return '手数';
+    case 'duration':
+      return '持仓时长';
+    case 'pnl':
+      return '平仓净盈亏';
+    case 'rr':
+      return '盈亏比';
+    case 'rating':
+      return '纪律评分';
+    case 'entry_time':
+    default:
+      return '入场时间';
+  }
+};
 
 const TradesPage: React.FC = () => {
   const [trades, setTrades] = useState<Trade[]>([]);
@@ -547,7 +580,19 @@ const TradesPage: React.FC = () => {
     const list = [...filteredTrades];
     return list.sort((a, b) => {
       let comparison = 0;
-      if (sortField === 'pnl') {
+      if (sortField === 'size') {
+        const sizeA = getTradeSizeValue(a);
+        const sizeB = getTradeSizeValue(b);
+        if (sizeA === null && sizeB === null) {
+          comparison = 0;
+        } else if (sizeA === null) {
+          return 1;
+        } else if (sizeB === null) {
+          return -1;
+        } else {
+          comparison = sortOrder === 'desc' ? sizeB - sizeA : sizeA - sizeB;
+        }
+      } else if (sortField === 'pnl') {
         const pnlA = getTradePnlValue(a);
         const pnlB = getTradePnlValue(b);
         if (pnlA === null && pnlB === null) {
@@ -570,6 +615,18 @@ const TradesPage: React.FC = () => {
           return -1;
         } else {
           comparison = sortOrder === 'desc' ? durB - durA : durA - durB;
+        }
+      } else if (sortField === 'rr') {
+        const rrA = getTradeRRValue(a);
+        const rrB = getTradeRRValue(b);
+        if (rrA === null && rrB === null) {
+          comparison = 0;
+        } else if (rrA === null) {
+          return 1;
+        } else if (rrB === null) {
+          return -1;
+        } else {
+          comparison = sortOrder === 'desc' ? rrB - rrA : rrA - rrB;
         }
       } else if (sortField === 'rating') {
         const ratingA = getTradeRatingValue(a);
@@ -1036,7 +1093,7 @@ const TradesPage: React.FC = () => {
           <span>笔交易记录</span>
           {sortField !== 'entry_time' && (
             <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-sans font-medium bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300 border border-purple-200 dark:border-purple-800/60 ml-2">
-              当前排序: {sortField === 'pnl' ? '平仓净盈亏' : sortField === 'duration' ? '持仓时长' : '纪律评分'} ({sortOrder === 'desc' ? '降序 ↓' : '升序 ↑'})
+              当前排序: {getSortFieldLabel(sortField)} ({sortOrder === 'desc' ? '降序 ↓' : '升序 ↑'})
               <button
                 type="button"
                 onClick={() => { setSortField('entry_time'); setSortOrder('desc'); }}
@@ -1120,7 +1177,16 @@ const TradesPage: React.FC = () => {
                 </th>
                 <th className="px-3 py-3 whitespace-nowrap">标的代码</th>
                 <th className="px-3 py-3 whitespace-nowrap">多空方向</th>
-                <th className="px-3 py-3 whitespace-nowrap">手数</th>
+                <th
+                  className="px-3 py-3 whitespace-nowrap cursor-pointer select-none group hover:bg-gray-100/70 dark:hover:bg-white/[0.04] transition-colors"
+                  onClick={() => handleSort('size')}
+                  title="点击按手数排序"
+                >
+                  <div className="flex items-center space-x-1.5">
+                    <span className={sortField === 'size' ? 'text-purple-600 dark:text-purple-400 font-bold' : ''}>手数</span>
+                    {renderSortIcon('size')}
+                  </div>
+                </th>
                 <th className="px-3 py-3 whitespace-nowrap">平仓方式</th>
                 <th
                   className="px-3 py-3 whitespace-nowrap cursor-pointer select-none group hover:bg-gray-100/70 dark:hover:bg-white/[0.04] transition-colors"
@@ -1142,7 +1208,16 @@ const TradesPage: React.FC = () => {
                     {renderSortIcon('pnl')}
                   </div>
                 </th>
-                <th className="px-3 py-3 whitespace-nowrap">盈亏比</th>
+                <th
+                  className="px-3 py-3 whitespace-nowrap cursor-pointer select-none group hover:bg-gray-100/70 dark:hover:bg-white/[0.04] transition-colors"
+                  onClick={() => handleSort('rr')}
+                  title="点击按盈亏比排序"
+                >
+                  <div className="flex items-center space-x-1.5">
+                    <span className={sortField === 'rr' ? 'text-purple-600 dark:text-purple-400 font-bold' : ''}>盈亏比</span>
+                    {renderSortIcon('rr')}
+                  </div>
+                </th>
                 <th
                   className="px-3 py-3 whitespace-nowrap cursor-pointer select-none group hover:bg-gray-100/70 dark:hover:bg-white/[0.04] transition-colors"
                   onClick={() => handleSort('rating')}

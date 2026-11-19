@@ -488,4 +488,130 @@ describe('TradesPage', () => {
       expect(rows[2]).toContain('TRADE_C');
     });
   });
+
+  it('supports sorting by lot size (手数) and risk-reward ratio (盈亏比)', async () => {
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const now = new Date();
+    const today = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+
+    const mockTrades = [
+      {
+        id: 1,
+        symbol: 'TRADE_A',
+        direction: 'long' as const,
+        size: 2.5,
+        entryprice: 100,
+        exitprice: 120, // +$20 diff
+        stop_loss: 90, // risk = 10, rr = 20 / 10 = 2.0R
+        entry_time: `${today}T09:00:00`,
+        exit_time: `${today}T09:10:00`,
+        createdat: `${today}T09:00:00`,
+      },
+      {
+        id: 2,
+        symbol: 'TRADE_B',
+        direction: 'long' as const,
+        size: 0.5,
+        entryprice: 100,
+        exitprice: 50, // -$50 diff
+        stop_loss: 90, // risk = 10, rr = -50 / 10 = -5.0R
+        entry_time: `${today}T10:00:00`,
+        exit_time: `${today}T11:00:00`,
+        createdat: `${today}T10:00:00`,
+      },
+      {
+        id: 3,
+        symbol: 'TRADE_C',
+        direction: 'long' as const,
+        size: 5.0,
+        entryprice: 100,
+        exitprice: 200, // +$100 diff
+        stop_loss: 80, // risk = 20, rr = 100 / 20 = 5.0R
+        entry_time: `${today}T08:00:00`,
+        exit_time: `${today}T10:00:00`,
+        createdat: `${today}T08:00:00`,
+      },
+    ];
+
+    vi.spyOn(api, 'getUserTrades').mockResolvedValue(mockTrades);
+    localStorage.setItem('token', 'test-token');
+
+    render(
+      <MemoryRouter>
+        <TradesPage />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('TRADE_A')).toBeInTheDocument();
+      expect(screen.getByText('TRADE_B')).toBeInTheDocument();
+      expect(screen.getByText('TRADE_C')).toBeInTheDocument();
+    });
+
+    const getRowSymbols = () => {
+      const rows = screen.getAllByRole('row');
+      return rows.slice(1).map(r => r.textContent || '');
+    };
+
+    // 1. Click "手数" -> sort size desc (5.0 -> 2.5 -> 0.5):
+    // TRADE_C (5.0) -> TRADE_A (2.5) -> TRADE_B (0.5)
+    const sizeHeader = screen.getByTitle('点击按手数排序');
+    fireEvent.click(sizeHeader);
+
+    await waitFor(() => {
+      const rows = getRowSymbols();
+      expect(rows[0]).toContain('TRADE_C');
+      expect(rows[1]).toContain('TRADE_A');
+      expect(rows[2]).toContain('TRADE_B');
+    });
+    expect(screen.getByText(/当前排序:\s*手数\s*\(降序\s*↓\)/)).toBeInTheDocument();
+
+    // Click "手数" again -> sort size asc (0.5 -> 2.5 -> 5.0):
+    // TRADE_B (0.5) -> TRADE_A (2.5) -> TRADE_C (5.0)
+    fireEvent.click(sizeHeader);
+
+    await waitFor(() => {
+      const rows = getRowSymbols();
+      expect(rows[0]).toContain('TRADE_B');
+      expect(rows[1]).toContain('TRADE_A');
+      expect(rows[2]).toContain('TRADE_C');
+    });
+    expect(screen.getByText(/当前排序:\s*手数\s*\(升序\s*↑\)/)).toBeInTheDocument();
+
+    // 2. Click "盈亏比" -> sort rr desc (+5.0R -> +2.0R -> -5.0R):
+    // TRADE_C (+5.0R) -> TRADE_A (+2.0R) -> TRADE_B (-5.0R)
+    const rrHeader = screen.getByTitle('点击按盈亏比排序');
+    fireEvent.click(rrHeader);
+
+    await waitFor(() => {
+      const rows = getRowSymbols();
+      expect(rows[0]).toContain('TRADE_C');
+      expect(rows[1]).toContain('TRADE_A');
+      expect(rows[2]).toContain('TRADE_B');
+    });
+    expect(screen.getByText(/当前排序:\s*盈亏比\s*\(降序\s*↓\)/)).toBeInTheDocument();
+
+    // Click "盈亏比" again -> sort rr asc (-5.0R -> +2.0R -> +5.0R):
+    // TRADE_B (-5.0R) -> TRADE_A (+2.0R) -> TRADE_C (+5.0R)
+    fireEvent.click(rrHeader);
+
+    await waitFor(() => {
+      const rows = getRowSymbols();
+      expect(rows[0]).toContain('TRADE_B');
+      expect(rows[1]).toContain('TRADE_A');
+      expect(rows[2]).toContain('TRADE_C');
+    });
+    expect(screen.getByText(/当前排序:\s*盈亏比\s*\(升序\s*↑\)/)).toBeInTheDocument();
+
+    // Reset sort
+    const resetSortBtn = screen.getByTitle('恢复默认时间降序');
+    fireEvent.click(resetSortBtn);
+
+    await waitFor(() => {
+      const rows = getRowSymbols();
+      expect(rows[0]).toContain('TRADE_B');
+      expect(rows[1]).toContain('TRADE_A');
+      expect(rows[2]).toContain('TRADE_C');
+    });
+  });
 });
