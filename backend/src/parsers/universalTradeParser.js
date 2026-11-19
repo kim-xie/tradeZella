@@ -155,17 +155,24 @@ export function extractRowsFromHTML(htmlContent) {
 
   let inClosedTradesSection = true; // default true for simple reports
   let seenMT4Header = false;
+  let seenMT5Header = false;
+  let mt5PositionsDone = false;
 
   while ((trMatch = trRegex.exec(cleanHtml)) !== null) {
     const rowHtml = trMatch[1];
     
     // Extract cells (<td> or <th>)
-    const cellRegex = /<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi;
+    const cellRegex = /<(t[dh])([^>]*)>([\s\S]*?)<\/\1>/gi;
     const cellValues = [];
     let cellMatch;
 
     while ((cellMatch = cellRegex.exec(rowHtml)) !== null) {
-      let cellText = cellMatch[1];
+      const attrs = cellMatch[2] || '';
+      // 过滤 MT5 折叠占位隐藏单元格 (class="hidden")
+      if (/\bclass\s*=\s*["'][^"']*\bhidden\b[^"']*["']/i.test(attrs)) {
+        continue;
+      }
+      let cellText = cellMatch[3];
       // strip nested HTML tags like <b>, <span>, <div>, <font>
       cellText = cellText.replace(/<[^>]+>/g, ' ');
       cellText = decodeHTMLEntities(cellText).replace(/\s+/g, ' ').trim();
@@ -184,7 +191,17 @@ export function extractRowsFromHTML(htmlContent) {
       continue;
     }
 
-    // Stop at MT4 Open Trades / Working Orders / Summary sections
+    // Check MT5 Positions section headers
+    if (
+      !mt5PositionsDone &&
+      (rowTextLower === '持仓' || rowTextLower === 'positions' || (rowTextLower.includes('持仓') && cellValues.length <= 2)) &&
+      !rowTextLower.includes('盈利')
+    ) {
+      inClosedTradesSection = true;
+      continue;
+    }
+
+    // Stop at MT4/MT5 non-position sections (Open Trades, Orders, Deals, Summary)
     if (
       rowTextLower.includes('open trades:') ||
       rowTextLower.includes('未平仓交易') ||
@@ -193,17 +210,29 @@ export function extractRowsFromHTML(htmlContent) {
       rowTextLower.includes('summary:') ||
       rowTextLower.includes('总结:') ||
       rowTextLower.includes('closed p/l:') ||
-      rowTextLower.includes('已结盈亏:')
+      rowTextLower.includes('已结盈亏:') ||
+      rowTextLower === '订单' || rowTextLower === 'orders' || (rowTextLower.includes('订单') && cellValues.length <= 2) ||
+      rowTextLower === '成交' || rowTextLower === 'deals' || (rowTextLower.includes('成交') && cellValues.length <= 2)
     ) {
-      if (seenMT4Header) {
-        // We reached the end of closed trades in MT4
+      if (seenMT5Header) {
+        mt5PositionsDone = true;
+        inClosedTradesSection = false;
+      } else if (seenMT4Header) {
         inClosedTradesSection = false;
       }
     }
 
-    // Check if this row is an MT4/MT5 header
+    // Check if this row is an MT5 Positions header (contains '持仓' or 'position' + '价位' or 'price' + '盈利' or 'profit')
     if (
-      (rowTextLower.includes('ticket') || rowTextLower.includes('position') || rowTextLower.includes('订单') || rowTextLower.includes('持仓')) &&
+      !mt5PositionsDone &&
+      (rowTextLower.includes('持仓') || rowTextLower.includes('position')) &&
+      (rowTextLower.includes('价位') || rowTextLower.includes('price'))
+    ) {
+      seenMT5Header = true;
+      inClosedTradesSection = true;
+    } else if (
+      !mt5PositionsDone && !seenMT5Header &&
+      (rowTextLower.includes('ticket') || rowTextLower.includes('订单')) &&
       (rowTextLower.includes('price') || rowTextLower.includes('价格') || rowTextLower.includes('type') || rowTextLower.includes('类型'))
     ) {
       seenMT4Header = true;
@@ -404,7 +433,7 @@ export function normalizeRowsToTrades(rows, detectedFormat = 'UNKNOWN', original
       h.includes('avgprice')
     ) {
       closePriceIdx = idx;
-    } else if (h === 'price' || h === '价格') {
+    } else if (h === 'price' || h === '价格' || h === '价位' || h.includes('价位')) {
       if (openPriceIdx === -1) openPriceIdx = idx;
       else if (closePriceIdx === -1) closePriceIdx = idx;
     }
@@ -472,7 +501,8 @@ export function normalizeRowsToTrades(rows, detectedFormat = 'UNKNOWN', original
       h.includes('pnl') ||
       h.includes('manual_pnl') ||
       h.includes('realized') ||
-      h.includes('获利')
+      h.includes('获利') ||
+      h.includes('盈利')
     )
   );
 
@@ -541,7 +571,9 @@ export function normalizeRowsToTrades(rows, detectedFormat = 'UNKNOWN', original
       symbolLower.includes('已结盈亏') ||
       symbolLower.includes('closed p/l') ||
       symbolLower === 'symbol' ||
-      symbolLower === '品种'
+      symbolLower === '品种' ||
+      symbolLower === '交易品种' ||
+      /^-?\d+(\.\d+)?$/.test(symbolRaw)
     ) {
       continue;
     }

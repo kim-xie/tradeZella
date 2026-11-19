@@ -244,4 +244,65 @@ describe('Universal Trade Parser', () => {
     expect(res.trades[0].ticket).toBe('77665544');
     expect(res.trades[0].manualPnl).toBe(150.0);
   });
+
+  // Test 9: Chinese MT5 HTML Report with UTF-16LE, hidden cells and '价位'/'盈利' headers
+  test('should parse Chinese MT5 HTML report with UTF-16LE and hidden cells', async () => {
+    const mt5CnHtml = `<!DOCTYPE html>
+<html>
+<head><title>交易历史报告</title></head>
+<body>
+<table>
+  <tr><th colspan="13"><div style="font: 10pt Tahoma"><b>持仓</b></div></th></tr>
+  <tr bgcolor="#E5F0FC">
+    <td nowrap><b>时间</b></td>
+    <td nowrap><b>持仓</b></td>
+    <td nowrap><b>交易品种</b></td>
+    <td nowrap><b>类型</b></td>
+    <td nowrap><b>交易量</b></td>
+    <td nowrap><b>价位</b></td>
+    <td nowrap><b>止损</b></td>
+    <td nowrap><b>止盈</b></td>
+    <td nowrap><b>时间</b></td>
+    <td nowrap><b>价位</b></td>
+    <td nowrap><b>手续费</b></td>
+    <td nowrap><b>库存费</b></td>
+    <td nowrap><b>盈利</b></td>
+  </tr>
+  <tr>
+    <td>2026.11.13 19:06:56</td>
+    <td>50670614</td>
+    <td>美国原油 - 现货.</td>
+    <td>sell</td>
+    <td class="hidden" colspan="8"></td>
+    <td>0.1</td>
+    <td>87.673</td>
+    <td>87.657</td>
+    <td>85.843</td>
+    <td>2026.11.16 13:54:24</td>
+    <td>86.888</td>
+    <td>0.00</td>
+    <td>0.00</td>
+    <td>7.85</td>
+  </tr>
+  <tr><th colspan="13"><div style="font: 10pt Tahoma"><b>订单</b></div></th></tr>
+  <tr><td>2026.11.13 19:06:56</td><td>50670614</td><td>美国原油 - 现货.</td><td>sell</td></tr>
+</table>
+</body>
+</html>`;
+    const strBuf = Buffer.from(mt5CnHtml, 'utf16le');
+    const bomBuf = Buffer.from([0xff, 0xfe]);
+    const fullBuf = Buffer.concat([bomBuf, strBuf]);
+
+    const res = await parseUniversalTradeFile(fullBuf, 'ReportHistory-24979526.html');
+    expect(res.platform).toBe('MT5');
+    expect(res.trades).toHaveLength(1);
+    const trade = res.trades[0];
+    expect(trade.ticket).toBe('50670614');
+    expect(trade.symbol).toBe('美国原油 - 现货.');
+    expect(trade.direction).toBe('short');
+    expect(trade.size).toBe(0.1);
+    expect(trade.entryPrice).toBe(87.673);
+    expect(trade.exitPrice).toBe(86.888);
+    expect(trade.manualPnl).toBe(7.85);
+  });
 });
