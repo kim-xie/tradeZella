@@ -5,6 +5,38 @@ import * as api from '../services/api';
 
 vi.mock('../services/api');
 
+// Mock lightweight-charts
+vi.mock('lightweight-charts', () => {
+  const mockSeries = {
+    setData: vi.fn(),
+    createPriceLine: vi.fn().mockReturnValue({ applyOptions: vi.fn() }),
+    removePriceLine: vi.fn(),
+  };
+
+  const mockTimeScale = {
+    fitContent: vi.fn(),
+    setVisibleLogicalRange: vi.fn(),
+    scrollToPosition: vi.fn(),
+  };
+
+  const mockChart = {
+    addSeries: vi.fn().mockReturnValue(mockSeries),
+    remove: vi.fn(),
+    applyOptions: vi.fn(),
+    timeScale: vi.fn().mockReturnValue(mockTimeScale),
+    subscribeCrosshairMove: vi.fn(),
+    unsubscribeCrosshairMove: vi.fn(),
+  };
+
+  return {
+    createChart: vi.fn().mockReturnValue(mockChart),
+    CandlestickSeries: {},
+    createSeriesMarkers: vi.fn().mockReturnValue({ setMarkers: vi.fn() }),
+    ColorType: { Solid: 'solid' },
+    LineStyle: { Solid: 0, Dotted: 1, Dashed: 2, LargeDashed: 3, SparseDotted: 4 },
+  };
+});
+
 describe('ManualBarReplay - TradingView Position Sizing & Order Placement', () => {
   const mockCandles = Array.from({ length: 60 }, (_, i) => ({
     time: `2026-03-01 ${String(i).padStart(2, '0')}:00`,
@@ -16,6 +48,12 @@ describe('ManualBarReplay - TradingView Position Sizing & Order Placement', () =
   }));
 
   beforeEach(() => {
+    global.ResizeObserver = class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    } as any;
+
     // Mock Canvas getContext
     HTMLCanvasElement.prototype.getContext = vi.fn().mockReturnValue({
       scale: vi.fn(),
@@ -215,4 +253,19 @@ describe('ManualBarReplay - TradingView Position Sizing & Order Placement', () =
     expect(screen.getByText('主控窗口')).toBeInTheDocument();
     expect(screen.queryByText('联动窗口 2')).not.toBeInTheDocument();
   }, 15000);
+
+  it('renders TradingView lightweight-charts container and feeds data from K-line database', async () => {
+    const fetchCandlesSpy = vi.spyOn(api, 'fetchCandles');
+    render(<ManualBarReplay initialSymbol="EURUSD" />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('tv-container-0')).toBeInTheDocument();
+      expect(fetchCandlesSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          symbol: 'EURUSD',
+          timeframe: 'M5',
+        })
+      );
+    });
+  });
 });

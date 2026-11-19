@@ -5,6 +5,38 @@ import * as api from '../../services/api';
 
 vi.mock('../../services/api');
 
+// Mock lightweight-charts
+vi.mock('lightweight-charts', () => {
+  const mockSeries = {
+    setData: vi.fn(),
+    createPriceLine: vi.fn().mockReturnValue({ applyOptions: vi.fn() }),
+    removePriceLine: vi.fn(),
+  };
+
+  const mockTimeScale = {
+    fitContent: vi.fn(),
+    setVisibleLogicalRange: vi.fn(),
+    scrollToPosition: vi.fn(),
+  };
+
+  const mockChart = {
+    addSeries: vi.fn().mockReturnValue(mockSeries),
+    remove: vi.fn(),
+    applyOptions: vi.fn(),
+    timeScale: vi.fn().mockReturnValue(mockTimeScale),
+    subscribeCrosshairMove: vi.fn(),
+    unsubscribeCrosshairMove: vi.fn(),
+  };
+
+  return {
+    createChart: vi.fn().mockReturnValue(mockChart),
+    CandlestickSeries: {},
+    createSeriesMarkers: vi.fn().mockReturnValue({ setMarkers: vi.fn() }),
+    ColorType: { Solid: 'solid' },
+    LineStyle: { Solid: 0, Dotted: 1, Dashed: 2, LargeDashed: 3, SparseDotted: 4 },
+  };
+});
+
 describe('BacktestingPage - Dedicated TradingView K-Line Backtest & Strategy Tester', () => {
   const mockCandles = Array.from({ length: 60 }, (_, i) => ({
     time: `2026-03-01 ${String(i).padStart(2, '0')}:00`,
@@ -16,6 +48,12 @@ describe('BacktestingPage - Dedicated TradingView K-Line Backtest & Strategy Tes
   }));
 
   beforeEach(() => {
+    global.ResizeObserver = class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    } as any;
+
     // Mock HTMLCanvasElement
     HTMLCanvasElement.prototype.getContext = vi.fn().mockReturnValue({
       scale: vi.fn(),

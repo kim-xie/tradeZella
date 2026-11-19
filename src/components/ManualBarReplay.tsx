@@ -8,6 +8,16 @@ import {
   Scissors, X, ArrowUpRight, ArrowDownRight, Filter,
   Square, Maximize2, Minimize2, Activity, ChevronDown
 } from 'lucide-react';
+import {
+  createChart,
+  CandlestickSeries,
+  createSeriesMarkers,
+  ColorType,
+  LineStyle,
+  IChartApi,
+  ISeriesApi,
+  ISeriesMarkersPluginApi
+} from 'lightweight-charts';
 import { fetchCandles, CandleItem, createTrade, createBulkTrades, getAvailableCandleSymbols } from '../services/api';
 import SymbolSearchSelect from './common/SymbolSearchSelect';
 import TradeExecutionChart from './TradeExecutionChart';
@@ -127,6 +137,44 @@ function parseTimestamp(timeStr: string | number | undefined): number {
   if (typeof timeStr === 'number') return timeStr;
   const parsed = Date.parse(timeStr.includes('T') ? timeStr : timeStr.replace(' ', 'T'));
   return isNaN(parsed) ? 0 : parsed;
+}
+
+function parseCandleTimeToSeconds(time: string | number, timestamp?: number, indexFallback: number = 0): number {
+  if (typeof timestamp === 'number' && timestamp > 0) {
+    return timestamp > 10000000000 ? Math.floor(timestamp / 1000) : timestamp;
+  }
+  if (typeof time === 'number' && time > 0) {
+    return time > 10000000000 ? Math.floor(time / 1000) : time;
+  }
+  if (typeof time === 'string') {
+    const s = time.replace(' ', 'T');
+    const parsed = new Date(s).getTime();
+    if (!isNaN(parsed) && parsed > 0) {
+      return Math.floor(parsed / 1000);
+    }
+  }
+  return 1700000000 + indexFallback * 300;
+}
+
+function formatCandleListForTV(candles: CandleItem[]): Array<{ time: any; open: number; high: number; low: number; close: number }> {
+  const list: Array<{ time: any; open: number; high: number; low: number; close: number }> = [];
+  let lastTime = 0;
+  for (let i = 0; i < candles.length; i++) {
+    const c = candles[i];
+    let t = parseCandleTimeToSeconds(c.time, c.timestamp, i);
+    if (t <= lastTime) {
+      t = lastTime + 60;
+    }
+    lastTime = t;
+    list.push({
+      time: t as any,
+      open: Number(c.open),
+      high: Number(c.high),
+      low: Number(c.low),
+      close: Number(c.close),
+    });
+  }
+  return list;
 }
 
 function generateClientFallbackCandles(sym: string, tf: string, count: number = 400): CandleItem[] {
@@ -602,6 +650,21 @@ export default function ManualBarReplay({
   const canvasRefs = useRef<(HTMLCanvasElement | null)[]>([null, null, null, null]);
   const scaleRefs = useRef<any[]>([null, null, null, null]);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  // References for TradingView Lightweight Charts up to 4 windows
+  const tvContainers = useRef<(HTMLDivElement | null)[]>([null, null, null, null]);
+  const tvCharts = useRef<(IChartApi | null)[]>([null, null, null, null]);
+  const tvSeries = useRef<(ISeriesApi<'Candlestick'> | null)[]>([null, null, null, null]);
+  const tvMarkers = useRef<(ISeriesMarkersPluginApi<any> | null)[]>([null, null, null, null]);
+  const tvPriceLines = useRef<{
+    entryLine: any | null;
+    slLine: any | null;
+    tpLine: any | null;
+  }>({
+    entryLine: null,
+    slLine: null,
+    tpLine: null,
+  });
   const timerRef = useRef<any>(null);
   const scaleRef = useRef<{
     w: number;
@@ -778,6 +841,209 @@ export default function ManualBarReplay({
     return calculateRSI(visibleCandles, 14);
   }, [visibleCandles, showRsi]);
 
+  // 1. Initialize TradingView Charts for active windows
+  useEffect(() => {
+    const isDark = typeof document !== 'undefined' && document.documentElement.classList.contains('dark');
+    const resizeObservers: ResizeObserver[] = [];
+
+    for (let winIdx = 0; winIdx < windowCount; winIdx++) {
+      const container = tvContainers.current[winIdx];
+      if (!container) continue;
+
+      if (tvCharts.current[winIdx]) continue;
+
+      try {
+        const chart = createChart(container, {
+          width: container.clientWidth || 600,
+          height: container.clientHeight || 450,
+          layout: {
+            background: { type: ColorType.Solid, color: isDark ? '#0b0f19' : '#ffffff' },
+            textColor: isDark ? '#94a3b8' : '#475569',
+            fontSize: 11,
+            fontFamily: 'JetBrains Mono, monospace, sans-serif',
+          },
+          grid: {
+            vertLines: { color: isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.05)' },
+            horzLines: { color: isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.05)' },
+          },
+          crosshair: {
+            vertLine: {
+              color: isDark ? '#a855f7' : '#9333ea',
+              width: 1,
+              style: LineStyle.Dashed,
+            },
+            horzLine: {
+              color: isDark ? '#a855f7' : '#9333ea',
+              width: 1,
+              style: LineStyle.Dashed,
+            },
+          },
+          timeScale: {
+            borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+            timeVisible: true,
+            secondsVisible: false,
+          },
+          rightPriceScale: {
+            borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+            scaleMargins: {
+              top: 0.12,
+              bottom: 0.12,
+            },
+          },
+        });
+
+        const series = chart.addSeries(CandlestickSeries, {
+          upColor: '#10B981',
+          downColor: '#EF4444',
+          borderVisible: false,
+          wickUpColor: '#10B981',
+          wickDownColor: '#EF4444',
+        });
+
+        tvCharts.current[winIdx] = chart;
+        tvSeries.current[winIdx] = series;
+        tvMarkers.current[winIdx] = createSeriesMarkers(series, []);
+
+        if (winIdx === 0) {
+          chart.subscribeCrosshairMove((param) => {
+            if (!param.time || !param.seriesData.has(series)) return;
+            const data = param.seriesData.get(series) as any;
+            if (data && typeof data.open === 'number') {
+              const change = data.close - data.open;
+              const changePercent = data.open > 0 ? (change / data.open) * 100 : 0;
+              setHoveredCandle({
+                open: data.open,
+                high: data.high,
+                low: data.low,
+                close: data.close,
+                change,
+                changePercent,
+              });
+            }
+          });
+        }
+
+        if (typeof ResizeObserver !== 'undefined') {
+          const ro = new ResizeObserver((entries) => {
+            if (!entries || entries.length === 0) return;
+            const { width, height } = entries[0].contentRect;
+            if (width > 0 && chart) {
+              chart.applyOptions({ width, height: height || undefined });
+            }
+          });
+          ro.observe(container);
+          resizeObservers.push(ro);
+        }
+      } catch (err) {
+        console.warn('TradingView chart init skipped or mock fallback:', err);
+      }
+    }
+
+    // Cleanup charts beyond active windowCount
+    for (let i = windowCount; i < 4; i++) {
+      if (tvCharts.current[i]) {
+        try {
+          tvCharts.current[i]?.remove();
+        } catch {}
+        tvCharts.current[i] = null;
+        tvSeries.current[i] = null;
+        tvMarkers.current[i] = null;
+      }
+    }
+
+    return () => {
+      resizeObservers.forEach((ro) => ro.disconnect());
+    };
+  }, [windowCount]);
+
+  // 2. Feed K-Line database candles to TradingView series
+  useEffect(() => {
+    for (let winIdx = 0; winIdx < windowCount; winIdx++) {
+      const series = tvSeries.current[winIdx];
+      const chart = tvCharts.current[winIdx];
+      if (!series || !chart) continue;
+
+      const winSlice = getWindowVisibleSlice(winIdx);
+      const tvData = formatCandleListForTV(winSlice);
+      if (tvData.length > 0) {
+        try {
+          series.setData(tvData);
+          if (currentIndex <= 50) {
+            chart.timeScale().scrollToPosition(0, false);
+          }
+        } catch (err) {
+          console.warn('Failed to update TradingView series data:', err);
+        }
+      }
+    }
+  }, [currentIndex, allCandles, windowCandles, windowCount, windowTimeframes, getWindowVisibleSlice]);
+
+  // 3. Update TradingView Executed Trade Markers
+  useEffect(() => {
+    const masterMarkers = tvMarkers.current[0];
+    if (!masterMarkers) return;
+
+    try {
+      const markers: any[] = [];
+      replayTrades.forEach((t) => {
+        let entryTs = 0;
+        if (t.entryTime) {
+          const p = new Date(String(t.entryTime).replace(' ', 'T')).getTime();
+          if (!isNaN(p)) entryTs = Math.floor(p / 1000);
+        }
+        let exitTs = 0;
+        if (t.exitTime) {
+          const p = new Date(String(t.exitTime).replace(' ', 'T')).getTime();
+          if (!isNaN(p)) exitTs = Math.floor(p / 1000);
+        }
+
+        if (entryTs > 0) {
+          markers.push({
+            time: entryTs as any,
+            position: t.direction === 'long' ? 'belowBar' : 'aboveBar',
+            color: t.direction === 'long' ? '#10b981' : '#ef4444',
+            shape: t.direction === 'long' ? 'arrowUp' : 'arrowDown',
+            text: `${t.direction === 'long' ? '买入' : '卖出'} @ ${t.entryPrice}`,
+          });
+        }
+
+        if (exitTs > 0) {
+          markers.push({
+            time: exitTs as any,
+            position: t.direction === 'long' ? 'aboveBar' : 'belowBar',
+            color: t.pnl >= 0 ? '#10b981' : '#ef4444',
+            shape: 'circle',
+            text: `平仓 ${t.pnl >= 0 ? '+' : ''}$${t.pnl.toFixed(2)}`,
+          });
+        }
+      });
+
+      if (markers.length > 0) {
+        masterMarkers.setMarkers(markers.sort((a, b) => (a.time as number) - (b.time as number)));
+      } else {
+        masterMarkers.setMarkers([]);
+      }
+    } catch (err) {
+      console.warn('Failed to update TradingView markers:', err);
+    }
+  }, [replayTrades]);
+
+  // 5. Cleanup TradingView chart instances on component unmount
+  useEffect(() => {
+    return () => {
+      tvCharts.current.forEach((chart) => {
+        if (chart) {
+          try {
+            chart.remove();
+          } catch {}
+        }
+      });
+      tvCharts.current = [null, null, null, null];
+      tvSeries.current = [null, null, null, null];
+      tvMarkers.current = [null, null, null, null];
+    };
+  }, []);
+
   // Reset SL & TP to defaults based on direction and current candle
   const resetSlTpToDefaults = useCallback((dir: 'long' | 'short', candle?: CandleItem) => {
     const c = candle || currentCandle;
@@ -846,6 +1112,80 @@ export default function ManualBarReplay({
   const projectedLoss = slDistance > 0 ? Math.round(slDistance * activeLots * contractSize * 100) / 100 : riskAmount;
   const projectedProfit = tpDistance > 0 ? Math.round(tpDistance * activeLots * contractSize * 100) / 100 : 0;
   const currentRR = slDistance > 0 && tpDistance > 0 ? Math.round((tpDistance / slDistance) * 100) / 100 : riskRewardRatio;
+
+  // TradingView Price Lines for Active Position & Planned TP / SL
+  useEffect(() => {
+    const masterSeries = tvSeries.current[0];
+    if (!masterSeries) return;
+
+    const lines = tvPriceLines.current;
+
+    try {
+      // Entry Line
+      if (position && position.entryPrice > 0) {
+        const title = `${position.direction === 'long' ? 'BUY' : 'SELL'} @ ${position.entryPrice}`;
+        if (!lines.entryLine) {
+          lines.entryLine = masterSeries.createPriceLine({
+            price: position.entryPrice,
+            color: '#3b82f6',
+            lineWidth: 2,
+            lineStyle: LineStyle.Solid,
+            axisLabelVisible: true,
+            title,
+          });
+        } else {
+          lines.entryLine.applyOptions({ price: position.entryPrice, title });
+        }
+      } else if (lines.entryLine) {
+        masterSeries.removePriceLine(lines.entryLine);
+        lines.entryLine = null;
+      }
+
+      // Stop Loss Line
+      const effectiveSl = position ? position.stopLoss : (parsedSl > 0 ? parsedSl : null);
+      if (effectiveSl && effectiveSl > 0) {
+        const title = position ? `止损 SL: ${effectiveSl}` : `计划止损: ${effectiveSl}`;
+        if (!lines.slLine) {
+          lines.slLine = masterSeries.createPriceLine({
+            price: effectiveSl,
+            color: '#ef4444',
+            lineWidth: 2,
+            lineStyle: LineStyle.Dashed,
+            axisLabelVisible: true,
+            title,
+          });
+        } else {
+          lines.slLine.applyOptions({ price: effectiveSl, title });
+        }
+      } else if (lines.slLine) {
+        masterSeries.removePriceLine(lines.slLine);
+        lines.slLine = null;
+      }
+
+      // Take Profit Line
+      const effectiveTp = position ? position.takeProfit : (parsedTp > 0 ? parsedTp : null);
+      if (effectiveTp && effectiveTp > 0) {
+        const title = position ? `止盈 TP: ${effectiveTp}` : `计划止盈: ${effectiveTp}`;
+        if (!lines.tpLine) {
+          lines.tpLine = masterSeries.createPriceLine({
+            price: effectiveTp,
+            color: '#10b981',
+            lineWidth: 2,
+            lineStyle: LineStyle.Dashed,
+            axisLabelVisible: true,
+            title,
+          });
+        } else {
+          lines.tpLine.applyOptions({ price: effectiveTp, title });
+        }
+      } else if (lines.tpLine) {
+        masterSeries.removePriceLine(lines.tpLine);
+        lines.tpLine = null;
+      }
+    } catch (err) {
+      console.warn('Failed to update TradingView price lines:', err);
+    }
+  }, [position, parsedSl, parsedTp]);
 
   // Handlers for switching direction, quick SL, and applying R:R
   const handleSwitchDirection = (dir: 'long' | 'short') => {
@@ -1464,19 +1804,24 @@ export default function ManualBarReplay({
       const w = rect.width;
       const h = rect.height;
 
-      // 1. Clear background
-      ctx.fillStyle = isDark ? '#0f172a' : '#ffffff';
-      ctx.fillRect(0, 0, w, h);
+      // 1. Clear background (Transparent overlay when TradingView chart is active)
+      const hasTv = !!tvCharts.current[winIdx];
+      if (hasTv) {
+        ctx.clearRect(0, 0, w, h);
+      } else {
+        ctx.fillStyle = isDark ? '#0f172a' : '#ffffff';
+        ctx.fillRect(0, 0, w, h);
 
-      // 2. TradingView-Lite subtle watermark
-      ctx.save?.();
-      ctx.fillStyle = isDark ? 'rgba(255, 255, 255, 0.035)' : 'rgba(0, 0, 0, 0.035)';
-      ctx.font = 'bold 24px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      const winLabel = winIdx === 0 ? '主控窗口' : `联动窗口 ${winIdx + 1}`;
-      ctx.fillText(`${symbol} • ${windowTimeframes[winIdx] || timeframe} • ${winLabel}`, w / 2, h / 2);
-      ctx.restore?.();
+        // 2. TradingView subtle watermark (canvas fallback)
+        ctx.save?.();
+        ctx.fillStyle = isDark ? 'rgba(255, 255, 255, 0.035)' : 'rgba(0, 0, 0, 0.035)';
+        ctx.font = 'bold 24px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        const winLabel = winIdx === 0 ? '主控窗口' : `联动窗口 ${winIdx + 1}`;
+        ctx.fillText(`${symbol} • ${windowTimeframes[winIdx] || timeframe} • ${winLabel}`, w / 2, h / 2);
+        ctx.restore?.();
+      }
 
       // 3. Visible candles for this window (up to last 65 bars)
       const displayCount = Math.min(65, winVisibleCandles.length);
@@ -1534,22 +1879,24 @@ export default function ManualBarReplay({
         return minPrice + norm * priceRange;
       };
 
-      // Draw grid lines
-      ctx.strokeStyle = isDark ? '#1e293b' : '#f1f5f9';
-      ctx.lineWidth = 1;
-      const gridRows = 4;
-      for (let i = 0; i <= gridRows; i++) {
-        const y = chartPadding.top + (chartH / gridRows) * i;
-        const price = maxPrice - (priceRange / gridRows) * i;
-        ctx.beginPath();
-        ctx.moveTo(chartPadding.left, y);
-        ctx.lineTo(w - chartPadding.right, y);
-        ctx.stroke();
+      // Draw grid lines (canvas fallback only)
+      if (!hasTv) {
+        ctx.strokeStyle = isDark ? '#1e293b' : '#f1f5f9';
+        ctx.lineWidth = 1;
+        const gridRows = 4;
+        for (let i = 0; i <= gridRows; i++) {
+          const y = chartPadding.top + (chartH / gridRows) * i;
+          const price = maxPrice - (priceRange / gridRows) * i;
+          ctx.beginPath();
+          ctx.moveTo(chartPadding.left, y);
+          ctx.lineTo(w - chartPadding.right, y);
+          ctx.stroke();
 
-        ctx.fillStyle = isDark ? '#94a3b8' : '#64748b';
-        ctx.font = '9px monospace';
-        ctx.textAlign = 'left';
-        ctx.fillText(price.toFixed(price > 100 ? 2 : 4), w - chartPadding.right + 5, y + 3);
+          ctx.fillStyle = isDark ? '#94a3b8' : '#64748b';
+          ctx.font = '9px monospace';
+          ctx.textAlign = 'left';
+          ctx.fillText(price.toFixed(price > 100 ? 2 : 4), w - chartPadding.right + 5, y + 3);
+        }
       }
 
       const barSpacing = chartW / displayCount;
@@ -1700,37 +2047,39 @@ export default function ManualBarReplay({
         });
       }
 
-      // Draw Candles
-      sliceCandles.forEach((c, i) => {
-        const x = chartPadding.left + i * barSpacing + barSpacing / 2;
-        const isUp = c.close >= c.open;
-        const color = isUp ? '#10B981' : '#EF4444';
-        const highY = priceToY(c.high);
-        const lowY = priceToY(c.low);
-        const openY = priceToY(c.open);
-        const closeY = priceToY(c.close);
+      // Draw Candles & Time labels (canvas fallback only when TradingView chart is inactive)
+      if (!hasTv) {
+        sliceCandles.forEach((c, i) => {
+          const x = chartPadding.left + i * barSpacing + barSpacing / 2;
+          const isUp = c.close >= c.open;
+          const color = isUp ? '#10B981' : '#EF4444';
+          const highY = priceToY(c.high);
+          const lowY = priceToY(c.low);
+          const openY = priceToY(c.open);
+          const closeY = priceToY(c.close);
 
-        ctx.strokeStyle = color;
-        ctx.lineWidth = 1.2;
-        ctx.beginPath();
-        ctx.moveTo(x, highY);
-        ctx.lineTo(x, lowY);
-        ctx.stroke();
+          ctx.strokeStyle = color;
+          ctx.lineWidth = 1.2;
+          ctx.beginPath();
+          ctx.moveTo(x, highY);
+          ctx.lineTo(x, lowY);
+          ctx.stroke();
 
-        const bodyTop = Math.min(openY, closeY);
-        const bodyHeight = Math.max(2, Math.abs(openY - closeY));
-        ctx.fillStyle = color;
-        ctx.fillRect(x - candleW / 2, bodyTop, candleW, bodyHeight);
-      });
+          const bodyTop = Math.min(openY, closeY);
+          const bodyHeight = Math.max(2, Math.abs(openY - closeY));
+          ctx.fillStyle = color;
+          ctx.fillRect(x - candleW / 2, bodyTop, candleW, bodyHeight);
+        });
 
-      // Time labels on bottom
-      if (sliceCandles.length > 0) {
-        ctx.fillStyle = isDark ? '#94a3b8' : '#64748b';
-        ctx.font = '9px sans-serif';
-        ctx.textAlign = 'left';
-        ctx.fillText(sliceCandles[0].time, chartPadding.left, h - 6);
-        ctx.textAlign = 'right';
-        ctx.fillText(sliceCandles[sliceCandles.length - 1].time, w - chartPadding.right, h - 6);
+        // Time labels on bottom
+        if (sliceCandles.length > 0) {
+          ctx.fillStyle = isDark ? '#94a3b8' : '#64748b';
+          ctx.font = '9px sans-serif';
+          ctx.textAlign = 'left';
+          ctx.fillText(sliceCandles[0].time, chartPadding.left, h - 6);
+          ctx.textAlign = 'right';
+          ctx.fillText(sliceCandles[sliceCandles.length - 1].time, w - chartPadding.right, h - 6);
+        }
       }
 
       // Draw Indicators on this window's visible slice
@@ -2197,18 +2546,28 @@ export default function ManualBarReplay({
           </div>
         </div>
 
-        {/* Canvas Pane */}
-        <div className="relative flex-1 bg-white dark:bg-navy-900 overflow-hidden">
+        {/* TradingView Chart Container + Drawing Canvas Overlay */}
+        <div className="relative flex-1 bg-white dark:bg-[#0b0f19] overflow-hidden">
+          {/* TradingView Lightweight Charts Container */}
+          <div
+            ref={(el) => {
+              tvContainers.current[winIdx] = el;
+            }}
+            data-testid={`tv-container-${winIdx}`}
+            className={`w-full ${canvasHeight} block select-none`}
+          />
+
+          {/* Canvas for Drawing Tools / Overlays / Fallback */}
           <canvas
             ref={(el) => {
               canvasRefs.current[winIdx] = el;
               if (winIdx === 0) canvasRef.current = el;
             }}
-            className={`w-full ${canvasHeight} block select-none ${getCanvasCursorClass()}`}
+            className={`absolute inset-0 w-full h-full block select-none ${getCanvasCursorClass()}`}
             onMouseDown={(e) => handleWindowMouseDown(e, winIdx)}
             onMouseMove={(e) => handleWindowMouseMove(e, winIdx)}
             onMouseUp={() => handleWindowMouseUp(winIdx)}
-            onMouseLeave={() => handleWindowMouseLeave(winIdx)}
+            onMouseLeave={(e) => handleWindowMouseLeave(winIdx)}
           />
 
           {/* Active drawing tool guidance in active window */}
