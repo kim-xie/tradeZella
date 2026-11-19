@@ -1,7 +1,7 @@
 import TradeDrawer from '../components/TradeDrawer';
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { X, Star, ChevronLeft, ChevronRight, RefreshCw, Upload, Database, CheckCircle2, BarChart2, Calendar, PenLine, Trash2, AlertTriangle } from 'lucide-react';
+import { X, Star, ChevronLeft, ChevronRight, RefreshCw, Upload, Database, CheckCircle2, BarChart2, Calendar, PenLine, Trash2, AlertTriangle, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import Button from '../components/common/Button';
 import Select from '../components/common/Select';
 import DateRangePicker from '../components/common/DateRangePicker';
@@ -138,6 +138,30 @@ const parseServerTime = (dateStr: string): Date | null => {
   return isNaN(d.getTime()) ? null : d;
 };
 
+const getTradeDurationMs = (entryTime?: string, exitTime?: string): number => {
+  if (!entryTime || !exitTime) return -1;
+  const start = parseServerTime(entryTime)?.getTime() ?? new Date(entryTime.replace(' ', 'T')).getTime();
+  const end = parseServerTime(exitTime)?.getTime() ?? new Date(exitTime.replace(' ', 'T')).getTime();
+  if (isNaN(start) || isNaN(end)) return -1;
+  const diff = end - start;
+  return diff >= 0 ? diff : -1;
+};
+
+const getTradePnlValue = (trade: Trade): number | null => {
+  if (trade.manual_pnl !== undefined && trade.manual_pnl !== null && !isNaN(trade.manual_pnl)) {
+    return trade.manual_pnl;
+  }
+  const calculated = calculateTradePnL(trade);
+  if (calculated !== null && calculated.pnl !== undefined && !isNaN(calculated.pnl)) {
+    return calculated.pnl;
+  }
+  return null;
+};
+
+const getTradeRatingValue = (trade: Trade): number => {
+  return typeof trade.rating === 'number' && !isNaN(trade.rating) && trade.rating > 0 ? trade.rating : 0;
+};
+
 const formatLocalTime = (dateStr?: string): string => {
   if (!dateStr) return '-';
   // 直接字符串截取显示，不走 Date 对象避免任何时区转换
@@ -229,10 +253,15 @@ const generatePageNumbers = (current: number, total: number): (number | string)[
   return [1, '...', current - 1, current, current + 1, '...', total];
 };
 
+type SortField = 'entry_time' | 'pnl' | 'duration' | 'rating';
+type SortOrder = 'asc' | 'desc';
+
 const TradesPage: React.FC = () => {
   const [trades, setTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [sortField, setSortField] = useState<SortField>('entry_time');
+  const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [editingTrade, setEditingTrade] = useState<Trade | null>(null);
   const [viewingTrade, setViewingTrade] = useState<Trade | null>(null);
@@ -353,6 +382,8 @@ const TradesPage: React.FC = () => {
     setSearchSource('');
     setSearchEntryDateStart('');
     setSearchEntryDateEnd('');
+    setSortField('entry_time');
+    setSortOrder('desc');
     handleQuickFilter('today');
   };
 
@@ -473,6 +504,31 @@ const TradesPage: React.FC = () => {
     });
   }, [trades, searchSymbol, searchEntryDateStart, searchEntryDateEnd, searchStatus, searchDirection, searchExitMethod, searchSource, searchResult]);
 
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortOrder((prev) => (prev === 'desc' ? 'asc' : 'desc'));
+    } else {
+      setSortField(field);
+      setSortOrder('desc');
+    }
+  };
+
+  const renderSortIcon = (field: SortField) => {
+    if (sortField !== field) {
+      return (
+        <ArrowUpDown className="w-3.5 h-3.5 text-gray-400/70 group-hover:text-gray-600 dark:text-gray-500/70 dark:group-hover:text-gray-300 transition-colors inline-block" />
+      );
+    }
+    if (sortOrder === 'asc') {
+      return (
+        <ArrowUp className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400 stroke-[2.5] inline-block" />
+      );
+    }
+    return (
+      <ArrowDown className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400 stroke-[2.5] inline-block" />
+    );
+  };
+
   const availableSymbols = useMemo(() => {
     const symbols = new Set<string>();
     trades.forEach((t) => { if (t.symbol) symbols.add(t.symbol); });
@@ -481,16 +537,71 @@ const TradesPage: React.FC = () => {
 
   const totalPages = Math.max(1, Math.ceil(filteredTrades.length / pageSize));
 
-  // 当筛选条件或每页条数发生变动时，自动回退到第 1 页
+  // 当筛选条件、排序或每页条数发生变动时，自动回退到第 1 页
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchSymbol, searchEntryDateStart, searchEntryDateEnd, searchStatus, searchDirection, searchExitMethod, searchSource, searchResult, quickFilter, pageSize]);
+  }, [searchSymbol, searchEntryDateStart, searchEntryDateEnd, searchStatus, searchDirection, searchExitMethod, searchSource, searchResult, quickFilter, pageSize, sortField, sortOrder]);
+
+  // 根据当前排序规则全量排序过滤后的交易订单
+  const sortedTrades = useMemo(() => {
+    const list = [...filteredTrades];
+    return list.sort((a, b) => {
+      let comparison = 0;
+      if (sortField === 'pnl') {
+        const pnlA = getTradePnlValue(a);
+        const pnlB = getTradePnlValue(b);
+        if (pnlA === null && pnlB === null) {
+          comparison = 0;
+        } else if (pnlA === null) {
+          return 1;
+        } else if (pnlB === null) {
+          return -1;
+        } else {
+          comparison = sortOrder === 'desc' ? pnlB - pnlA : pnlA - pnlB;
+        }
+      } else if (sortField === 'duration') {
+        const durA = getTradeDurationMs(a.entry_time, a.exit_time);
+        const durB = getTradeDurationMs(b.entry_time, b.exit_time);
+        if (durA < 0 && durB < 0) {
+          comparison = 0;
+        } else if (durA < 0) {
+          return 1;
+        } else if (durB < 0) {
+          return -1;
+        } else {
+          comparison = sortOrder === 'desc' ? durB - durA : durA - durB;
+        }
+      } else if (sortField === 'rating') {
+        const ratingA = getTradeRatingValue(a);
+        const ratingB = getTradeRatingValue(b);
+        if (ratingA === 0 && ratingB === 0) {
+          comparison = 0;
+        } else if (ratingA === 0) {
+          return 1;
+        } else if (ratingB === 0) {
+          return -1;
+        } else {
+          comparison = sortOrder === 'desc' ? ratingB - ratingA : ratingA - ratingB;
+        }
+      } else {
+        // 'entry_time' (默认入场时间排序)
+        const timeA = a.entry_time ? (parseServerTime(a.entry_time)?.getTime() || 0) : (parseServerTime(a.createdat)?.getTime() || 0);
+        const timeB = b.entry_time ? (parseServerTime(b.entry_time)?.getTime() || 0) : (parseServerTime(b.createdat)?.getTime() || 0);
+        comparison = sortOrder === 'desc' ? timeB - timeA : timeA - timeB;
+      }
+
+      if (comparison === 0) {
+        return sortByEntryTimeDesc(a, b);
+      }
+      return comparison;
+    });
+  }, [filteredTrades, sortField, sortOrder]);
 
   // 根据当前页码与每页条数切片数据
   const paginatedTrades = useMemo(() => {
     const start = (currentPage - 1) * pageSize;
-    return filteredTrades.slice(start, start + pageSize);
-  }, [filteredTrades, currentPage, pageSize]);
+    return sortedTrades.slice(start, start + pageSize);
+  }, [sortedTrades, currentPage, pageSize]);
 
   if (loading && trades.length === 0) {
     return (
@@ -916,13 +1027,26 @@ const TradesPage: React.FC = () => {
       )}
 
       <div className="flex items-center justify-between mb-2.5 px-1">
-        <div className="text-xs text-gray-400 dark:text-gray-500 font-mono tracking-tight flex items-center space-x-1.5">
+        <div className="text-xs text-gray-400 dark:text-gray-500 font-mono tracking-tight flex items-center space-x-1.5 flex-wrap">
           <span>显示</span>
           <span className="font-semibold text-gray-700 dark:text-gray-300">{filteredTrades.length}</span>
           <span className="text-gray-300 dark:text-gray-600">/</span>
           <span>共</span>
           <span className="font-semibold text-gray-700 dark:text-gray-300">{trades.length}</span>
           <span>笔交易记录</span>
+          {sortField !== 'entry_time' && (
+            <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-sans font-medium bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300 border border-purple-200 dark:border-purple-800/60 ml-2">
+              当前排序: {sortField === 'pnl' ? '平仓净盈亏' : sortField === 'duration' ? '持仓时长' : '纪律评分'} ({sortOrder === 'desc' ? '降序 ↓' : '升序 ↑'})
+              <button
+                type="button"
+                onClick={() => { setSortField('entry_time'); setSortOrder('desc'); }}
+                className="ml-1 text-purple-500 hover:text-purple-700 dark:hover:text-purple-200 font-bold cursor-pointer"
+                title="恢复默认时间降序"
+              >
+                ×
+              </button>
+            </span>
+          )}
           {clearSuccessMsg && (
             <span className="ml-3 text-xs text-emerald-600 dark:text-emerald-400 font-sans font-medium animate-in fade-in">
               ✓ {clearSuccessMsg}
@@ -984,15 +1108,51 @@ const TradesPage: React.FC = () => {
           <table className="w-full text-left border-collapse leading-normal">
             <thead>
               <tr className="bg-gray-50/90 dark:bg-[#070a13] border-b border-gray-200/80 dark:border-white/10 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap">
-                <th className="px-3.5 py-3 whitespace-nowrap">入场时间</th>
+                <th
+                  className="px-3.5 py-3 whitespace-nowrap cursor-pointer select-none group hover:bg-gray-100/70 dark:hover:bg-white/[0.04] transition-colors"
+                  onClick={() => handleSort('entry_time')}
+                  title="点击按入场时间排序"
+                >
+                  <div className="flex items-center space-x-1.5">
+                    <span className={sortField === 'entry_time' ? 'text-purple-600 dark:text-purple-400 font-bold' : ''}>入场时间</span>
+                    {renderSortIcon('entry_time')}
+                  </div>
+                </th>
                 <th className="px-3 py-3 whitespace-nowrap">标的代码</th>
                 <th className="px-3 py-3 whitespace-nowrap">多空方向</th>
                 <th className="px-3 py-3 whitespace-nowrap">手数</th>
                 <th className="px-3 py-3 whitespace-nowrap">平仓方式</th>
-                <th className="px-3 py-3 whitespace-nowrap">持仓时长</th>
-                <th className="px-3 py-3 whitespace-nowrap">平仓净盈亏</th>
+                <th
+                  className="px-3 py-3 whitespace-nowrap cursor-pointer select-none group hover:bg-gray-100/70 dark:hover:bg-white/[0.04] transition-colors"
+                  onClick={() => handleSort('duration')}
+                  title="点击按持仓时长排序"
+                >
+                  <div className="flex items-center space-x-1.5">
+                    <span className={sortField === 'duration' ? 'text-purple-600 dark:text-purple-400 font-bold' : ''}>持仓时长</span>
+                    {renderSortIcon('duration')}
+                  </div>
+                </th>
+                <th
+                  className="px-3 py-3 whitespace-nowrap cursor-pointer select-none group hover:bg-gray-100/70 dark:hover:bg-white/[0.04] transition-colors"
+                  onClick={() => handleSort('pnl')}
+                  title="点击按平仓净盈亏排序"
+                >
+                  <div className="flex items-center space-x-1.5">
+                    <span className={sortField === 'pnl' ? 'text-purple-600 dark:text-purple-400 font-bold' : ''}>平仓净盈亏</span>
+                    {renderSortIcon('pnl')}
+                  </div>
+                </th>
                 <th className="px-3 py-3 whitespace-nowrap">盈亏比</th>
-                <th className="px-3 py-3 whitespace-nowrap">纪律评分</th>
+                <th
+                  className="px-3 py-3 whitespace-nowrap cursor-pointer select-none group hover:bg-gray-100/70 dark:hover:bg-white/[0.04] transition-colors"
+                  onClick={() => handleSort('rating')}
+                  title="点击按纪律评分排序"
+                >
+                  <div className="flex items-center space-x-1.5">
+                    <span className={sortField === 'rating' ? 'text-purple-600 dark:text-purple-400 font-bold' : ''}>纪律评分</span>
+                    {renderSortIcon('rating')}
+                  </div>
+                </th>
                 <th className="px-3 py-3 whitespace-nowrap">状态</th>
                 <th className="px-3.5 py-3 whitespace-nowrap text-left">操作</th>
               </tr>

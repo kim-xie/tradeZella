@@ -334,5 +334,158 @@ describe('TradesPage', () => {
       expect(screen.getByText('SYM1')).toBeInTheDocument();
       expect(screen.getByText('SYM60')).toBeInTheDocument();
     });
+  }, 15000);
+
+  it('supports sorting by net P&L (平仓净盈亏), duration (持仓时长), and rating (纪律评分)', async () => {
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const now = new Date();
+    const today = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+
+    const mockTrades = [
+      {
+        id: 1,
+        symbol: 'TRADE_A',
+        direction: 'long' as const,
+        size: 1,
+        entryprice: 100,
+        exitprice: 120, // +$20
+        entry_time: `${today}T09:00:00`,
+        exit_time: `${today}T09:10:00`, // 10m
+        createdat: `${today}T09:00:00`,
+        rating: 5,
+      },
+      {
+        id: 2,
+        symbol: 'TRADE_B',
+        direction: 'long' as const,
+        size: 1,
+        entryprice: 100,
+        exitprice: 50, // -$50
+        entry_time: `${today}T10:00:00`,
+        exit_time: `${today}T11:00:00`, // 1h
+        createdat: `${today}T10:00:00`,
+        rating: 2,
+      },
+      {
+        id: 3,
+        symbol: 'TRADE_C',
+        direction: 'long' as const,
+        size: 1,
+        entryprice: 100,
+        exitprice: 200, // +$100
+        entry_time: `${today}T08:00:00`,
+        exit_time: `${today}T10:00:00`, // 2h
+        createdat: `${today}T08:00:00`,
+        rating: 3,
+      },
+    ];
+
+    vi.spyOn(api, 'getUserTrades').mockResolvedValue(mockTrades);
+    localStorage.setItem('token', 'test-token');
+
+    render(
+      <MemoryRouter>
+        <TradesPage />
+      </MemoryRouter>
+    );
+
+    // Initial load: Default sort by entry_time desc:
+    // TRADE_B (10:00) -> TRADE_A (09:00) -> TRADE_C (08:00)
+    await waitFor(() => {
+      expect(screen.getByText('TRADE_A')).toBeInTheDocument();
+      expect(screen.getByText('TRADE_B')).toBeInTheDocument();
+      expect(screen.getByText('TRADE_C')).toBeInTheDocument();
+    });
+
+    const getRowSymbols = () => {
+      const rows = screen.getAllByRole('row');
+      // row 0 is header, rows 1..3 are data
+      return rows.slice(1).map(r => r.textContent || '');
+    };
+
+    let rows = getRowSymbols();
+    expect(rows[0]).toContain('TRADE_B');
+    expect(rows[1]).toContain('TRADE_A');
+    expect(rows[2]).toContain('TRADE_C');
+
+    // 1. Click "平仓净盈亏" -> sort PnL desc (+100 -> +20 -> -50):
+    // TRADE_C (+$100) -> TRADE_A (+$20) -> TRADE_B (-$50)
+    const pnlHeader = screen.getByTitle('点击按平仓净盈亏排序');
+    fireEvent.click(pnlHeader);
+
+    await waitFor(() => {
+      rows = getRowSymbols();
+      expect(rows[0]).toContain('TRADE_C');
+      expect(rows[1]).toContain('TRADE_A');
+      expect(rows[2]).toContain('TRADE_B');
+    });
+
+    // Click "平仓净盈亏" again -> sort PnL asc (-$50 -> +$20 -> +$100):
+    // TRADE_B (-$50) -> TRADE_A (+$20) -> TRADE_C (+$100)
+    fireEvent.click(pnlHeader);
+
+    await waitFor(() => {
+      rows = getRowSymbols();
+      expect(rows[0]).toContain('TRADE_B');
+      expect(rows[1]).toContain('TRADE_A');
+      expect(rows[2]).toContain('TRADE_C');
+    });
+
+    // 2. Click "持仓时长" -> sort duration desc (2h -> 1h -> 10m):
+    // TRADE_C (2h) -> TRADE_B (1h) -> TRADE_A (10m)
+    const durationHeader = screen.getByTitle('点击按持仓时长排序');
+    fireEvent.click(durationHeader);
+
+    await waitFor(() => {
+      rows = getRowSymbols();
+      expect(rows[0]).toContain('TRADE_C');
+      expect(rows[1]).toContain('TRADE_B');
+      expect(rows[2]).toContain('TRADE_A');
+    });
+
+    // Click "持仓时长" again -> sort duration asc (10m -> 1h -> 2h):
+    // TRADE_A (10m) -> TRADE_B (1h) -> TRADE_C (2h)
+    fireEvent.click(durationHeader);
+
+    await waitFor(() => {
+      rows = getRowSymbols();
+      expect(rows[0]).toContain('TRADE_A');
+      expect(rows[1]).toContain('TRADE_B');
+      expect(rows[2]).toContain('TRADE_C');
+    });
+
+    // 3. Click "纪律评分" -> sort rating desc (5星 -> 3星 -> 2星):
+    // TRADE_A (5) -> TRADE_C (3) -> TRADE_B (2)
+    const ratingHeader = screen.getByTitle('点击按纪律评分排序');
+    fireEvent.click(ratingHeader);
+
+    await waitFor(() => {
+      rows = getRowSymbols();
+      expect(rows[0]).toContain('TRADE_A');
+      expect(rows[1]).toContain('TRADE_C');
+      expect(rows[2]).toContain('TRADE_B');
+    });
+
+    // Click "纪律评分" again -> sort rating asc (2星 -> 3星 -> 5星):
+    // TRADE_B (2) -> TRADE_C (3) -> TRADE_A (5)
+    fireEvent.click(ratingHeader);
+
+    await waitFor(() => {
+      rows = getRowSymbols();
+      expect(rows[0]).toContain('TRADE_B');
+      expect(rows[1]).toContain('TRADE_C');
+      expect(rows[2]).toContain('TRADE_A');
+    });
+
+    // 4. Reset sort by clicking the sort badge close button '×'
+    const resetSortBtn = screen.getByTitle('恢复默认时间降序');
+    fireEvent.click(resetSortBtn);
+
+    await waitFor(() => {
+      rows = getRowSymbols();
+      expect(rows[0]).toContain('TRADE_B');
+      expect(rows[1]).toContain('TRADE_A');
+      expect(rows[2]).toContain('TRADE_C');
+    });
   });
 });
