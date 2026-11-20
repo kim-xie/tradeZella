@@ -1444,7 +1444,7 @@ const TradesPage: React.FC = () => {
                         <div className="flex flex-col items-center justify-center space-y-2.5">
                           <p className="text-sm font-semibold text-gray-700 dark:text-gray-200">暂无交易记录</p>
                           <p className="text-xs text-gray-400 max-w-md">
-                            当前筛选条件下暂无交易数据，您可以连接本地 MT5 终端一键同步，或上传 MT5 / MT4 报表 CSV。
+                            当前筛选条件下暂无交易数据，您可以通过 MQL EA 插件自动推送，或上传 MT5 / MT4 报表文件。
                           </p>
                           <button
                             type="button"
