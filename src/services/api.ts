@@ -316,7 +316,15 @@ export interface CandlesResponse {
 /**
  * 从 MT5 获取指定品种与周期的历史 K 线数据（用于手动重播与回测）
  */
-export const fetchCandles = async (params: { symbol: string; timeframe: string; count?: number; start?: string }): Promise<CandlesResponse> => {
+export const fetchCandles = async (params: {
+  symbol: string;
+  timeframe: string;
+  count?: number;
+  start?: string;
+  end?: string;
+  price?: number;
+  entryPrice?: number;
+}): Promise<CandlesResponse> => {
   try {
     const response = await apiClient.get('/backtesting/candles', { params });
     return response.data;

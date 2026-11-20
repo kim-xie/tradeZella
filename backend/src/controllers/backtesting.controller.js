@@ -12,7 +12,8 @@ const __dirname = path.dirname(__filename);
 export class BacktestingController {
   static async getCandles(req, res, next) {
     try {
-      const { symbol = 'EURUSD', timeframe = 'M5', count = 300, start, end } = req.query;
+      const { symbol = 'EURUSD', timeframe = 'M5', count = 300, start, end, price, entryPrice } = req.query;
+      const targetPrice = parseFloat(price || entryPrice) || null;
 
       // 1. Check if database has synced candles from MQL EA or previous feeds
       const dbCandles = await CandleService.getCandles({ symbol, timeframe, count, start, end });
@@ -21,7 +22,7 @@ export class BacktestingController {
           success: true,
           symbol,
           timeframe,
-          contractSize: 100000.0,
+          contractSize: targetPrice && targetPrice > 100 ? 1.0 : 100000.0,
           dataSource: 'MQL EA Cloud Sync',
           count: dbCandles.length,
           candles: dbCandles,
@@ -33,6 +34,7 @@ export class BacktestingController {
       const args = [scriptPath, '--symbol', symbol, '--timeframe', timeframe, '--count', String(count)];
       if (start) args.push('--start', start);
       if (end) args.push('--end', end);
+      if (targetPrice) args.push('--price', String(targetPrice));
 
       const { stdout } = await execFileAsync('python', args, {
         maxBuffer: 15 * 1024 * 1024,
@@ -45,6 +47,7 @@ export class BacktestingController {
       const limit = Math.min(Math.max(parseInt(req.query.count) || 300, 50), 1000);
       const tf = req.query.timeframe || 'M5';
       const sym = req.query.symbol || 'EURUSD';
+      const targetPrice = parseFloat(req.query.price || req.query.entryPrice) || null;
       
       const intervalMinutes = {
         'M1': 1, '1M': 1,
@@ -56,20 +59,44 @@ export class BacktestingController {
         'D1': 1440, '1D': 1440
       }[String(tf).toUpperCase()] || 5;
 
-      let basePrice = 1.0850;
-      if (sym.includes('JPY')) basePrice = 155.0;
-      else if (sym.includes('XAU') || sym.includes('黄金')) basePrice = 2350.0;
-      else if (sym.includes('BTC') || sym.includes('比特币')) basePrice = 67000.0;
-      else if (sym.includes('纳斯达克') || sym.includes('US100') || sym.includes('NAS')) basePrice = 20500.0;
+      let basePrice = targetPrice;
+      if (!basePrice || isNaN(basePrice)) {
+        if (/原油|USOIL|WTI|XTI/i.test(sym)) basePrice = 70.0;
+        else if (/布伦特|UKOIL|BRENT/i.test(sym)) basePrice = 75.0;
+        else if (/纳斯达克|NAS100|US100|USTEC/i.test(sym)) basePrice = 20500.0;
+        else if (/道琼斯|US30|DJ30/i.test(sym)) basePrice = 43500.0;
+        else if (/标普|US500|SPX/i.test(sym)) basePrice = 5900.0;
+        else if (/黄金|XAU|GOLD/i.test(sym)) basePrice = 2650.0;
+        else if (/白银|XAG|SILVER/i.test(sym)) basePrice = 31.0;
+        else if (/比特币|BTC/i.test(sym)) basePrice = 90000.0;
+        else if (/以太坊|ETH/i.test(sym)) basePrice = 3200.0;
+        else if (/德指|GER40|DAX/i.test(sym)) basePrice = 19200.0;
+        else if (/日经|JP225/i.test(sym)) basePrice = 38500.0;
+        else if (/恒生|HK50/i.test(sym)) basePrice = 19500.0;
+        else if (/JPY/i.test(sym)) basePrice = 155.0;
+        else if (/GBP/i.test(sym)) basePrice = 1.2850;
+        else if (/AUD/i.test(sym)) basePrice = 0.6550;
+        else basePrice = 1.0850;
+      }
+
+      const digits = basePrice >= 500 ? 2 : (basePrice >= 10 ? 3 : 5);
+      const stepMs = intervalMinutes * 60 * 1000;
+      let startMs;
+
+      if (req.query.start) {
+        const parsedStart = new Date(String(req.query.start).replace(' ', 'T').replace(/\./g, '-')).getTime();
+        startMs = !isNaN(parsedStart) ? parsedStart : (Date.now() - limit * stepMs);
+      } else {
+        startMs = Date.now() - limit * stepMs;
+      }
 
       const candles = [];
-      const nowMs = Date.now();
       let currentClose = basePrice;
+      const pad = (n) => String(n).padStart(2, '0');
 
-      for (let i = limit; i >= 0; i--) {
-        const timeMs = nowMs - i * intervalMinutes * 60 * 1000;
+      for (let i = 0; i < limit; i++) {
+        const timeMs = startMs + i * stepMs;
         const d = new Date(timeMs);
-        const pad = (n) => String(n).padStart(2, '0');
         const timeStr = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
         
         const changePct = (Math.random() - 0.495) * 0.003;
@@ -82,10 +109,10 @@ export class BacktestingController {
         candles.push({
           time: timeStr,
           timestamp: Math.floor(timeMs / 1000),
-          open: parseFloat(open.toFixed(basePrice > 100 ? 2 : 5)),
-          high: parseFloat(high.toFixed(basePrice > 100 ? 2 : 5)),
-          low: parseFloat(low.toFixed(basePrice > 100 ? 2 : 5)),
-          close: parseFloat(close.toFixed(basePrice > 100 ? 2 : 5)),
+          open: parseFloat(open.toFixed(digits)),
+          high: parseFloat(high.toFixed(digits)),
+          low: parseFloat(low.toFixed(digits)),
+          close: parseFloat(close.toFixed(digits)),
           volume: Math.floor(Math.random() * 800) + 200,
         });
       }
@@ -107,7 +134,7 @@ export class BacktestingController {
    */
   static async syncCandles(req, res, next) {
     try {
-      const { symbol, timeframe, candles } = req.body;
+      const { symbol, timeframe, candles, timezone = 'broker' } = req.body;
       if (!symbol || !timeframe || !Array.isArray(candles)) {
         return res.status(400).json({
           success: false,
@@ -115,7 +142,7 @@ export class BacktestingController {
         });
       }
 
-      const result = await CandleService.saveBulkCandles({ symbol, timeframe, candles });
+      const result = await CandleService.saveBulkCandles({ symbol, timeframe, candles, timezone });
       res.status(200).json({
         success: true,
         message: `成功同步 ${symbol} (${timeframe}) ${result.insertedCount} 根K线数据到云端！`,

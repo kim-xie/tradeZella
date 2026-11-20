@@ -1,10 +1,38 @@
 import { pool } from '../db.js';
+import { convertToShanghaiTime } from '../parsers/universalTradeParser.js';
+
+export function getSymbolAliases(sym) {
+  const raw = String(sym || '').trim();
+  const upper = raw.toUpperCase();
+  const set = new Set([upper]);
+  
+  // Chinese name and standard ticker mappings
+  if (/原油|USOIL|WTI|XTI/i.test(raw)) { set.add('USOIL'); set.add('WTI'); set.add('XTIUSD'); }
+  if (/布伦特|UKOIL|BRENT|XBR/i.test(raw)) { set.add('UKOIL'); set.add('BRENT'); set.add('XBRUSD'); }
+  if (/纳斯达克|NAS100|US100|USTEC|NDX/i.test(raw)) { set.add('NAS100'); set.add('US100'); set.add('USTEC'); }
+  if (/道琼斯|US30|DJ30|WS30/i.test(raw)) { set.add('US30'); set.add('DJ30'); }
+  if (/标普|US500|SPX|SP500/i.test(raw)) { set.add('US500'); set.add('SPX500'); }
+  if (/黄金|XAU|GOLD/i.test(raw)) { set.add('XAUUSD'); set.add('GOLD'); }
+  if (/白银|XAG|SILVER/i.test(raw)) { set.add('XAGUSD'); set.add('SILVER'); }
+  if (/比特币|BTC/i.test(raw)) { set.add('BTCUSD'); set.add('BTCUSDT'); }
+  if (/以太坊|ETH/i.test(raw)) { set.add('ETHUSD'); set.add('ETHUSDT'); }
+  if (/德指|DAX|GER40|GER30/i.test(raw)) { set.add('GER40'); set.add('DAX'); set.add('GER30'); }
+  if (/日经|JP225|N225/i.test(raw)) { set.add('JP225'); set.add('N225'); }
+  if (/恒生|HK50|HSI/i.test(raw)) { set.add('HK50'); set.add('HSI'); }
+
+  // Strip broker suffixes (.m, .raw, .ecn, .pro, _i, .cash, trailing dot)
+  const stripped = upper.replace(/\.(CASH|RAW|ECN|PRO|M|STD|I)$/i, '').replace(/[_.-]$/, '');
+  if (stripped) set.add(stripped);
+
+  return Array.from(set);
+}
 
 export class CandleService {
   /**
-   * Bulk upsert candles into database
+   * Bulk upsert candles into database.
+   * Auto-converts broker timestamps to Shanghai Time (UTC+8) to match trade records.
    */
-  static async saveBulkCandles({ symbol, timeframe, candles }) {
+  static async saveBulkCandles({ symbol, timeframe, candles, timezone = 'broker' }) {
     if (!symbol || !timeframe || !Array.isArray(candles) || candles.length === 0) {
       return { insertedCount: 0 };
     }
@@ -17,20 +45,21 @@ export class CandleService {
       await client.query('BEGIN');
 
       let insertedCount = 0;
-      // Use parameterized multi-row insert or batch
       for (const c of candles) {
         if (!c.time && !c.timestamp) continue;
         
         let candleTime = c.time;
-        let ts = c.timestamp;
-
-        if (!ts && candleTime) {
-          ts = Math.floor(new Date(candleTime).getTime() / 1000);
-        } else if (ts && !candleTime) {
-          const d = new Date(ts * 1000);
+        if (candleTime) {
+          candleTime = convertToShanghaiTime(candleTime, timezone);
+        } else if (c.timestamp) {
+          const d = new Date(c.timestamp * 1000);
           const pad = (n) => String(n).padStart(2, '0');
-          candleTime = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+          const rawBrokerTime = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+          candleTime = convertToShanghaiTime(rawBrokerTime, timezone);
         }
+
+        const dParsed = new Date(String(candleTime).replace(' ', 'T').replace(/\./g, '-'));
+        const ts = !isNaN(dParsed.getTime()) ? Math.floor(dParsed.getTime() / 1000) : (c.timestamp || 0);
 
         const open = parseFloat(c.open) || 0;
         const high = parseFloat(c.high) || 0;
@@ -47,7 +76,8 @@ export class CandleService {
              high = EXCLUDED.high,
              low = EXCLUDED.low,
              close = EXCLUDED.close,
-             volume = EXCLUDED.volume`,
+             volume = EXCLUDED.volume,
+             timestamp = EXCLUDED.timestamp`,
           [cleanSymbol, cleanTf, candleTime, ts, open, high, low, close, volume]
         );
         insertedCount++;
@@ -64,10 +94,11 @@ export class CandleService {
   }
 
   /**
-   * Retrieve historical candles from database
+   * Retrieve historical candles from database.
+   * Supports symbol alias lookup and exact start/end window retrieval.
    */
   static async getCandles({ symbol, timeframe, count = 300, start = null, end = null }) {
-    const cleanSymbol = String(symbol).trim().toUpperCase();
+    const aliases = getSymbolAliases(symbol);
     const cleanTf = String(timeframe).trim().toUpperCase();
     const limitNum = Math.min(Math.max(parseInt(count) || 300, 10), 10000);
 
@@ -87,11 +118,11 @@ export class CandleService {
                  round(close::numeric, 5)::float AS close,
                  volume
           FROM market_candles
-          WHERE symbol = $1 AND timeframe = $2 AND candle_time >= $3 AND candle_time <= $4
+          WHERE symbol = ANY($1) AND timeframe = $2 AND candle_time >= $3 AND candle_time <= $4
           ORDER BY candle_time ASC
           LIMIT $5
         `;
-        params = [cleanSymbol, cleanTf, start, end, limitNum];
+        params = [aliases, cleanTf, start, end, limitNum];
       } else if (start) {
         queryStr = `
           SELECT TO_CHAR(candle_time, 'YYYY-MM-DD HH24:MI') AS time,
@@ -102,11 +133,11 @@ export class CandleService {
                  round(close::numeric, 5)::float AS close,
                  volume
           FROM market_candles
-          WHERE symbol = $1 AND timeframe = $2 AND candle_time >= $3
+          WHERE symbol = ANY($1) AND timeframe = $2 AND candle_time >= $3
           ORDER BY candle_time ASC
           LIMIT $4
         `;
-        params = [cleanSymbol, cleanTf, start, limitNum];
+        params = [aliases, cleanTf, start, limitNum];
       } else {
         // Fetch the most recent N bars
         queryStr = `
@@ -120,13 +151,13 @@ export class CandleService {
                    volume,
                    candle_time
             FROM market_candles
-            WHERE symbol = $1 AND timeframe = $2
+            WHERE symbol = ANY($1) AND timeframe = $2
             ORDER BY candle_time DESC
             LIMIT $3
           ) sub
           ORDER BY candle_time ASC
         `;
-        params = [cleanSymbol, cleanTf, limitNum];
+        params = [aliases, cleanTf, limitNum];
       }
 
       const res = await client.query(queryStr, params);
@@ -149,11 +180,10 @@ export class CandleService {
       const res = await client.query(`
         SELECT DISTINCT symbol 
         FROM market_candles
-        WHERE symbol IS NOT NULL
         ORDER BY symbol ASC
       `);
       return res.rows.map(r => r.symbol);
-    } catch (err) {
+    } catch {
       return [];
     } finally {
       if (client) client.release();

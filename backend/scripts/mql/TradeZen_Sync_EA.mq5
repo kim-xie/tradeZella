@@ -422,7 +422,7 @@ void SyncCandles()
       }
 
       string payload = StringFormat(
-         "{\"symbol\":\"%s\",\"timeframe\":\"%s\",\"candles\":[%s]}",
+         "{\"symbol\":\"%s\",\"timeframe\":\"%s\",\"timezone\":\"broker\",\"candles\":[%s]}",
          _Symbol,
          tfStr,
          candlesJson
@@ -481,7 +481,7 @@ void SyncLiveCandles(int barsCount = 2)
    }
 
    string payload = StringFormat(
-      "{\"symbol\":\"%s\",\"timeframe\":\"%s\",\"candles\":[%s]}",
+      "{\"symbol\":\"%s\",\"timeframe\":\"%s\",\"timezone\":\"broker\",\"candles\":[%s]}",
       _Symbol,
       tfStr,
       candlesJson

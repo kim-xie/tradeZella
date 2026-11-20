@@ -161,4 +161,31 @@ describe('TradeExecutionChart - Replay & Timeframe', () => {
       expect(screen.getByText('EURUSD')).toBeInTheDocument();
     });
   });
+
+  it('normalizes localized symbols and centers time window around trade entry/exit', async () => {
+    const fetchSpy = vi.spyOn(api, 'fetchCandles');
+
+    render(
+      <TradeExecutionChart
+        symbol="美国原油 - 现货."
+        direction="sell"
+        entryPrice={69.5}
+        exitPrice={68.8}
+        entryTime="2026-11-17 18:48:00"
+        exitTime="2026-11-18 01:13:00"
+      />
+    );
+
+    await waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          symbol: 'USOIL',
+          timeframe: 'M5',
+          price: 69.5,
+          start: expect.stringContaining('2026-11-17'),
+          end: expect.stringContaining('2026-11-18'),
+        })
+      );
+    });
+  });
 });

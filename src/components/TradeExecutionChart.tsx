@@ -63,12 +63,53 @@ const formatPipsOrPoints = (diff: number, basePrice: number): string => {
   return `${(diff * 10000).toFixed(1)} 点`;
 };
 
+// Normalize symbol name: handles Chinese labels and strips broker suffixes (.cash, .raw, .ecn, .pro, etc.)
+export function normalizeSymbol(raw?: string): string {
+  if (!raw) return 'EURUSD';
+  const s = String(raw).trim();
+  if (/原油|USOIL|WTI|XTI/i.test(s)) return 'USOIL';
+  if (/布伦特|UKOIL|BRENT|XBR/i.test(s)) return 'UKOIL';
+  if (/纳斯达克|NAS100|US100|USTEC|NDX/i.test(s)) return 'NAS100';
+  if (/道琼斯|US30|DJ30|WS30/i.test(s)) return 'US30';
+  if (/标普|US500|SPX|SP500/i.test(s)) return 'US500';
+  if (/黄金|XAU|GOLD/i.test(s)) return 'XAUUSD';
+  if (/白银|XAG|SILVER/i.test(s)) return 'XAGUSD';
+  if (/比特币|BTC/i.test(s)) return 'BTCUSD';
+  if (/以太坊|ETH/i.test(s)) return 'ETHUSD';
+  if (/德指|GER40|DAX/i.test(s)) return 'GER40';
+  if (/日经|JP225|N225/i.test(s)) return 'JP225';
+  if (/恒生|HK50|HSI/i.test(s)) return 'HK50';
+  const stripped = s.replace(/\.(cash|raw|ecn|pro|m|std|i)$/i, '').replace(/[_.-]$/, '').toUpperCase();
+  return stripped || 'EURUSD';
+}
+
+// Consistent UTC seconds parser for strings to avoid timezone discrepancy
+function parseTimeToUTCSeconds(val: string | number | null | undefined): number | null {
+  if (val === null || val === undefined) return null;
+  if (typeof val === 'number') {
+    return val > 1e11 ? Math.floor(val / 1000) : val;
+  }
+  const s = String(val).trim().replace(/\//g, '-').replace(' ', 'T');
+  const match = s.match(/(\d{4})-(\d{1,2})-(\d{1,2})(?:T(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/);
+  if (match) {
+    const y = parseInt(match[1], 10);
+    const m = parseInt(match[2], 10) - 1;
+    const d = parseInt(match[3], 10);
+    const hh = match[4] ? parseInt(match[4], 10) : 0;
+    const mm = match[5] ? parseInt(match[5], 10) : 0;
+    const ss = match[6] ? parseInt(match[6], 10) : 0;
+    return Math.floor(Date.UTC(y, m, d, hh, mm, ss) / 1000);
+  }
+  const parsed = new Date(s).getTime();
+  return isNaN(parsed) ? null : Math.floor(parsed / 1000);
+}
+
 // Determine default contract size by symbol
 const getSymbolContractSize = (sym: string, customSize?: number): number => {
   if (customSize && customSize > 0) return customSize;
   const s = sym.toUpperCase();
   if (s.includes('BTC') || s.includes('ETH') || s.includes('SOL') || s.includes('CRYPTO')) return 1;
-  if (s.includes('US30') || s.includes('NAS100') || s.includes('SPX500') || s.includes('GER30')) return 1;
+  if (s.includes('US30') || s.includes('NAS100') || s.includes('SPX500') || s.includes('GER30') || s.includes('USOIL') || s.includes('原油')) return 1;
   if (s.includes('XAU') || s.includes('GOLD')) return 100;
   if (['EUR', 'GBP', 'AUD', 'USD', 'JPY', 'CAD', 'CHF', 'NZD'].some(c => s.includes(c)) && s.length <= 7) {
     return 100000;
@@ -138,27 +179,73 @@ export const TradeExecutionChart: React.FC<TradeExecutionChartProps> = ({
       setError(null);
       setIsPlaying(false);
 
-      // Estimate start date around the trade entry time if available
+      const cleanSymbol = normalizeSymbol(symbol);
+      const tfMinutes = {
+        'M1': 1, '1M': 1,
+        'M5': 5, '5M': 5,
+        'M15': 15, '15M': 15,
+        'M30': 30, '30M': 30,
+        'H1': 60, '1H': 60,
+        'H4': 240, '4H': 240,
+        'D1': 1440, '1D': 1440,
+      }[String(timeframe).toUpperCase()] || 5;
+
       let startParam: string | undefined = undefined;
+      let endParam: string | undefined = undefined;
+      let countParam = 260;
+
       if (entryTime) {
         try {
-          const entryDate = new Date(entryTime);
-          if (!isNaN(entryDate.getTime())) {
-            // Buffer back 3 days so we have enough context
-            const bufferDate = new Date(entryDate.getTime() - 3 * 24 * 3600 * 1000);
-            startParam = bufferDate.toISOString().split('T')[0];
+          const eSec = parseTimeToUTCSeconds(entryTime);
+          if (eSec) {
+            const eMs = eSec * 1000;
+            const xSec = exitTime ? parseTimeToUTCSeconds(exitTime) : null;
+            const xMs = xSec ? xSec * 1000 : eMs;
+
+            const pad = (n: number) => String(n).padStart(2, '0');
+            const formatYMDHMS = (d: Date) => 
+              `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`;
+
+            // Context: 60 bars before entry, 60 bars after exit
+            const preBufferMs = 60 * tfMinutes * 60 * 1000;
+            const postBufferMs = 60 * tfMinutes * 60 * 1000;
+
+            startParam = formatYMDHMS(new Date(eMs - preBufferMs));
+            endParam = formatYMDHMS(new Date(xMs + postBufferMs));
+            
+            const tradeBars = Math.ceil((xMs - eMs) / (tfMinutes * 60 * 1000));
+            countParam = Math.max(250, tradeBars + 120);
           }
         } catch {
           // ignore date parse errors
         }
       }
 
-      const res = await fetchCandles({
-        symbol: symbol || 'EURUSD',
+      let res = await fetchCandles({
+        symbol: cleanSymbol,
         timeframe,
-        count: 220,
+        count: countParam,
         start: startParam,
+        end: endParam,
+        price: entryPrice || exitPrice,
       });
+
+      // If cleanSymbol didn't return candles and original symbol is different, try original symbol as fallback
+      if ((!res.candles || res.candles.length === 0) && cleanSymbol !== symbol && symbol) {
+        try {
+          const fallbackRes = await fetchCandles({
+            symbol,
+            timeframe,
+            count: countParam,
+            start: startParam,
+            end: endParam,
+            price: entryPrice || exitPrice,
+          });
+          if (fallbackRes.candles && fallbackRes.candles.length > 0) {
+            res = fallbackRes;
+          }
+        } catch {}
+      }
 
       if (res.candles && res.candles.length > 0) {
         setCandles(res.candles);
@@ -171,7 +258,7 @@ export const TradeExecutionChart: React.FC<TradeExecutionChartProps> = ({
     } finally {
       setLoading(false);
     }
-  }, [symbol, timeframe, entryTime]);
+  }, [symbol, timeframe, entryTime, exitTime, entryPrice, exitPrice]);
 
   useEffect(() => {
     loadCandles();
@@ -181,13 +268,13 @@ export const TradeExecutionChart: React.FC<TradeExecutionChartProps> = ({
   const formattedData = useMemo(() => {
     if (!candles || candles.length === 0) return [];
     const mapped = candles.map((c, i) => {
-      let t = 0;
-      if (typeof c.timestamp === 'number' && !isNaN(c.timestamp) && c.timestamp > 0) {
+      // Prioritize string parsing with parseTimeToUTCSeconds for exact second-level alignment
+      let t: number | null = null;
+      if (c.time) {
+        t = parseTimeToUTCSeconds(c.time);
+      }
+      if (!t && typeof c.timestamp === 'number' && !isNaN(c.timestamp) && c.timestamp > 0) {
         t = c.timestamp > 1e11 ? Math.floor(c.timestamp / 1000) : c.timestamp;
-      } else if (c.time) {
-        const s = String(c.time).replace(' ', 'T').replace(/\./g, '-');
-        const parsed = new Date(s).getTime();
-        if (!isNaN(parsed) && parsed > 0) t = Math.floor(parsed / 1000);
       }
       if (!t || isNaN(t)) {
         t = 1700000000 + i * 300;
@@ -226,17 +313,15 @@ export const TradeExecutionChart: React.FC<TradeExecutionChartProps> = ({
 
     let eTimestamp: number | null = null;
     if (entryTime) {
-      const p = Math.floor(new Date(String(entryTime).replace(' ', 'T').replace(/\./g, '-')).getTime() / 1000);
-      if (!isNaN(p)) eTimestamp = p;
+      eTimestamp = parseTimeToUTCSeconds(entryTime);
     }
 
     let xTimestamp: number | null = null;
     if (exitTime) {
-      const p = Math.floor(new Date(String(exitTime).replace(' ', 'T').replace(/\./g, '-')).getTime() / 1000);
-      if (!isNaN(p)) xTimestamp = p;
+      xTimestamp = parseTimeToUTCSeconds(exitTime);
     }
 
-    const findClosestIndex = (targetTs: number): number => {
+    const findClosestIndex = (targetTs: number, targetPrice?: number): number => {
       let closestIdx = 0;
       let minDiff = Math.abs((formattedData[0].time as number) - targetTs);
       for (let i = 0; i < formattedData.length; i++) {
@@ -246,11 +331,24 @@ export const TradeExecutionChart: React.FC<TradeExecutionChartProps> = ({
           closestIdx = i;
         }
       }
+
+      // Fine-tune: if adjacent bars (within 2 bars) touch the target price, snap to the exact bar
+      if (targetPrice && targetPrice > 0) {
+        const startScan = Math.max(0, closestIdx - 2);
+        const endScan = Math.min(formattedData.length - 1, closestIdx + 2);
+        for (let i = startScan; i <= endScan; i++) {
+          const bar = formattedData[i];
+          if (targetPrice >= bar.low && targetPrice <= bar.high) {
+            return i;
+          }
+        }
+      }
+
       return closestIdx;
     };
 
-    let eIdx = eTimestamp !== null ? findClosestIndex(eTimestamp) : Math.max(0, formattedData.length - 25);
-    let xIdx = xTimestamp !== null ? findClosestIndex(xTimestamp) : formattedData.length - 1;
+    let eIdx = eTimestamp !== null ? findClosestIndex(eTimestamp, entryPrice) : Math.max(0, formattedData.length - 25);
+    let xIdx = xTimestamp !== null ? findClosestIndex(xTimestamp, exitPrice) : formattedData.length - 1;
 
     // Safety bounds
     eIdx = Math.max(0, Math.min(formattedData.length - 1, eIdx));
@@ -270,7 +368,7 @@ export const TradeExecutionChart: React.FC<TradeExecutionChartProps> = ({
       preEntryIndex: preIdx,
       postExitIndex: postIdx,
     };
-  }, [formattedData, entryTime, exitTime]);
+  }, [formattedData, entryTime, exitTime, entryPrice, exitPrice]);
 
   // Synchronize initial replay index when switching to replay mode or when data loads
   useEffect(() => {

@@ -83,16 +83,32 @@ def is_us_dst(dt):
 
 def get_base_price(symbol):
     sym = (symbol or 'EURUSD').upper()
+    if '原油' in sym or 'USOIL' in sym or 'WTI' in sym or 'XTI' in sym:
+        return 70.0
+    if '布伦特' in sym or 'UKOIL' in sym or 'BRENT' in sym:
+        return 75.0
     if 'JPY' in sym:
         return 155.0
     if 'XAU' in sym or '黄金' in sym or 'GOLD' in sym:
         return 2650.0
+    if 'XAG' in sym or '白银' in sym or 'SILVER' in sym:
+        return 31.0
     if 'BTC' in sym or '比特币' in sym:
-        return 68000.0
+        return 90000.0
+    if 'ETH' in sym or '以太坊' in sym:
+        return 3200.0
     if 'NAS' in sym or 'US100' in sym or '纳斯达克' in sym:
         return 20500.0
     if 'US30' in sym or '道琼斯' in sym:
-        return 43000.0
+        return 43500.0
+    if 'US500' in sym or 'SPX' in sym or '标普' in sym:
+        return 5900.0
+    if 'GER' in sym or 'DAX' in sym or '德指' in sym:
+        return 19200.0
+    if 'JP225' in sym or '日经' in sym:
+        return 38500.0
+    if 'HK50' in sym or '恒生' in sym:
+        return 19500.0
     if 'GBP' in sym:
         return 1.2850
     if 'AUD' in sym:
@@ -104,7 +120,8 @@ def generate_synthetic_candles(start_dt, count=300, base_price=1.1000, timeframe
     step_sec = STEP_SECONDS_MAP.get(str(timeframe_str).upper(), 300)
     current_time = start_dt
     current_close = base_price
-    digits = 2 if base_price > 100 else 5
+    digits = 2 if base_price >= 500 else (3 if base_price >= 10 else 5)
+    tz_shanghai = datetime.timezone(datetime.timedelta(hours=8))
 
     rows = []
     for _ in range(count):
@@ -116,7 +133,7 @@ def generate_synthetic_candles(start_dt, count=300, base_price=1.1000, timeframe
         current_close = close_p
 
         time_str = current_time.strftime('%Y-%m-%d %H:%M')
-        ts = int(current_time.timestamp())
+        ts = int(current_time.replace(tzinfo=tz_shanghai).timestamp())
 
         rows.append({
             "time": time_str,
@@ -131,10 +148,10 @@ def generate_synthetic_candles(start_dt, count=300, base_price=1.1000, timeframe
 
     return rows
 
-def get_candles(symbol="EURUSD", timeframe_str="H1", count=300, start_date=None, end_date=None):
+def get_candles(symbol="EURUSD", timeframe_str="H1", count=300, start_date=None, end_date=None, price=None):
     candles = []
     data_source = "Synthetic Replay Data"
-    contract_size = 100000.0 if not any(c in symbol for c in ['JPY', 'XAU', '黄金', 'BTC']) else 1.0
+    contract_size = 100000.0 if not any(c in symbol for c in ['JPY', 'XAU', '黄金', 'BTC', 'USOIL', '原油', 'NAS', '纳斯达克']) else 1.0
 
     if mt5 is not None:
         try:
@@ -161,13 +178,15 @@ def get_candles(symbol="EURUSD", timeframe_str="H1", count=300, start_date=None,
 
                 if rates is not None and len(rates) > 0:
                     data_source = "MT5 Direct Terminal"
+                    tz_shanghai = datetime.timezone(datetime.timedelta(hours=8))
                     for r in rates:
                         dt_broker = datetime.datetime.fromtimestamp(r['time'], tz=datetime.timezone.utc).replace(tzinfo=None)
                         offset_hours = 5 if is_us_dst(dt_broker) else 6
                         dt_shanghai = dt_broker + datetime.timedelta(hours=offset_hours)
+                        dt_shanghai_tz = dt_shanghai.replace(tzinfo=tz_shanghai)
                         candles.append({
                             "time": dt_shanghai.strftime('%Y-%m-%d %H:%M'),
-                            "timestamp": int(dt_shanghai.replace(tzinfo=datetime.timezone.utc).timestamp()),
+                            "timestamp": int(dt_shanghai_tz.timestamp()),
                             "open": round(float(r['open']), 5),
                             "high": round(float(r['high']), 5),
                             "low": round(float(r['low']), 5),
@@ -180,9 +199,15 @@ def get_candles(symbol="EURUSD", timeframe_str="H1", count=300, start_date=None,
 
     if not candles:
         data_source = "Synthetic Replay Data"
-        base_price = get_base_price(symbol)
+        base_price = float(price) if price else get_base_price(symbol)
         step_sec = STEP_SECONDS_MAP.get(str(timeframe_str).upper(), 300)
-        s_dt = datetime.datetime.now() - datetime.timedelta(seconds=step_sec * count)
+        if start_date:
+            try:
+                s_dt = datetime.datetime.fromisoformat(start_date.replace('Z', ''))
+            except Exception:
+                s_dt = datetime.datetime.now() - datetime.timedelta(seconds=step_sec * count)
+        else:
+            s_dt = datetime.datetime.now() - datetime.timedelta(seconds=step_sec * count)
         candles = generate_synthetic_candles(s_dt, count=count, base_price=base_price, timeframe_str=timeframe_str)
 
     return {
@@ -202,7 +227,8 @@ if __name__ == '__main__':
     parser.add_argument("--count", type=int, default=300)
     parser.add_argument("--start", type=str, default=None)
     parser.add_argument("--end", type=str, default=None)
+    parser.add_argument("--price", type=float, default=None)
     args = parser.parse_args()
 
-    result = get_candles(symbol=args.symbol, timeframe_str=args.timeframe, count=args.count, start_date=args.start, end_date=args.end)
+    result = get_candles(symbol=args.symbol, timeframe_str=args.timeframe, count=args.count, start_date=args.start, end_date=args.end, price=args.price)
     print(json.dumps(result, ensure_ascii=False))
