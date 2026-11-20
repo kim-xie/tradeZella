@@ -21,6 +21,7 @@ import {
 import { fetchCandles, CandleItem, createTrade, createBulkTrades, getAvailableCandleSymbols } from '../services/api';
 import SymbolSearchSelect from './common/SymbolSearchSelect';
 import TradeExecutionChart from './TradeExecutionChart';
+import ErrorBoundary from './common/ErrorBoundary';
 
 interface ChartRectangle {
   id: string;
@@ -140,14 +141,14 @@ function parseTimestamp(timeStr: string | number | undefined): number {
 }
 
 function parseCandleTimeToSeconds(time: string | number, timestamp?: number, indexFallback: number = 0): number {
-  if (typeof timestamp === 'number' && timestamp > 0) {
+  if (typeof timestamp === 'number' && !isNaN(timestamp) && timestamp > 0) {
     return timestamp > 10000000000 ? Math.floor(timestamp / 1000) : timestamp;
   }
-  if (typeof time === 'number' && time > 0) {
+  if (typeof time === 'number' && !isNaN(time) && time > 0) {
     return time > 10000000000 ? Math.floor(time / 1000) : time;
   }
   if (typeof time === 'string') {
-    const s = time.replace(' ', 'T');
+    const s = time.replace(' ', 'T').replace(/\./g, '-');
     const parsed = new Date(s).getTime();
     if (!isNaN(parsed) && parsed > 0) {
       return Math.floor(parsed / 1000);
@@ -157,21 +158,29 @@ function parseCandleTimeToSeconds(time: string | number, timestamp?: number, ind
 }
 
 function formatCandleListForTV(candles: CandleItem[]): Array<{ time: any; open: number; high: number; low: number; close: number }> {
+  if (!candles || candles.length === 0) return [];
+  const rawList = candles.map((c, i) => ({
+    time: parseCandleTimeToSeconds(c.time, c.timestamp, i),
+    open: Number(c.open) || 0,
+    high: Number(c.high) || 0,
+    low: Number(c.low) || 0,
+    close: Number(c.close) || 0,
+  }));
+  rawList.sort((a, b) => a.time - b.time);
   const list: Array<{ time: any; open: number; high: number; low: number; close: number }> = [];
   let lastTime = 0;
-  for (let i = 0; i < candles.length; i++) {
-    const c = candles[i];
-    let t = parseCandleTimeToSeconds(c.time, c.timestamp, i);
+  for (const c of rawList) {
+    let t = c.time;
     if (t <= lastTime) {
       t = lastTime + 60;
     }
     lastTime = t;
     list.push({
       time: t as any,
-      open: Number(c.open),
-      high: Number(c.high),
-      low: Number(c.low),
-      close: Number(c.close),
+      open: c.open,
+      high: c.high,
+      low: c.low,
+      close: c.close,
     });
   }
   return list;
@@ -1862,10 +1871,15 @@ export default function ManualBarReplay({
         if (rect.price2 > maxPrice) maxPrice = rect.price2;
       });
 
-      const pricePadding = (maxPrice - minPrice) * 0.08 || 0.001;
+      const rawRange = maxPrice - minPrice;
+      const pricePadding = (isFinite(rawRange) && rawRange > 0) ? rawRange * 0.08 : 0.001;
       minPrice -= pricePadding;
       maxPrice += pricePadding;
-      const priceRange = maxPrice - minPrice;
+      if (!isFinite(minPrice) || !isFinite(maxPrice) || minPrice >= maxPrice) {
+        minPrice = isFinite(minPrice) && minPrice > 0 ? minPrice * 0.99 : 1.0;
+        maxPrice = isFinite(maxPrice) && maxPrice > 0 ? maxPrice * 1.01 : 1.1;
+      }
+      const priceRange = Math.max(0.0001, maxPrice - minPrice);
 
       const chartPadding = { top: 20, right: 62, bottom: 22, left: 12 };
       const chartW = w - chartPadding.left - chartPadding.right;
@@ -3915,20 +3929,22 @@ export default function ManualBarReplay({
               </button>
             </div>
             <div className="p-4 overflow-y-auto">
-              <TradeExecutionChart
-                symbol={reviewTrade.symbol}
-                direction={reviewTrade.direction}
-                entryPrice={reviewTrade.entryPrice}
-                exitPrice={reviewTrade.exitPrice}
-                stopLoss={reviewTrade.stopLoss || undefined}
-                takeProfit={reviewTrade.takeProfit || undefined}
-                entryTime={reviewTrade.entryTime}
-                exitTime={reviewTrade.exitTime}
-                size={reviewTrade.size}
-                profit={reviewTrade.profit}
-                exitReason={reviewTrade.exitReason}
-                height={400}
-              />
+              <ErrorBoundary fallbackTitle="单笔交易逐根动态复盘图表加载异常">
+                <TradeExecutionChart
+                  symbol={reviewTrade.symbol}
+                  direction={reviewTrade.direction}
+                  entryPrice={reviewTrade.entryPrice}
+                  exitPrice={reviewTrade.exitPrice}
+                  stopLoss={reviewTrade.stopLoss || undefined}
+                  takeProfit={reviewTrade.takeProfit || undefined}
+                  entryTime={reviewTrade.entryTime}
+                  exitTime={reviewTrade.exitTime}
+                  size={reviewTrade.size}
+                  profit={reviewTrade.profit}
+                  exitReason={reviewTrade.exitReason}
+                  height={400}
+                />
+              </ErrorBoundary>
             </div>
           </div>
         </div>

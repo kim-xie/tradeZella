@@ -29,6 +29,7 @@ import {
   Plus
 } from 'lucide-react';
 import { getUserTrades } from '../services/api';
+import { useRealtimeTrades } from '../services/realtime';
 import { Trade } from '../components/calendar/calendarTypes';
 import {
   calculateTradePnL,
@@ -98,6 +99,11 @@ export default function DashboardPage() {
   useEffect(() => {
     fetchDashboardData();
   }, [navigate]);
+
+  // 监听服务端实时订单推送，有新平仓订单时秒级自动推送到仪表盘刷新数据
+  useRealtimeTrades(() => {
+    fetchDashboardData();
+  });
 
   useEffect(() => {
     if (!equityContainerRef.current) return;

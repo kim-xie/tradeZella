@@ -72,8 +72,18 @@ export const calculateTradeRR = (trade: Trade): number | null => {
   if (!exit || !sl || !entry || size <= 0) return null;
   const riskPerUnit = Math.abs(entry - sl);
   if (riskPerUnit === 0) return null;
-  const pnl = calculateTradePnL(trade);
-  return pnl / (riskPerUnit * size);
+
+  const dir = getTradeDirection(trade);
+  const diff = dir === 'long' ? exit - entry : entry - exit;
+  const manual = trade.manual_pnl ?? trade.manualPnl;
+  const hasManual = manual !== undefined && manual !== null && !isNaN(Number(manual));
+
+  if (hasManual && diff !== 0) {
+    const pnl = Number(manual);
+    const sign = pnl === 0 ? 0 : pnl > 0 ? 1 : -1;
+    return sign * (Math.abs(diff) / riskPerUnit);
+  }
+  return diff / riskPerUnit;
 };
 
 export const getTradeDurationMinutes = (trade: Trade): number | null => {

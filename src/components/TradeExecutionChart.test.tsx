@@ -143,4 +143,22 @@ describe('TradeExecutionChart - Replay & Timeframe', () => {
     const m15Button = screen.getByRole('button', { name: 'M15' });
     expect(m15Button.className).toContain('bg-gray-900');
   });
+
+  it('safely renders without throwing when direction or symbol is undefined or non-standard', async () => {
+    // Should render gracefully without unhandled TypeError
+    render(
+      <TradeExecutionChart
+        symbol={undefined as any}
+        direction={undefined as any}
+        entryPrice={0}
+        exitPrice={undefined}
+        entryTime="invalid-date"
+        exitTime="invalid-date"
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('EURUSD')).toBeInTheDocument();
+    });
+  });
 });

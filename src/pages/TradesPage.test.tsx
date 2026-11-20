@@ -614,4 +614,47 @@ describe('TradesPage', () => {
       expect(rows[2]).toContain('TRADE_C');
     });
   });
+
+  it('accurately calculates risk-reward ratio without contract multiplier distortion for manual_pnl trades', async () => {
+    // USOIL trade: entry 70.00, exit 69.042 (diff 0.958), SL 70.52 (risk 0.52).
+    // Broker net PnL is +$9.58 (0.1 lot * 100 multiplier). Real RR = 0.958 / 0.52 = 1.84R (~1.8R).
+    // Previously, formula calculated 9.58 / (0.52 * 0.1) = 184.2R!
+    const mockTrades = [
+      {
+        id: 101,
+        symbol: '美国原油',
+        direction: 'short' as const,
+        size: 0.1,
+        entryprice: 70.00,
+        exitprice: 69.042,
+        stop_loss: 70.52,
+        manual_pnl: 9.58,
+        entry_time: '2026-11-17T18:48:00',
+        exit_time: '2026-11-18T01:13:00',
+        createdat: '2026-11-17T18:48:00',
+      },
+    ];
+
+    vi.spyOn(api, 'getUserTrades').mockResolvedValue(mockTrades);
+    localStorage.setItem('token', 'test-token');
+
+    render(
+      <MemoryRouter>
+        <TradesPage />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('全部')).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByRole('button', { name: '全部' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('美国原油')).toBeInTheDocument();
+    });
+
+    // Check that RR is rendered accurately as 1.8R (not 184.2R!)
+    expect(screen.getByText('1.8R')).toBeInTheDocument();
+    expect(screen.queryByText('184.2R')).not.toBeInTheDocument();
+  });
 });

@@ -1,4 +1,5 @@
 import { TradeService } from '../services/trade.service.js';
+import { RealtimeService } from '../services/realtime.service.js';
 import Papa from 'papaparse';
 import fs from 'fs';
 import path from 'path';
@@ -16,6 +17,12 @@ export class TradeController {
     try {
       const tradeData = { ...req.body, userId: req.user.id };
       const newTrade = await TradeService.createTrade(tradeData);
+      RealtimeService.broadcastTradeUpdate(req.user.id, {
+        action: 'create',
+        source: '手动记账',
+        count: 1,
+        trade: newTrade,
+      });
       res.status(201).json({ 
         success: true,
         data: newTrade 
@@ -71,6 +78,12 @@ export class TradeController {
           message: 'Trade not found' 
         });
       }
+      RealtimeService.broadcastTradeUpdate(req.user.id, {
+        action: 'update',
+        source: '订单更新',
+        tradeId: req.params.id,
+        trade: updatedTrade,
+      });
       res.status(200).json({ 
         success: true,
         data: updatedTrade 
@@ -89,6 +102,11 @@ export class TradeController {
           message: 'Trade not found' 
         });
       }
+      RealtimeService.broadcastTradeUpdate(req.user.id, {
+        action: 'delete',
+        source: '删除订单',
+        tradeId: req.params.id,
+      });
       res.status(200).json({ 
         success: true,
         message: 'Trade deleted successfully' 
@@ -101,6 +119,11 @@ export class TradeController {
   static async deleteAllTrades(req, res, next) {
     try {
       const count = await TradeService.deleteAllTrades(req.user.id);
+      RealtimeService.broadcastTradeUpdate(req.user.id, {
+        action: 'delete_all',
+        source: '清空历史订单',
+        count,
+      });
       res.status(200).json({
         success: true,
         message: `成功清空 ${count} 笔历史交易记录`,
@@ -151,6 +174,17 @@ export class TradeController {
         msg = `成功从 ${platform} 报表解析并导入 ${insertedCount} 笔交易！`;
       } else {
         msg = `报表中的全部交易此前均已导入，已自动跳过 ${skippedCount} 笔重复记录。`;
+      }
+
+      if (insertedCount > 0) {
+        RealtimeService.broadcastTradeUpdate(req.user.id, {
+          action: 'upload',
+          source: platform || '报表导入',
+          platform,
+          count: insertedCount,
+          skippedCount,
+          message: msg,
+        });
       }
 
       res.status(200).json({
@@ -242,6 +276,18 @@ export class TradeController {
         msg = `推送的全部交易此前均已同步，已自动跳过 ${skippedCount} 笔重复记录。`;
       }
 
+      if (insertedCount > 0) {
+        RealtimeService.broadcastTradeUpdate(req.user.id, {
+          action: 'ea_sync',
+          source: 'MQL EA 自动直推',
+          platform,
+          count: insertedCount,
+          skippedCount,
+          message: msg,
+          trades: newTrades,
+        });
+      }
+
       res.status(200).json({
         success: true,
         message: msg,
@@ -329,6 +375,16 @@ export class TradeController {
         message = '所选时间范围内未在 MT5 终端查询到平仓交易记录。';
       }
 
+      if (insertedCount > 0) {
+        RealtimeService.broadcastTradeUpdate(req.user.id, {
+          action: 'mt5_sync',
+          source: 'MT5 终端直连',
+          count: insertedCount,
+          skippedCount,
+          message,
+        });
+      }
+
       res.status(200).json({
         success: true,
         message,
@@ -389,6 +445,15 @@ export class TradeController {
       const skippedCount = newTrades.skippedCount || 0;
       const insertedCount = newTrades.length;
 
+      if (insertedCount > 0) {
+        RealtimeService.broadcastTradeUpdate(req.user.id, {
+          action: 'bulk_create',
+          source: '批量记录',
+          count: insertedCount,
+          skippedCount,
+        });
+      }
+
       res.status(201).json({
         success: true,
         message: skippedCount > 0
@@ -429,6 +494,17 @@ export class TradeController {
         success: true,
         data: { url: fileUrl },
       });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Real-time Server-Sent Events (SSE) stream endpoint for live order push
+   */
+  static streamTrades(req, res, next) {
+    try {
+      RealtimeService.addSubscriber(req.user.id, req, res);
     } catch (error) {
       next(error);
     }

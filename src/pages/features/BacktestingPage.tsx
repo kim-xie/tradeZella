@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import FeaturePageLayout from './FeaturePageLayout';
 import ManualBarReplay from '../../components/ManualBarReplay';
+import ErrorBoundary from '../../components/common/ErrorBoundary';
 import { getMT5Status, getAvailableCandleSymbols, MT5StatusData } from '../../services/api';
 
 export default function BacktestingPage() {
@@ -36,11 +37,13 @@ export default function BacktestingPage() {
 
   return (
     <FeaturePageLayout hideHeader>
-      <ManualBarReplay 
-        initialSymbol="EURUSD"
-        popularSymbols={popularSymbols.length > 0 ? popularSymbols : (mt5Status?.popularSymbols || defaultPopular)}
-        allSymbols={availableSymbols.length > 0 ? availableSymbols : (mt5Status?.allSymbols || defaultPopular)}
-      />
+      <ErrorBoundary fallbackTitle="K线复盘与回测引擎加载异常">
+        <ManualBarReplay 
+          initialSymbol="EURUSD"
+          popularSymbols={popularSymbols.length > 0 ? popularSymbols : (mt5Status?.popularSymbols || defaultPopular)}
+          allSymbols={availableSymbols.length > 0 ? availableSymbols : (mt5Status?.allSymbols || defaultPopular)}
+        />
+      </ErrorBoundary>
     </FeaturePageLayout>
   );
 }

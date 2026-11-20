@@ -205,8 +205,9 @@ void SyncOrders()
    int totalDeals = HistoryDealsTotal();
    if(totalDeals == 0) return;
 
-   string jsonItems = "";
-   int validCount = 0;
+   // 1. 先用数组将所有需要同步的平仓 deal ticket 暂存，彻底解决 HistorySelectByPosition 破坏外层循环查询缓存的重大 Bug
+   ulong candidateTickets[];
+   int candidateCount = 0;
 
    for(int i = 0; i < totalDeals; i++)
    {
@@ -221,71 +222,112 @@ void SyncOrders()
 
       if(IsTicketSynced(ticket)) continue;
 
-      string symbol = HistoryDealGetString(ticket, DEAL_SYMBOL);
-      long dealType = HistoryDealGetInteger(ticket, DEAL_TYPE);
-      double volume = HistoryDealGetDouble(ticket, DEAL_VOLUME);
-      double closePrice = HistoryDealGetDouble(ticket, DEAL_PRICE);
-      double profit = HistoryDealGetDouble(ticket, DEAL_PROFIT);
-      double commission = HistoryDealGetDouble(ticket, DEAL_COMMISSION);
-      double swap = HistoryDealGetDouble(ticket, DEAL_SWAP);
-      datetime closeTime = (datetime)HistoryDealGetInteger(ticket, DEAL_TIME);
-      string comment = HistoryDealGetString(ticket, DEAL_COMMENT);
-      long posId = HistoryDealGetInteger(ticket, DEAL_POSITION_ID);
-
-      double openPrice = closePrice;
-      datetime openTime = closeTime;
-      string direction = (dealType == DEAL_TYPE_BUY) ? "short" : "long";
-
-      if(posId > 0 && HistorySelectByPosition(posId))
-      {
-         int posDeals = HistoryDealsTotal();
-         for(int j = 0; j < posDeals; j++)
-         {
-            ulong inTicket = HistoryDealGetTicket(j);
-            if(HistoryDealGetInteger(inTicket, DEAL_ENTRY) == DEAL_ENTRY_IN)
-            {
-               openPrice = HistoryDealGetDouble(inTicket, DEAL_PRICE);
-               openTime = (datetime)HistoryDealGetInteger(inTicket, DEAL_TIME);
-               long inType = HistoryDealGetInteger(inTicket, DEAL_TYPE);
-               direction = (inType == DEAL_TYPE_BUY) ? "long" : "short";
-               break;
-            }
-         }
-      }
-
-      double netPnl = profit + commission + swap;
-
-      if(validCount > 0) jsonItems += ",";
-      jsonItems += StringFormat(
-         "{\"ticket\":\"%d\",\"symbol\":\"%s\",\"direction\":\"%s\",\"size\":%.2f,\"entryPrice\":%.5f,\"exitPrice\":%.5f,\"entryTime\":\"%s\",\"exitTime\":\"%s\",\"manualPnl\":%.2f,\"profit\":%.2f,\"commission\":%.2f,\"swap\":%.2f,\"notes\":\"%s\"}",
-         ticket,
-         symbol,
-         direction,
-         volume,
-         openPrice,
-         closePrice,
-         TimeToString(openTime, TIME_DATE | TIME_SECONDS),
-         TimeToString(closeTime, TIME_DATE | TIME_SECONDS),
-         netPnl,
-         profit,
-         commission,
-         swap,
-         comment
-      );
-
-      RecordSyncedTicket(ticket);
-      validCount++;
+      ArrayResize(candidateTickets, candidateCount + 1);
+      candidateTickets[candidateCount++] = ticket;
    }
 
-   if(validCount > 0)
+   if(candidateCount == 0) return;
+
+   // 2. 分批推送订单（每批 100 笔，避免单包过大超时）
+   int batchSize = 100;
+   int totalBatches = (candidateCount + batchSize - 1) / batchSize;
+   int totalSyncedTrades = 0;
+
+   for(int b = 0; b < totalBatches; b++)
    {
-      string payload = StringFormat("{\"platform\":\"MT5 EA Direct\",\"trades\":[%s]}", jsonItems);
-      string resp;
-      if(SendJsonRequest("/trades/sync", payload, resp))
+      int startIdx = b * batchSize;
+      int count = MathMin(batchSize, candidateCount - startIdx);
+      string jsonItems = "";
+      int batchValid = 0;
+      ulong batchTickets[];
+      ArrayResize(batchTickets, count);
+
+      for(int i = 0; i < count; i++)
       {
-         g_last_order_sync_time = now;
-         PrintFormat("[TradeZen EA] 成功直推同步 %d 笔交易订单到远程服务器!", validCount);
+         ulong ticket = candidateTickets[startIdx + i];
+         batchTickets[i] = ticket;
+
+         HistoryDealSelect(ticket);
+         string symbol = HistoryDealGetString(ticket, DEAL_SYMBOL);
+         long dealType = HistoryDealGetInteger(ticket, DEAL_TYPE);
+         double volume = HistoryDealGetDouble(ticket, DEAL_VOLUME);
+         double closePrice = HistoryDealGetDouble(ticket, DEAL_PRICE);
+         double profit = HistoryDealGetDouble(ticket, DEAL_PROFIT);
+         double commission = HistoryDealGetDouble(ticket, DEAL_COMMISSION);
+         double swap = HistoryDealGetDouble(ticket, DEAL_SWAP);
+         datetime closeTime = (datetime)HistoryDealGetInteger(ticket, DEAL_TIME);
+         string comment = HistoryDealGetString(ticket, DEAL_COMMENT);
+         long posId = HistoryDealGetInteger(ticket, DEAL_POSITION_ID);
+
+         double openPrice = closePrice;
+         datetime openTime = closeTime;
+         string direction = (dealType == DEAL_TYPE_BUY) ? "short" : "long";
+
+         if(posId > 0 && HistorySelectByPosition(posId))
+         {
+            int posDeals = HistoryDealsTotal();
+            for(int j = 0; j < posDeals; j++)
+            {
+               ulong inTicket = HistoryDealGetTicket(j);
+               if(HistoryDealGetInteger(inTicket, DEAL_ENTRY) == DEAL_ENTRY_IN)
+               {
+                  openPrice = HistoryDealGetDouble(inTicket, DEAL_PRICE);
+                  openTime = (datetime)HistoryDealGetInteger(inTicket, DEAL_TIME);
+                  long inType = HistoryDealGetInteger(inTicket, DEAL_TYPE);
+                  direction = (inType == DEAL_TYPE_BUY) ? "long" : "short";
+                  break;
+               }
+            }
+         }
+
+         double netPnl = profit + commission + swap;
+
+         if(batchValid > 0) jsonItems += ",";
+         jsonItems += StringFormat(
+            "{\"ticket\":\"%d\",\"symbol\":\"%s\",\"direction\":\"%s\",\"size\":%.2f,\"entryPrice\":%.5f,\"exitPrice\":%.5f,\"entryTime\":\"%s\",\"exitTime\":\"%s\",\"manualPnl\":%.2f,\"profit\":%.2f,\"commission\":%.2f,\"swap\":%.2f,\"notes\":\"%s\"}",
+            ticket,
+            symbol,
+            direction,
+            volume,
+            openPrice,
+            closePrice,
+            TimeToString(openTime, TIME_DATE | TIME_SECONDS),
+            TimeToString(closeTime, TIME_DATE | TIME_SECONDS),
+            netPnl,
+            profit,
+            commission,
+            swap,
+            comment
+         );
+
+         batchValid++;
       }
+
+      if(batchValid > 0)
+      {
+         string payload = StringFormat("{\"platform\":\"MT5 EA Direct\",\"trades\":[%s]}", jsonItems);
+         string resp;
+         if(SendJsonRequest("/trades/sync", payload, resp))
+         {
+            // 只有成功发送后才记录 Ticket
+            for(int k = 0; k < batchValid; k++)
+            {
+               RecordSyncedTicket(batchTickets[k]);
+            }
+            totalSyncedTrades += batchValid;
+         }
+         else
+         {
+            PrintFormat("[TradeZen EA] 第 %d/%d 批订单直推失败，终止本轮推送", b + 1, totalBatches);
+            break;
+         }
+      }
+   }
+
+   if(totalSyncedTrades > 0)
+   {
+      g_last_order_sync_time = now;
+      PrintFormat("[TradeZen EA] 成功直推同步 %d 笔交易订单到远程服务器! (分批次推送完成)", totalSyncedTrades);
    }
 }
 

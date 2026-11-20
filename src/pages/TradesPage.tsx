@@ -1,15 +1,17 @@
 import TradeDrawer from '../components/TradeDrawer';
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { X, Star, ChevronLeft, ChevronRight, RefreshCw, Upload, Database, CheckCircle2, BarChart2, Calendar, PenLine, Trash2, AlertTriangle, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
+import { X, Star, ChevronLeft, ChevronRight, RefreshCw, Upload, Database, CheckCircle2, BarChart2, Calendar, PenLine, Trash2, AlertTriangle, ArrowUpDown, ArrowUp, ArrowDown, Zap } from 'lucide-react';
 import Button from '../components/common/Button';
 import Select from '../components/common/Select';
 import DateRangePicker from '../components/common/DateRangePicker';
 import CSVUploader from '../components/CSVUploader';
 import TradeExecutionChart from '../components/TradeExecutionChart';
+import ErrorBoundary from '../components/common/ErrorBoundary';
 import TradeRatingModal from '../components/TradeRatingModal';
 import TradeRatingAnimationOverlay, { RatingAnimationData } from '../components/TradeRatingAnimationOverlay';
 import { getUserTrades, updateTrade, clearAllTrades, SERVER_BASE_URL as API_BASE_URL } from '../services/api';
+import { useRealtimeTrades, RealtimeTradeEvent } from '../services/realtime';
 
 interface Trade {
   id: number;
@@ -56,34 +58,37 @@ const formatDuration = (entryTime?: string, exitTime?: string): string => {
 const calculateTradePnL = (trade: Trade): { pnl: number; pnlPercent: number; rr: number | null; targetRR: number | null; isManual: boolean } | null => {
   if (!trade.exitprice || !trade.entryprice || trade.size <= 0) return null;
   const leverage = trade.leverage && trade.leverage >= 1 ? trade.leverage : 1;
-  // 优先使用手动输入的 PnL
-  if (trade.manual_pnl !== undefined && trade.manual_pnl !== null && !isNaN(trade.manual_pnl)) {
-    const cost = trade.entryprice * trade.size;
-    const pnlPercent = cost > 0 ? (trade.manual_pnl / cost) * 100 : 0;
-    let rr: number | null = null;
-    if (trade.stop_loss && trade.entryprice) {
-      const riskPerUnit = Math.abs(trade.entryprice - trade.stop_loss);
-      if (riskPerUnit > 0) {
-        const maxRisk = riskPerUnit * trade.size;
-        rr = trade.manual_pnl / maxRisk;
-      }
-    }
-    return { pnl: trade.manual_pnl, pnlPercent, rr, targetRR: null, isManual: true };
-  }
+  const isManual = trade.manual_pnl !== undefined && trade.manual_pnl !== null && !isNaN(trade.manual_pnl);
+
   const diff = trade.direction === 'long'
     ? trade.exitprice - trade.entryprice
     : trade.entryprice - trade.exitprice;
-  const pnl = diff * trade.size * leverage;
-  const pnlPercent = (diff / trade.entryprice) * 100 * leverage;
+
+  const pnl = isManual ? trade.manual_pnl! : diff * trade.size * leverage;
+  const cost = trade.entryprice * trade.size;
+  const pnlPercent = isManual
+    ? (cost > 0 ? (pnl / cost) * 100 : 0)
+    : (diff / trade.entryprice) * 100 * leverage;
+
   let rr: number | null = null;
   if (trade.stop_loss && trade.entryprice) {
     const riskPerUnit = Math.abs(trade.entryprice - trade.stop_loss);
     if (riskPerUnit > 0) {
-      const maxRisk = riskPerUnit * trade.size * leverage;
-      rr = pnl / maxRisk;
+      if (isManual && diff !== 0) {
+        // 当存在券商实际净盈亏 (manual_pnl) 且有实际价差时：
+        // 实际每点价值 (Point Value) = |pnl| / |diff|
+        // 真实单笔风险金额 (Dollar Risk) = riskPerUnit * Point Value
+        // 实现盈亏比 = pnl / Dollar Risk = Math.sign(pnl) * (|diff| / riskPerUnit)
+        // 消除由于原油(100/1000)、黄金(100)、股指、外汇等不同合约乘数导致的量纲失真！
+        const sign = pnl === 0 ? 0 : pnl > 0 ? 1 : -1;
+        rr = sign * (Math.abs(diff) / riskPerUnit);
+      } else {
+        rr = diff / riskPerUnit;
+      }
     }
   }
-  return { pnl, pnlPercent, rr, targetRR: null, isManual: false };
+
+  return { pnl, pnlPercent, rr, targetRR: null, isManual };
 };
 
 const calculateTargetRR = (trade: Trade): number | null => {
@@ -362,6 +367,36 @@ const TradesPage: React.FC = () => {
       setClearing(false);
     }
   };
+
+  // 实时订单推送状态与自动刷新
+  const [livePushToast, setLivePushToast] = useState<{
+    message: string;
+    count?: number;
+    source?: string;
+    timestamp: number;
+  } | null>(null);
+
+  const handleRealtimeUpdate = useCallback((event: RealtimeTradeEvent) => {
+    // 收到服务端推送后，毫秒级自动重新拉取订单列表更新页面数据
+    fetchTrades();
+
+    const src = event.source || (event.platform ? `${event.platform} 自动直推` : '实盘同步');
+    const countText = event.count !== undefined && event.count > 0 ? ` (${event.count} 笔)` : '';
+    const msg = event.message || `收到 ${src} 实时订单推送${countText}，明细列表已自动刷新！`;
+
+    setLivePushToast({
+      message: msg,
+      count: event.count,
+      source: src,
+      timestamp: Date.now(),
+    });
+
+    setTimeout(() => {
+      setLivePushToast(prev => (prev?.timestamp === event.timestamp ? null : prev));
+    }, 6000);
+  }, []);
+
+  const { isConnected: isRealtimeConnected } = useRealtimeTrades(handleRealtimeUpdate);
 
   const handleAddClick = () => {
     setEditingTrade(null);
@@ -731,6 +766,39 @@ const TradesPage: React.FC = () => {
         </div>
       )}
 
+      {/* 实时自动推送更新通知 Banner */}
+      {livePushToast && (
+        <div className="mb-5 p-4 bg-gradient-to-r from-purple-50/95 via-indigo-50/95 to-emerald-50/95 dark:from-purple-950/60 dark:via-indigo-950/60 dark:to-emerald-950/60 border border-purple-300 dark:border-purple-700/80 rounded-2xl flex items-center justify-between text-sm text-purple-950 dark:text-purple-100 shadow-md animate-in fade-in slide-in-from-top-2">
+          <div className="flex items-start sm:items-center space-x-3">
+            <div className="p-2 bg-purple-600 text-white rounded-xl shadow-xs animate-pulse">
+              <Zap className="w-5 h-5 fill-current" />
+            </div>
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-bold text-base text-gray-900 dark:text-white">
+                  {livePushToast.message}
+                </span>
+                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping mr-1.5" />
+                  实时推送到屏已生效
+                </span>
+              </div>
+              <p className="text-xs text-gray-600 dark:text-gray-300 mt-0.5">
+                来源: {livePushToast.source || '远程 EA / 终端直推'} • 页面已完成自动拉取与排序展示，无需手动刷新。
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setLivePushToast(null)}
+            className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 p-1.5 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 transition"
+            title="关闭提示"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       {/* Search & Filter Bar */}
       <div className="relative z-30 mb-6 bg-white/90 dark:bg-[#0b0f19]/90 backdrop-blur-md p-4 sm:p-5 rounded-2xl border border-gray-200/80 dark:border-white/10 shadow-sm space-y-3.5">
         {/* Top Filter Controls: Search & Select Dropdowns */}
@@ -861,6 +929,24 @@ const TradesPage: React.FC = () => {
 
           {/* Action Buttons: FIXED TO THE RIGHT (固定靠右) */}
           <div className="flex items-center gap-2.5 ml-auto">
+            {/* Realtime Push Stream Status Badge */}
+            <div 
+              className={`hidden md:inline-flex items-center space-x-1.5 px-3 py-2 rounded-xl text-xs font-semibold border transition-all ${
+                isRealtimeConnected
+                  ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-300/80 dark:border-emerald-700/80 shadow-2xs'
+                  : 'bg-gray-50 dark:bg-navy-900/40 text-gray-400 border-gray-200 dark:border-gray-700'
+              }`}
+              title={isRealtimeConnected ? '实时推送在线：EA 或终端有新订单平仓时，系统将通过 SSE 长连接即时自动推送到页面刷新，无需手工点击' : '实时推送通道连接中...'}
+            >
+              <span className="flex h-2 w-2 relative">
+                {isRealtimeConnected && (
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                )}
+                <span className={`relative inline-flex rounded-full h-2 w-2 ${isRealtimeConnected ? 'bg-emerald-500' : 'bg-gray-400'}`}></span>
+              </span>
+              <span>{isRealtimeConnected ? '实时推送到屏: 在线' : '实时通道: 连接中'}</span>
+            </div>
+
             <Button
               variant="outline"
               onClick={handleReset}
@@ -935,25 +1021,27 @@ const TradesPage: React.FC = () => {
                     <span>K线买卖执行打点 (TradingView Plotter)</span>
                     <span className="text-[10px] text-purple-600 dark:text-purple-400 font-mono font-normal">ENTRY / EXIT MARKERS</span>
                   </h4>
-                  <TradeExecutionChart
-                    symbol={viewingTrade.symbol}
-                    direction={viewingTrade.direction}
-                    entryPrice={viewingTrade.entryprice}
-                    exitPrice={viewingTrade.exitprice}
-                    stopLoss={viewingTrade.stop_loss}
-                    takeProfit={viewingTrade.take_profit}
-                    entryTime={viewingTrade.entry_time}
-                    exitTime={viewingTrade.exit_time}
-                    size={viewingTrade.size}
-                    profit={calculateTradePnL(viewingTrade)?.pnl}
-                    pnlPercent={calculateTradePnL(viewingTrade)?.pnlPercent}
-                    notes={viewingTrade.notes}
-                    sentiment={viewingTrade.sentiment}
-                    tags={viewingTrade.tags}
-                    session={viewingTrade.session}
-                    exitReason={calculateExitMethod(viewingTrade) || undefined}
-                    height={320}
-                  />
+                  <ErrorBoundary fallbackTitle="单笔订单K线买卖执行打点图表加载异常">
+                    <TradeExecutionChart
+                      symbol={viewingTrade.symbol}
+                      direction={viewingTrade.direction}
+                      entryPrice={viewingTrade.entryprice}
+                      exitPrice={viewingTrade.exitprice}
+                      stopLoss={viewingTrade.stop_loss}
+                      takeProfit={viewingTrade.take_profit}
+                      entryTime={viewingTrade.entry_time}
+                      exitTime={viewingTrade.exit_time}
+                      size={viewingTrade.size}
+                      profit={calculateTradePnL(viewingTrade)?.pnl}
+                      pnlPercent={calculateTradePnL(viewingTrade)?.pnlPercent}
+                      notes={viewingTrade.notes}
+                      sentiment={viewingTrade.sentiment}
+                      tags={viewingTrade.tags}
+                      session={viewingTrade.session}
+                      exitReason={calculateExitMethod(viewingTrade) || undefined}
+                      height={320}
+                    />
+                  </ErrorBoundary>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
@@ -1507,26 +1595,28 @@ const TradesPage: React.FC = () => {
               </button>
             </div>
             <div className="flex-1 p-4 overflow-hidden">
-              <TradeExecutionChart
-                symbol={chartModalTrade.symbol}
-                direction={chartModalTrade.direction}
-                entryPrice={chartModalTrade.entryprice}
-                exitPrice={chartModalTrade.exitprice}
-                stopLoss={chartModalTrade.stop_loss}
-                takeProfit={chartModalTrade.take_profit}
-                entryTime={chartModalTrade.entry_time}
-                exitTime={chartModalTrade.exit_time}
-                size={chartModalTrade.size}
-                profit={calculateTradePnL(chartModalTrade)?.pnl}
-                pnlPercent={calculateTradePnL(chartModalTrade)?.pnlPercent}
-                notes={chartModalTrade.notes}
-                sentiment={chartModalTrade.sentiment}
-                tags={chartModalTrade.tags}
-                session={chartModalTrade.session}
-                exitReason={calculateExitMethod(chartModalTrade) || undefined}
-                height={520}
-                className="h-full"
-              />
+              <ErrorBoundary fallbackTitle="交易执行打点与行情走势图表加载异常">
+                <TradeExecutionChart
+                  symbol={chartModalTrade.symbol}
+                  direction={chartModalTrade.direction}
+                  entryPrice={chartModalTrade.entryprice}
+                  exitPrice={chartModalTrade.exitprice}
+                  stopLoss={chartModalTrade.stop_loss}
+                  takeProfit={chartModalTrade.take_profit}
+                  entryTime={chartModalTrade.entry_time}
+                  exitTime={chartModalTrade.exit_time}
+                  size={chartModalTrade.size}
+                  profit={calculateTradePnL(chartModalTrade)?.pnl}
+                  pnlPercent={calculateTradePnL(chartModalTrade)?.pnlPercent}
+                  notes={chartModalTrade.notes}
+                  sentiment={chartModalTrade.sentiment}
+                  tags={chartModalTrade.tags}
+                  session={chartModalTrade.session}
+                  exitReason={calculateExitMethod(chartModalTrade) || undefined}
+                  height={520}
+                  className="h-full"
+                />
+              </ErrorBoundary>
             </div>
           </div>
         </>

@@ -43,6 +43,7 @@ import DashboardPage from './pages/DashboardPage';
 import TutorialPage from './pages/TutorialPage';
 import { LoadingProvider, useLoading } from './components/common/LoadingContext';
 import { ThemeProvider } from './components/common/ThemeContext';
+import ErrorBoundary from './components/common/ErrorBoundary';
 
 function AppContent() {
   const { isLoading, setIsLoading } = useLoading();
@@ -123,7 +124,9 @@ function App() {
     <Router>
       <ThemeProvider>
         <LoadingProvider>
-          <AppContent />
+          <ErrorBoundary>
+            <AppContent />
+          </ErrorBoundary>
         </LoadingProvider>
       </ThemeProvider>
     </Router>

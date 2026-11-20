@@ -126,8 +126,10 @@ export const TradeExecutionChart: React.FC<TradeExecutionChartProps> = ({
   const timerRef = useRef<any>(null);
 
   const finalProfit = profit !== undefined ? profit : (pnl !== undefined ? pnl : 0);
-  const isLong = direction.toLowerCase() === 'long' || direction.toLowerCase() === 'buy';
-  const effectiveContractSize = getSymbolContractSize(symbol, customContractSize);
+  const isLong = typeof direction === 'string' 
+    ? (direction.toLowerCase() === 'long' || direction.toLowerCase() === 'buy')
+    : true;
+  const effectiveContractSize = getSymbolContractSize(symbol || 'EURUSD', customContractSize);
 
   // 1. Fetch candles from API based on symbol, timeframe, and trade date
   const loadCandles = useCallback(async () => {
@@ -175,20 +177,45 @@ export const TradeExecutionChart: React.FC<TradeExecutionChartProps> = ({
     loadCandles();
   }, [loadCandles]);
 
-  // Format and sort candles
+  // Format and sort candles ensuring non-NaN, strictly monotonically increasing times
   const formattedData = useMemo(() => {
     if (!candles || candles.length === 0) return [];
-    return candles
-      .map(c => ({
-        time: (c.timestamp || Math.floor(new Date(c.time).getTime() / 1000)) as any,
-        open: c.open,
-        high: c.high,
-        low: c.low,
-        close: c.close,
-        rawTime: c.time,
-      }))
-      .filter((c, idx, arr) => idx === 0 || c.time > arr[idx - 1].time)
-      .sort((a, b) => (a.time as number) - (b.time as number));
+    const mapped = candles.map((c, i) => {
+      let t = 0;
+      if (typeof c.timestamp === 'number' && !isNaN(c.timestamp) && c.timestamp > 0) {
+        t = c.timestamp > 1e11 ? Math.floor(c.timestamp / 1000) : c.timestamp;
+      } else if (c.time) {
+        const s = String(c.time).replace(' ', 'T').replace(/\./g, '-');
+        const parsed = new Date(s).getTime();
+        if (!isNaN(parsed) && parsed > 0) t = Math.floor(parsed / 1000);
+      }
+      if (!t || isNaN(t)) {
+        t = 1700000000 + i * 300;
+      }
+      return {
+        time: t as any,
+        open: Number(c.open) || 0,
+        high: Number(c.high) || 0,
+        low: Number(c.low) || 0,
+        close: Number(c.close) || 0,
+        rawTime: c.time || '',
+      };
+    });
+
+    mapped.sort((a, b) => (a.time as number) - (b.time as number));
+
+    const deduped: typeof mapped = [];
+    let lastTime = 0;
+    for (const bar of mapped) {
+      let t = bar.time as number;
+      if (t <= lastTime) {
+        t = lastTime + 60;
+        bar.time = t as any;
+      }
+      lastTime = t;
+      deduped.push(bar);
+    }
+    return deduped;
   }, [candles]);
 
   // Locate Entry and Exit candle indices
@@ -199,13 +226,13 @@ export const TradeExecutionChart: React.FC<TradeExecutionChartProps> = ({
 
     let eTimestamp: number | null = null;
     if (entryTime) {
-      const p = Math.floor(new Date(entryTime).getTime() / 1000);
+      const p = Math.floor(new Date(String(entryTime).replace(' ', 'T').replace(/\./g, '-')).getTime() / 1000);
       if (!isNaN(p)) eTimestamp = p;
     }
 
     let xTimestamp: number | null = null;
     if (exitTime) {
-      const p = Math.floor(new Date(exitTime).getTime() / 1000);
+      const p = Math.floor(new Date(String(exitTime).replace(' ', 'T').replace(/\./g, '-')).getTime() / 1000);
       if (!isNaN(p)) xTimestamp = p;
     }
 
@@ -224,6 +251,10 @@ export const TradeExecutionChart: React.FC<TradeExecutionChartProps> = ({
 
     let eIdx = eTimestamp !== null ? findClosestIndex(eTimestamp) : Math.max(0, formattedData.length - 25);
     let xIdx = xTimestamp !== null ? findClosestIndex(xTimestamp) : formattedData.length - 1;
+
+    // Safety bounds
+    eIdx = Math.max(0, Math.min(formattedData.length - 1, eIdx));
+    xIdx = Math.max(0, Math.min(formattedData.length - 1, xIdx));
 
     // Safety check: exit cannot be before entry
     if (xIdx < eIdx) {
@@ -340,7 +371,7 @@ export const TradeExecutionChart: React.FC<TradeExecutionChartProps> = ({
 
     if (isPostExit && exitBarIndex < formattedData.length - 1) {
       const postCandles = formattedData.slice(exitBarIndex, currentBarIdx + 1);
-      const exitRefPrice = exitPrice || formattedData[exitBarIndex].close;
+      const exitRefPrice = exitPrice || (formattedData[exitBarIndex] ? formattedData[exitBarIndex].close : (entryPrice || 0));
       if (postCandles.length > 0) {
         if (isLong) {
           const highestPost = Math.max(...postCandles.map(c => c.high));
@@ -570,40 +601,44 @@ export const TradeExecutionChart: React.FC<TradeExecutionChartProps> = ({
     const currentLimitIdx = viewMode === 'overview' ? formattedData.length - 1 : replayIndex;
     const displayedCandles = formattedData.slice(0, currentLimitIdx + 1);
 
-    series.setData(displayedCandles);
+    try {
+      series.setData(displayedCandles);
 
-    // Dynamic Markers
-    const markers: any[] = [];
+      // Dynamic Markers
+      const markers: any[] = [];
 
-    // Entry Marker
-    if (entryPrice > 0 && currentLimitIdx >= entryBarIndex) {
-      const entryBar = formattedData[entryBarIndex];
-      markers.push({
-        time: entryBar.time,
-        position: isLong ? 'belowBar' : 'aboveBar',
-        color: isLong ? '#10B981' : '#F43F5E',
-        shape: isLong ? 'arrowUp' : 'arrowDown',
-        text: `${isLong ? 'BUY' : 'SELL'} @ ${formatPriceNumber(entryPrice)} (${size}L)`,
-      });
+      // Entry Marker
+      if (entryPrice > 0 && currentLimitIdx >= entryBarIndex && formattedData[entryBarIndex]) {
+        const entryBar = formattedData[entryBarIndex];
+        markers.push({
+          time: entryBar.time,
+          position: isLong ? 'belowBar' : 'aboveBar',
+          color: isLong ? '#10B981' : '#F43F5E',
+          shape: isLong ? 'arrowUp' : 'arrowDown',
+          text: `${isLong ? 'BUY' : 'SELL'} @ ${formatPriceNumber(entryPrice)} (${size || 1}L)`,
+        });
+      }
+
+      // Exit Marker
+      if (exitPrice && exitPrice > 0 && currentLimitIdx >= exitBarIndex && formattedData[exitBarIndex]) {
+        const exitBar = formattedData[exitBarIndex];
+        const isWin = finalProfit >= 0;
+        const pnlText = finalProfit !== 0 ? `| ${finalProfit >= 0 ? '+' : ''}$${finalProfit.toFixed(1)}` : '';
+
+        markers.push({
+          time: exitBar.time,
+          position: isLong ? 'aboveBar' : 'belowBar',
+          color: isWin ? '#10B981' : '#EF4444',
+          shape: isLong ? 'arrowDown' : 'arrowUp',
+          text: `EXIT @ ${formatPriceNumber(exitPrice)} ${pnlText}`,
+        });
+      }
+
+      markers.sort((a, b) => (a.time as number) - (b.time as number));
+      markersPlugin.setMarkers(markers);
+    } catch (err) {
+      console.warn('Failed to update series data or markers:', err);
     }
-
-    // Exit Marker
-    if (exitPrice && exitPrice > 0 && currentLimitIdx >= exitBarIndex) {
-      const exitBar = formattedData[exitBarIndex];
-      const isWin = finalProfit >= 0;
-      const pnlText = finalProfit !== 0 ? `| ${finalProfit >= 0 ? '+' : ''}$${finalProfit.toFixed(1)}` : '';
-
-      markers.push({
-        time: exitBar.time,
-        position: isLong ? 'aboveBar' : 'belowBar',
-        color: isWin ? '#10B981' : '#EF4444',
-        shape: isLong ? 'arrowDown' : 'arrowUp',
-        text: `EXIT @ ${formatPriceNumber(exitPrice)} ${pnlText}`,
-      });
-    }
-
-    markers.sort((a, b) => (a.time as number) - (b.time as number));
-    markersPlugin.setMarkers(markers);
 
     // Manage Dynamic Price Lines
     // 1. Remove old price lines safely
@@ -727,14 +762,14 @@ export const TradeExecutionChart: React.FC<TradeExecutionChartProps> = ({
       <div className="flex flex-wrap items-center justify-between p-3.5 border-b border-gray-100 dark:border-white/5 bg-gray-50/70 dark:bg-white/[0.02] gap-3">
         <div className="flex items-center space-x-2.5">
           <span className="font-mono font-black text-sm text-gray-900 dark:text-white">
-            {symbol}
+            {symbol || 'EURUSD'}
           </span>
           <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold ${
             isLong
               ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
               : 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20'
           }`}>
-            {direction.toUpperCase()} {size}手
+            {(direction || (isLong ? 'LONG' : 'SHORT')).toUpperCase()} {size || 1}手
           </span>
 
           {finalProfit !== undefined && (

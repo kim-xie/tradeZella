@@ -3,6 +3,7 @@ import axios from 'axios';
 import Button from './common/Button';
 import DateRangePicker from './common/DateRangePicker';
 import { SERVER_BASE_URL as API_BASE_URL, getMT5Status, syncMT5Trades, getSyncToken, MT5StatusData } from '../services/api';
+import { useRealtimeTrades } from '../services/realtime';
 import { RefreshCw, Upload, CheckCircle2, AlertCircle, Laptop, Download, Database, FileSpreadsheet, FileCode, Radio, Copy, Check, BarChart2, Zap, Calendar, X, Globe } from 'lucide-react';
 
 export interface UploadSuccessInfo {
@@ -119,6 +120,7 @@ const CSVUploader: React.FC<CSVUploaderProps> = ({ onUploadSuccess }) => {
   const [copiedToken, setCopiedToken] = useState<boolean>(false);
   const [copiedUrl, setCopiedUrl] = useState<boolean>(false);
   const [loadingToken, setLoadingToken] = useState<boolean>(false);
+  const { isConnected: isRealtimeConnected } = useRealtimeTrades();
 
   useEffect(() => {
     fetchMt5Status();
@@ -617,9 +619,19 @@ const CSVUploader: React.FC<CSVUploaderProps> = ({ onUploadSuccess }) => {
           <div className="bg-white dark:bg-navy-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-3 border-b border-gray-200 dark:border-gray-700">
               <div>
-                <h3 className="text-sm font-semibold text-gray-900 dark:text-white flex items-center space-x-2">
-                  <Zap className="w-4 h-4 text-amber-500" />
-                  <span>TradeZen MQL 同步网桥（EA 直推插件）</span>
+                <h3 className="text-sm font-semibold text-gray-900 dark:text-white flex flex-wrap items-center gap-2">
+                  <span className="flex items-center space-x-1.5">
+                    <Zap className="w-4 h-4 text-amber-500" />
+                    <span>TradeZen MQL 同步网桥（EA 直推插件）</span>
+                  </span>
+                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                    isRealtimeConnected
+                      ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700'
+                      : 'bg-gray-100 dark:bg-navy-700 text-gray-500 dark:text-gray-400 border-gray-200 dark:border-gray-600'
+                  }`}>
+                    <span className={`w-1.5 h-1.5 rounded-full mr-1.5 ${isRealtimeConnected ? 'bg-emerald-500 animate-ping' : 'bg-gray-400'}`} />
+                    {isRealtimeConnected ? '网页实时接收端: 已就绪 (SSE推送到屏)' : '网页实时接收端: 连接中'}
+                  </span>
                 </h3>
                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                   挂载在图表上即可全自动将<b>平仓订单</b>与<b>历史K线数据</b>实时推送到远程服务器，零延迟且无需第三方收费服务。

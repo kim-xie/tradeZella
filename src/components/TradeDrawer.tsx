@@ -249,9 +249,16 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, o
         if (!pnl || !formData.stopLoss || !formData.entryPrice || formData.size <= 0) return null;
         const riskPerUnit = Math.abs(formData.entryPrice - formData.stopLoss);
         if (riskPerUnit === 0) return null;
-        const maxRisk = riskPerUnit * formData.size;
-        const actualReward = pnl.pnl;
-        return actualReward / maxRisk;
+
+        const diff = formData.direction === 'long'
+            ? (formData.exitPrice ? formData.exitPrice - formData.entryPrice : 0)
+            : (formData.exitPrice ? formData.entryPrice - formData.exitPrice : 0);
+
+        if (pnl.isManual && diff !== 0) {
+            const sign = pnl.pnl === 0 ? 0 : pnl.pnl > 0 ? 1 : -1;
+            return sign * (Math.abs(diff) / riskPerUnit);
+        }
+        return diff / riskPerUnit;
     };
 
     // Determine trade status

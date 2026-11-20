@@ -41,6 +41,9 @@ router.post('/bulk', protect, TradeController.createBulkTrades);
 router.post('/upload', protect, csvUpload.single('file'), TradeController.uploadTrades);
 router.post('/screenshots', protect, imageUpload.single('file'), TradeController.uploadScreenshot);
 
+// Real-time SSE push stream for live order updates
+router.get('/stream', protect, TradeController.streamTrades);
+
 // Bulk clear all trades for authenticated user
 router.delete('/all', protect, TradeController.deleteAllTrades);
 

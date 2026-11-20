@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useSearchParams } from 'react-router-dom';
 import { getUserTrades } from '../services/api';
+import { useRealtimeTrades } from '../services/realtime';
 import { Trade } from '../components/calendar/calendarTypes';
 import {
   computeDayStats,
@@ -114,6 +115,11 @@ const StatsPage: React.FC = () => {
   useEffect(() => {
     fetchTrades();
   }, []);
+
+  // 监听实时订单推送，日历与统计数据秒级自动同步刷新
+  useRealtimeTrades(() => {
+    fetchTrades();
+  });
 
   // Group trades by day: "YYYY-MM-DD"
   const tradesByDay = useMemo(() => {
