@@ -55,6 +55,50 @@ const formatDuration = (entryTime?: string, exitTime?: string): string => {
   return parts.join(' ');
 };
 
+/**
+ * 根据设定的止损点位 (SL) 和止盈点位 (TP) 计算计划目标盈亏比 (Target R/R)
+ * 盈亏比 = |设定止盈 - 入场价| / |入场价 - 设定止损|
+ */
+export const calculateTargetRR = (trade: Trade): number | null => {
+  const ep = Number(trade.entryprice ?? (trade as any).entryPrice ?? 0);
+  const sl = Number(trade.stop_loss ?? (trade as any).stopLoss ?? 0);
+  const tp = Number(trade.take_profit ?? (trade as any).takeProfit ?? 0);
+
+  if (ep <= 0 || sl <= 0 || tp <= 0) return null;
+  const risk = Math.abs(ep - sl);
+  const reward = Math.abs(tp - ep);
+  if (risk <= 0.0000001 || reward <= 0.0000001) return null;
+  const rr = reward / risk;
+  return isFinite(rr) && rr > 0 ? rr : null;
+};
+
+/**
+ * 根据设定的止损点位 (SL) 和实际平仓价 (Exit) 计算实现的出场盈亏比 (Actual R/R)
+ */
+export const calculateActualRR = (trade: Trade): number | null => {
+  const ep = Number(trade.entryprice ?? (trade as any).entryPrice ?? 0);
+  const sl = Number(trade.stop_loss ?? (trade as any).stopLoss ?? 0);
+  const xp = Number(trade.exitprice ?? (trade as any).exitPrice ?? 0);
+
+  if (ep <= 0 || sl <= 0 || xp <= 0) return null;
+  const riskPerUnit = Math.abs(ep - sl);
+  if (riskPerUnit <= 0.0000001) return null;
+
+  const dir = trade.direction === 'short' || trade.direction === ('sell' as any) ? 'short' : 'long';
+  const diff = dir === 'long' ? xp - ep : ep - xp;
+  const manual = trade.manual_pnl ?? (trade as any).manualPnl;
+  const isManual = manual !== undefined && manual !== null && !isNaN(Number(manual));
+
+  if (isManual && diff !== 0) {
+    const pnl = Number(manual);
+    const sign = pnl === 0 ? 0 : pnl > 0 ? 1 : -1;
+    const rr = sign * (Math.abs(diff) / riskPerUnit);
+    return isFinite(rr) ? rr : null;
+  }
+  const rr = diff / riskPerUnit;
+  return isFinite(rr) ? rr : null;
+};
+
 const calculateTradePnL = (trade: Trade): { pnl: number; pnlPercent: number; rr: number | null; targetRR: number | null; isManual: boolean } | null => {
   if (!trade.exitprice || !trade.entryprice || trade.size <= 0) return null;
   const leverage = trade.leverage && trade.leverage >= 1 ? trade.leverage : 1;
@@ -70,33 +114,10 @@ const calculateTradePnL = (trade: Trade): { pnl: number; pnlPercent: number; rr:
     ? (cost > 0 ? (pnl / cost) * 100 : 0)
     : (diff / trade.entryprice) * 100 * leverage;
 
-  let rr: number | null = null;
-  if (trade.stop_loss && trade.entryprice) {
-    const riskPerUnit = Math.abs(trade.entryprice - trade.stop_loss);
-    if (riskPerUnit > 0) {
-      if (isManual && diff !== 0) {
-        // 当存在券商实际净盈亏 (manual_pnl) 且有实际价差时：
-        // 实际每点价值 (Point Value) = |pnl| / |diff|
-        // 真实单笔风险金额 (Dollar Risk) = riskPerUnit * Point Value
-        // 实现盈亏比 = pnl / Dollar Risk = Math.sign(pnl) * (|diff| / riskPerUnit)
-        // 消除由于原油(100/1000)、黄金(100)、股指、外汇等不同合约乘数导致的量纲失真！
-        const sign = pnl === 0 ? 0 : pnl > 0 ? 1 : -1;
-        rr = sign * (Math.abs(diff) / riskPerUnit);
-      } else {
-        rr = diff / riskPerUnit;
-      }
-    }
-  }
+  const actualRR = calculateActualRR(trade);
+  const targetRR = calculateTargetRR(trade);
 
-  return { pnl, pnlPercent, rr, targetRR: null, isManual };
-};
-
-const calculateTargetRR = (trade: Trade): number | null => {
-  if (!trade.stop_loss || !trade.take_profit || !trade.entryprice) return null;
-  const risk = Math.abs(trade.entryprice - trade.stop_loss);
-  const reward = Math.abs(trade.take_profit - trade.entryprice);
-  if (risk === 0) return null;
-  return reward / risk;
+  return { pnl, pnlPercent, rr: actualRR, targetRR, isManual };
 };
 
 type ExitMethodType = 'takeProfit' | 'stopLoss' | 'manual';
@@ -175,9 +196,15 @@ const getTradeSizeValue = (trade: Trade): number | null => {
 };
 
 const getTradeRRValue = (trade: Trade): number | null => {
-  const calculated = calculateTradePnL(trade);
-  if (calculated && calculated.rr != null && !isNaN(calculated.rr)) {
-    return calculated.rr;
+  // 优先根据设定的止损止盈计算目标盈亏比 (Target R/R)
+  const target = calculateTargetRR(trade);
+  if (target != null && !isNaN(target)) {
+    return target;
+  }
+  // 未设定止盈时，已平仓订单回退至实际出场盈亏比 (Actual R/R)
+  const actual = calculateActualRR(trade);
+  if (actual != null && !isNaN(actual)) {
+    return actual;
   }
   return null;
 };
@@ -1057,8 +1084,8 @@ const TradesPage: React.FC = () => {
                   <div><span className="text-sm text-gray-500 dark:text-gray-400">出场时间:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{formatLocalTime(viewingTrade.exit_time)}</span></div>
                   <div><span className="text-sm text-gray-500 dark:text-gray-400">持仓时长:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{formatDuration(viewingTrade.entry_time, viewingTrade.exit_time)}</span></div>
                   {(() => { const p = calculateTradePnL(viewingTrade); return p ? <div><span className="text-sm text-gray-500 dark:text-gray-400">净盈亏:{p.isManual ? ' (手动指定)' : ''}</span> <span className={`text-sm font-semibold ${p.pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>{p.pnl >= 0 ? '+' : ''}${p.pnl.toFixed(2)} ({p.pnlPercent.toFixed(2)}%)</span></div> : null; })()}
-                  {(() => { const tr = calculateTargetRR(viewingTrade); return tr != null ? <div><span className="text-sm text-gray-500 dark:text-gray-400">目标盈亏比 (Target R/R):</span> <span className="text-sm font-medium text-gray-900 dark:text-white">1 : {tr.toFixed(1)}</span></div> : null; })()}
-                  {(() => { const p = calculateTradePnL(viewingTrade); return p?.rr != null ? <div><span className="text-sm text-gray-500 dark:text-gray-400">实际盈亏比 (Actual R/R):</span> <span className={`text-sm font-semibold ${p.pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>1 : {Math.abs(p.rr).toFixed(1)}</span></div> : null; })()}
+                  {(() => { const tr = calculateTargetRR(viewingTrade); return tr != null ? <div><span className="text-sm text-gray-500 dark:text-gray-400">目标盈亏比 (设定止盈止损):</span> <span className="text-sm font-semibold text-gray-900 dark:text-white font-mono">1 : {tr.toFixed(2)} ({tr.toFixed(1)}R)</span></div> : null; })()}
+                  {(() => { const ar = calculateActualRR(viewingTrade); const p = calculateTradePnL(viewingTrade); return ar != null ? <div><span className="text-sm text-gray-500 dark:text-gray-400">实际出场盈亏比 (Actual R/R):</span> <span className={`text-sm font-semibold font-mono ${(p?.pnl ?? ar) >= 0 ? 'text-green-600' : 'text-red-600'}`}>1 : {Math.abs(ar).toFixed(2)} ({ar >= 0 ? '+' : ''}{ar.toFixed(1)}R)</span></div> : null; })()}
                   <div><span className="text-sm text-gray-500 dark:text-gray-400">创建时间:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{formatLocalTimeFull(viewingTrade.createdat)}</span></div>
                   <div><span className="text-sm text-gray-500 dark:text-gray-400">更新时间:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{formatLocalTimeFull(viewingTrade.updatedat)}</span></div>
                   <div><span className="text-sm text-gray-500 dark:text-gray-400">交易时段:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{viewingTrade.session ? `${viewingTrade.session} 盘` : '-'}</span></div>
@@ -1372,7 +1399,38 @@ const TradesPage: React.FC = () => {
                           ) : <span className="text-gray-400">-</span>}
                         </td>
                         <td className="px-3 py-3 text-xs font-mono font-semibold text-gray-700 dark:text-gray-300">
-                          {pnl?.rr != null ? `${pnl.rr.toFixed(1)}R` : '-'}
+                          {(() => {
+                            const targetRR = calculateTargetRR(trade);
+                            const actualRR = calculateActualRR(trade);
+
+                            // 优先根据设定的止盈止损计算目标盈亏比
+                            if (targetRR != null) {
+                              return (
+                                <div title={`设定目标盈亏比: 1 : ${targetRR.toFixed(2)}${actualRR != null ? `\n实际平仓盈亏比: 1 : ${Math.abs(actualRR).toFixed(2)} (${actualRR.toFixed(1)}R)` : ''}`}>
+                                  <span className="font-bold text-gray-900 dark:text-gray-100">{targetRR.toFixed(1)}R</span>
+                                  {actualRR != null && (
+                                    <span className={`text-[10px] font-normal block ${actualRR >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                                      实: {actualRR.toFixed(1)}R
+                                    </span>
+                                  )}
+                                </div>
+                              );
+                            }
+
+                            // 未设定止盈时，已平仓订单回退至实际出场盈亏比
+                            if (actualRR != null) {
+                              return (
+                                <div title={`实际平仓盈亏比: 1 : ${Math.abs(actualRR).toFixed(2)} (${actualRR.toFixed(1)}R)\n(未设定止盈)`}>
+                                  <span className={actualRR >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}>
+                                    {actualRR.toFixed(1)}R
+                                  </span>
+                                  <span className="text-[10px] font-normal text-gray-400 block">实际</span>
+                                </div>
+                              );
+                            }
+
+                            return <span className="text-gray-400" title="未设置止损或止盈">-</span>;
+                          })()}
                         </td>
                         <td className="px-3 py-3 text-xs">
                           <button

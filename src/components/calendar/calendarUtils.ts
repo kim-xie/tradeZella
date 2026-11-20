@@ -64,6 +64,18 @@ export const calculateTradePnL = (trade: Trade): number => {
   return diff * size * leverage;
 };
 
+export const calculateTradeTargetRR = (trade: Trade): number | null => {
+  const entry = getTradeEntryPrice(trade);
+  const sl = getTradeStopLoss(trade);
+  const tp = getTradeTakeProfit(trade);
+  if (!entry || !sl || !tp || entry <= 0 || sl <= 0 || tp <= 0) return null;
+  const risk = Math.abs(entry - sl);
+  const reward = Math.abs(tp - entry);
+  if (risk <= 0.0000001 || reward <= 0.0000001) return null;
+  const rr = reward / risk;
+  return isFinite(rr) && rr > 0 ? rr : null;
+};
+
 export const calculateTradeRR = (trade: Trade): number | null => {
   const entry = getTradeEntryPrice(trade);
   const exit = getTradeExitPrice(trade);

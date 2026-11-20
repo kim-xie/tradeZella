@@ -234,31 +234,43 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, o
         return { ...auto, isManual: false };
     };
 
-    // Calculate target risk-reward ratio
+    // Calculate target risk-reward ratio (基于设定的止损与止盈)
     const calculateTargetRR = (): number | null => {
-        if (!formData.stopLoss || !formData.takeProfit || !formData.entryPrice || formData.entryPrice <= 0) return null;
-        const risk = Math.abs(formData.entryPrice - formData.stopLoss);
-        const reward = Math.abs(formData.takeProfit - formData.entryPrice);
-        if (risk === 0) return null;
-        return reward / risk;
+        const ep = Number(formData.entryPrice || 0);
+        const sl = Number(formData.stopLoss || 0);
+        const tp = Number(formData.takeProfit || 0);
+        if (ep <= 0 || sl <= 0 || tp <= 0) return null;
+        const risk = Math.abs(ep - sl);
+        const reward = Math.abs(tp - ep);
+        if (risk <= 0.0000001 || reward <= 0.0000001) return null;
+        const rr = reward / risk;
+        return isFinite(rr) && rr > 0 ? rr : null;
     };
 
-    // Calculate actual risk-reward ratio
+    // Calculate actual risk-reward ratio (基于实际平仓出场)
     const calculateActualRR = (): number | null => {
         const pnl = calculatePnL();
-        if (!pnl || !formData.stopLoss || !formData.entryPrice || formData.size <= 0) return null;
-        const riskPerUnit = Math.abs(formData.entryPrice - formData.stopLoss);
-        if (riskPerUnit === 0) return null;
+        const ep = Number(formData.entryPrice || 0);
+        const sl = Number(formData.stopLoss || 0);
+        const size = Number(formData.size || 0);
+        if (!pnl || ep <= 0 || sl <= 0 || size <= 0) return null;
+        const riskPerUnit = Math.abs(ep - sl);
+        if (riskPerUnit <= 0.0000001) return null;
+
+        const xp = formData.exitPrice ? Number(formData.exitPrice) : 0;
+        if (xp <= 0) return null;
 
         const diff = formData.direction === 'long'
-            ? (formData.exitPrice ? formData.exitPrice - formData.entryPrice : 0)
-            : (formData.exitPrice ? formData.entryPrice - formData.exitPrice : 0);
+            ? xp - ep
+            : ep - xp;
 
         if (pnl.isManual && diff !== 0) {
             const sign = pnl.pnl === 0 ? 0 : pnl.pnl > 0 ? 1 : -1;
-            return sign * (Math.abs(diff) / riskPerUnit);
+            const rr = sign * (Math.abs(diff) / riskPerUnit);
+            return isFinite(rr) ? rr : null;
         }
-        return diff / riskPerUnit;
+        const rr = diff / riskPerUnit;
+        return isFinite(rr) ? rr : null;
     };
 
     // Determine trade status

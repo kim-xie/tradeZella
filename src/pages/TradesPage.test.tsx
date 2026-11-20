@@ -657,4 +657,61 @@ describe('TradesPage', () => {
     expect(screen.getByText('1.8R')).toBeInTheDocument();
     expect(screen.queryByText('184.2R')).not.toBeInTheDocument();
   });
+
+  it('calculates planned risk-reward ratio based on set stop_loss and take_profit (even for open trades)', async () => {
+    // Trade 201: Open trade (no exitprice), Entry 100, SL 90, TP 125 -> Target RR = (125 - 100) / (100 - 90) = 2.5R
+    // Trade 202: Closed trade, Entry 200, SL 190, TP 230, Exit 215 -> Target RR = 3.0R, Actual Exit RR = 1.5R
+    const mockTrades = [
+      {
+        id: 201,
+        symbol: 'OPEN_TRADE',
+        direction: 'long' as const,
+        size: 1.0,
+        entryprice: 100,
+        stop_loss: 90,
+        take_profit: 125,
+        entry_time: '2026-11-20T10:00:00',
+        createdat: '2026-11-20T10:00:00',
+      },
+      {
+        id: 202,
+        symbol: 'CLOSED_WITH_TP_SL',
+        direction: 'long' as const,
+        size: 1.0,
+        entryprice: 200,
+        exitprice: 215,
+        stop_loss: 190,
+        take_profit: 230,
+        entry_time: '2026-11-20T11:00:00',
+        exit_time: '2026-11-20T12:00:00',
+        createdat: '2026-11-20T11:00:00',
+      },
+    ];
+
+    vi.spyOn(api, 'getUserTrades').mockResolvedValue(mockTrades as any);
+    localStorage.setItem('token', 'test-token');
+
+    render(
+      <MemoryRouter>
+        <TradesPage />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('全部')).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByRole('button', { name: '全部' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('OPEN_TRADE')).toBeInTheDocument();
+      expect(screen.getByText('CLOSED_WITH_TP_SL')).toBeInTheDocument();
+    });
+
+    // OPEN_TRADE: shows 2.5R from configured stop_loss and take_profit even though position is still open!
+    expect(screen.getByText('2.5R')).toBeInTheDocument();
+
+    // CLOSED_WITH_TP_SL: shows 3.0R from configured TP & SL, and also shows actual exit RR
+    expect(screen.getByText('3.0R')).toBeInTheDocument();
+    expect(screen.getByText('实: 1.5R')).toBeInTheDocument();
+  });
 });
