@@ -117,6 +117,45 @@ describe('TradeExecutionChart - Replay & Timeframe', () => {
         })
       );
     });
+
+    // Check M1 (1-minute) button exists and allows switching to M1
+    const m1Button = screen.getByRole('button', { name: 'M1' });
+    expect(m1Button).toBeInTheDocument();
+    fireEvent.click(m1Button);
+
+    await waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          timeframe: 'M1',
+        })
+      );
+    });
+  });
+
+  it('calculates generous pre-entry candle window (at least 120 bars before entry)', async () => {
+    const fetchSpy = vi.spyOn(api, 'fetchCandles');
+
+    render(
+      <TradeExecutionChart
+        symbol="EURUSD"
+        direction="long"
+        entryPrice={1.081}
+        exitPrice={1.085}
+        entryTime="2026-11-20T10:00:00"
+        exitTime="2026-11-20T10:30:00"
+        initialTimeframe="M1"
+      />
+    );
+
+    // For M1 (1-minute): 120 bars = 120 minutes = 2 hours before 10:00:00 -> 08:00:00
+    await waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          timeframe: 'M1',
+          start: expect.stringMatching(/2026-11-20 08:00/),
+        })
+      );
+    });
   });
 
   it('respects custom initialTimeframe prop when provided', async () => {

@@ -206,15 +206,18 @@ export const TradeExecutionChart: React.FC<TradeExecutionChartProps> = ({
             const formatYMDHMS = (d: Date) => 
               `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`;
 
-            // Context: 60 bars before entry, 60 bars after exit
-            const preBufferMs = 60 * tfMinutes * 60 * 1000;
-            const postBufferMs = 60 * tfMinutes * 60 * 1000;
+            // Context: 入场前至少加载 120 根 K 线，确保有足够的前瞻背景、形态分析及盘整空间
+            // 满足用户“入场前K线至少应该多60根/多6根”的要求
+            const preBars = 120;
+            const postBars = 80;
+            const preBufferMs = preBars * tfMinutes * 60 * 1000;
+            const postBufferMs = postBars * tfMinutes * 60 * 1000;
 
             startParam = formatYMDHMS(new Date(eMs - preBufferMs));
             endParam = formatYMDHMS(new Date(xMs + postBufferMs));
             
             const tradeBars = Math.ceil((xMs - eMs) / (tfMinutes * 60 * 1000));
-            countParam = Math.max(250, tradeBars + 120);
+            countParam = Math.max(300, tradeBars + preBars + postBars);
           }
         } catch {
           // ignore date parse errors
@@ -359,8 +362,8 @@ export const TradeExecutionChart: React.FC<TradeExecutionChartProps> = ({
       xIdx = Math.min(formattedData.length - 1, eIdx + 5);
     }
 
-    const preIdx = Math.max(0, eIdx - 20); // TraderSync: start 20 bars before entry
-    const postIdx = Math.min(formattedData.length - 1, xIdx + 20); // 20 bars after exit
+    const preIdx = Math.max(0, eIdx - 60); // 逐帧复盘至少在入场前 60 根 K 线开始推演
+    const postIdx = Math.min(formattedData.length - 1, xIdx + 40); // 平仓后保留 40 根 K 线观察行情反弹/延续
 
     return {
       entryBarIndex: eIdx,
@@ -919,7 +922,7 @@ export const TradeExecutionChart: React.FC<TradeExecutionChartProps> = ({
 
           {/* Timeframe Switcher */}
           <div className="flex items-center space-x-1">
-            {(['M5', 'M15', 'H1', 'H4', 'D1'] as const).map(tf => (
+            {(['M1', 'M5', 'M15', 'H1', 'H4', 'D1'] as const).map(tf => (
               <button
                 key={tf}
                 type="button"

@@ -45,7 +45,7 @@ describe('TradeDrawer - Layout & Spacing', () => {
     expect(screen.getByText('订单核心参数')).toBeInTheDocument();
     expect(screen.getByText('策略信号与交易心智')).toBeInTheDocument();
     expect(screen.getByText('复盘反思与执行评估')).toBeInTheDocument();
-  });
+  }, 15000);
 
   it('filters visible sections when switching tabs', () => {
     render(

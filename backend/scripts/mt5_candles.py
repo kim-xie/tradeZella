@@ -168,7 +168,12 @@ def get_candles(symbol="EURUSD", timeframe_str="H1", count=300, start_date=None,
                     try:
                         s_dt = datetime.datetime.fromisoformat(start_date.replace('Z', ''))
                         e_dt = datetime.datetime.fromisoformat(end_date.replace('Z', '')) if end_date else datetime.datetime.now()
-                        rates = mt5.copy_rates_range(symbol, tf, s_dt, e_dt)
+                        offset_h = 5 if is_us_dst(s_dt) else 6
+                        s_dt_broker = s_dt - datetime.timedelta(hours=offset_h)
+                        e_dt_broker = e_dt - datetime.timedelta(hours=offset_h)
+                        rates = mt5.copy_rates_range(symbol, tf, s_dt_broker, e_dt_broker)
+                        if rates is None or len(rates) == 0:
+                            rates = mt5.copy_rates_range(symbol, tf, s_dt, e_dt)
                         if rates is None or len(rates) == 0:
                             rates = mt5.copy_rates_from_pos(symbol, tf, 0, count)
                     except Exception:
