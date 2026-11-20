@@ -721,7 +721,7 @@ const TradesPage: React.FC = () => {
                 <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
               </span>
               <h3 className="font-bold text-gray-900 dark:text-white text-base">
-                实盘交易订单同步 (MT5 直连 / MT4 报表导入)
+                实盘交易订单同步 (MQL EA 直推 / 离线报表导入)
               </h3>
             </div>
             <button 
