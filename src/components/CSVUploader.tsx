@@ -1,10 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import Button from './common/Button';
-import DateRangePicker from './common/DateRangePicker';
-import { SERVER_BASE_URL as API_BASE_URL, getMT5Status, syncMT5Trades, getSyncToken, MT5StatusData } from '../services/api';
+import { SERVER_BASE_URL as API_BASE_URL, getSyncToken } from '../services/api';
 import { useRealtimeTrades } from '../services/realtime';
-import { RefreshCw, Upload, CheckCircle2, AlertCircle, Laptop, Download, Database, FileSpreadsheet, FileCode, Radio, Copy, Check, BarChart2, Zap, Calendar, X, Globe } from 'lucide-react';
+import { RefreshCw, Upload, CheckCircle2, AlertCircle, Download, Database, FileSpreadsheet, FileCode, Radio, Copy, Check, BarChart2, Zap, X, Globe } from 'lucide-react';
 
 export interface UploadSuccessInfo {
   count?: number;
@@ -17,103 +16,14 @@ interface CSVUploaderProps {
   onUploadSuccess: (info?: UploadSuccessInfo) => void;
 }
 
-export type SyncRangePreset = 'week' | 'month' | 'year' | 'all' | 'days30' | 'custom';
-
-const padZero = (n: number) => String(n).padStart(2, '0');
-const formatDateYMD = (d: Date) => `${d.getFullYear()}-${padZero(d.getMonth() + 1)}-${padZero(d.getDate())}`;
-
-const getRangeConfig = (
-  preset: SyncRangePreset,
-  customStart: string,
-  customEnd: string
-) => {
-  const now = new Date();
-  const todayStr = formatDateYMD(now);
-
-  if (preset === 'week') {
-    const day = now.getDay();
-    const diff = (day === 0 ? -6 : 1) - day;
-    const monday = new Date(now);
-    monday.setDate(now.getDate() + diff);
-    const startStr = formatDateYMD(monday);
-    return {
-      startDate: startStr,
-      endDate: todayStr,
-      all: false,
-      dateLabel: `${startStr} 至 至今（本周）`,
-    };
-  }
-
-  if (preset === 'month') {
-    const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
-    const startStr = formatDateYMD(firstDay);
-    return {
-      startDate: startStr,
-      endDate: todayStr,
-      all: false,
-      dateLabel: `${startStr} 至 至今（本月）`,
-    };
-  }
-
-  if (preset === 'year') {
-    const firstDay = new Date(now.getFullYear(), 0, 1);
-    const startStr = formatDateYMD(firstDay);
-    return {
-      startDate: startStr,
-      endDate: todayStr,
-      all: false,
-      dateLabel: `${startStr} 至 至今（今年）`,
-    };
-  }
-
-  if (preset === 'days30') {
-    const d30 = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-    const startStr = formatDateYMD(d30);
-    return {
-      startDate: startStr,
-      endDate: todayStr,
-      all: false,
-      days: 30,
-      dateLabel: `${startStr} 至 至今（最近30天）`,
-    };
-  }
-
-  if (preset === 'all') {
-    return {
-      startDate: '2010-01-01',
-      endDate: todayStr,
-      all: true,
-      dateLabel: '全量历史平仓订单',
-    };
-  }
-
-  return {
-    startDate: customStart || todayStr,
-    endDate: customEnd || todayStr,
-    all: false,
-    dateLabel: `${customStart || todayStr} 至 ${customEnd || todayStr}（自定义区间）`,
-  };
-};
-
 const CSVUploader: React.FC<CSVUploaderProps> = ({ onUploadSuccess }) => {
-  const [activeTab, setActiveTab] = useState<'mt5' | 'file' | 'ea'>('mt5');
+  const [activeTab, setActiveTab] = useState<'ea' | 'file'>('ea');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
-  const [syncing, setSyncing] = useState(false);
-  const [liveOrderSync, setLiveOrderSync] = useState<boolean>(true);
-  const [rangePreset, setRangePreset] = useState<SyncRangePreset>('month');
-  const [customStartDate, setCustomStartDate] = useState<string>(() => {
-    const d = new Date();
-    d.setMonth(d.getMonth() - 1);
-    return formatDateYMD(d);
-  });
-  const [customEndDate, setCustomEndDate] = useState<string>(() => formatDateYMD(new Date()));
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [sourceTimezone, setSourceTimezone] = useState<string>('broker');
-  const [mt5Status, setMt5Status] = useState<MT5StatusData | null>(null);
-  const [loadingStatus, setLoadingStatus] = useState<boolean>(false);
 
   // EA Token state
   const [eaToken, setEaToken] = useState<string>('');
@@ -123,46 +33,8 @@ const CSVUploader: React.FC<CSVUploaderProps> = ({ onUploadSuccess }) => {
   const { isConnected: isRealtimeConnected } = useRealtimeTrades();
 
   useEffect(() => {
-    fetchMt5Status();
+    fetchEAToken();
   }, []);
-
-  // 实时增量同步轮询：默认开启，当 MT5 终端在线且开关启用时，定时增量抓取最新订单；关闭开关可预防自动同步
-  useEffect(() => {
-    if (!liveOrderSync || !mt5Status?.connected) return;
-
-    const interval = setInterval(async () => {
-      try {
-        const range = getRangeConfig(rangePreset, customStartDate, customEndDate);
-        const res = await syncMT5Trades({
-          startDate: range.startDate,
-          endDate: range.endDate,
-          all: range.all,
-          days: (range as any).days,
-          limit: 1000,
-        });
-        if (res && res.count > 0) {
-          setSuccessMessage(`[实时增量同步] 自动检测到并成功入库 ${res.count} 笔最新平仓交易！`);
-          onUploadSuccess();
-        }
-      } catch {
-        // 静默捕获后台自动轮询的错误
-      }
-    }, 45000);
-
-    return () => clearInterval(interval);
-  }, [liveOrderSync, mt5Status?.connected, rangePreset, customStartDate, customEndDate, onUploadSuccess]);
-
-  const fetchMt5Status = async () => {
-    try {
-      setLoadingStatus(true);
-      const data = await getMT5Status();
-      setMt5Status(data);
-    } catch {
-      setMt5Status({ connected: false });
-    } finally {
-      setLoadingStatus(false);
-    }
-  };
 
   const fetchEAToken = async () => {
     try {
@@ -246,37 +118,6 @@ const CSVUploader: React.FC<CSVUploaderProps> = ({ onUploadSuccess }) => {
       setError(err.response?.data?.message || '文件上传与解析失败，请检查文件格式。');
     } finally {
       setUploading(false);
-    }
-  };
-
-  const handleMT5Sync = async () => {
-    setSyncing(true);
-    setError(null);
-    setSuccessMessage(null);
-
-    const range = getRangeConfig(rangePreset, customStartDate, customEndDate);
-
-    try {
-      const res = await syncMT5Trades({
-        startDate: range.startDate,
-        endDate: range.endDate,
-        all: range.all,
-        days: (range as any).days,
-        limit: 3000,
-      });
-
-      const msg = res.message || (res.count > 0 ? `成功从 MT5 同步导入 ${res.count} 笔交易！` : '所有交易已是最新的，无新增订单。');
-      setSuccessMessage(msg);
-      onUploadSuccess({
-        count: res.count,
-        skippedCount: res.skippedCount,
-        message: msg,
-        platform: 'MT5',
-      });
-    } catch (err: any) {
-      setError(err.message || '同步 MT5 交易失败，请确保本地 MT5 终端正在运行并允许交易接口。');
-    } finally {
-      setSyncing(false);
     }
   };
 
@@ -407,23 +248,12 @@ const CSVUploader: React.FC<CSVUploaderProps> = ({ onUploadSuccess }) => {
             </span>
           </h2>
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-            支持 MT5 终端直连、MQL EA 自动直推（订单+K线）及全格式离线报表导入
+            支持 MQL EA 自动实时直推（订单+K线）及全格式离线报表导入
           </p>
         </div>
 
         {/* Tab 切换 */}
         <div className="flex flex-wrap space-x-1 mt-3 sm:mt-0 bg-gray-200 dark:bg-navy-800 p-1 rounded-lg">
-          <button
-            onClick={() => { setActiveTab('mt5'); setError(null); setSuccessMessage(null); }}
-            className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors flex items-center space-x-1.5 ${
-              activeTab === 'mt5'
-                ? 'bg-white dark:bg-navy-700 text-purple-600 dark:text-purple-400 shadow-sm'
-                : 'text-gray-600 dark:text-gray-400 hover:text-gray-900'
-            }`}
-          >
-            <Laptop className="w-3.5 h-3.5" />
-            <span>本地 MT5 直连</span>
-          </button>
           <button
             onClick={() => { setActiveTab('ea'); setError(null); setSuccessMessage(null); fetchEAToken(); }}
             className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors flex items-center space-x-1.5 ${
@@ -449,171 +279,7 @@ const CSVUploader: React.FC<CSVUploaderProps> = ({ onUploadSuccess }) => {
         </div>
       </div>
 
-      {/* Tab 1: MT5 本地直连 */}
-      {activeTab === 'mt5' && (
-        <div className="space-y-4">
-          <div className="bg-white dark:bg-navy-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700 flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div className="flex items-start space-x-3">
-              <div className={`mt-0.5 p-2 rounded-full ${mt5Status?.connected ? 'bg-green-100 text-green-600 dark:bg-green-900/40 dark:text-green-400' : 'bg-amber-100 text-amber-600 dark:bg-amber-900/40 dark:text-amber-400'}`}>
-                {mt5Status?.connected ? <CheckCircle2 className="w-5 h-5" /> : <AlertCircle className="w-5 h-5" />}
-              </div>
-              <div>
-                <div className="flex items-center space-x-2">
-                  <span className="font-semibold text-sm text-gray-900 dark:text-white">
-                    {mt5Status?.connected ? 'MetaTrader 5 终端已连接' : '未检测到 MT5 终端或未启动'}
-                  </span>
-                  <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium ${
-                    mt5Status?.connected 
-                      ? 'bg-green-50 text-green-700 border border-green-200 dark:bg-green-900/30 dark:text-green-300' 
-                      : 'bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-900/30 dark:text-amber-300'
-                  }`}>
-                    {mt5Status?.connected ? 'Live API Connected' : 'Terminal Offline'}
-                  </span>
-                  <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-purple-50 text-purple-700 border border-purple-200 dark:bg-purple-900/30 dark:text-purple-300">
-                    时区: 自动转上海时间 (UTC+8)
-                  </span>
-                </div>
-                {mt5Status?.connected && mt5Status.account ? (
-                  <div className="mt-1 text-xs text-gray-500 dark:text-gray-400 space-x-3">
-                    <span>账号: <b>{mt5Status.account.login}</b> ({mt5Status.account.name || 'Trader'})</span>
-                    <span>服务器: <b>{mt5Status.account.server}</b></span>
-                    <span>余额: <b>${mt5Status.account.balance.toFixed(2)} {mt5Status.account.currency}</b></span>
-                    <span>品种数: <b>{mt5Status.symbolsTotal}</b></span>
-                  </div>
-                ) : (
-                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                    请打开本地 MT5 客户端（无需额外配置），系统将通过 Python MT5 协议直连读取您的平仓交易单。
-                  </p>
-                )}
-              </div>
-            </div>
-
-            <div className="flex items-center space-x-2 self-end md:self-auto">
-              <button
-                type="button"
-                onClick={fetchMt5Status}
-                disabled={loadingStatus}
-                className="p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-white rounded-lg hover:bg-gray-100 dark:hover:bg-navy-700 transition"
-                title="刷新 MT5 状态"
-              >
-                <RefreshCw className={`w-4 h-4 ${loadingStatus ? 'animate-spin' : ''}`} />
-              </button>
-            </div>
-          </div>
-
-          {/* 实时增量同步控制开关栏 */}
-          <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 bg-white dark:bg-navy-800 rounded-lg border border-gray-200 dark:border-gray-700 text-xs">
-            <label className="relative inline-flex items-center cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={liveOrderSync}
-                onChange={(e) => setLiveOrderSync(e.target.checked)}
-                className="sr-only peer"
-              />
-              <div className="w-8 h-4 bg-gray-300 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-600"></div>
-              <span className="ml-2.5 font-medium text-gray-800 dark:text-gray-200 flex items-center">
-                <span>实时增量同步开关</span>
-                {liveOrderSync ? (
-                  <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1 animate-pulse"></span>
-                    已开启（默认自动抓取增量订单）
-                  </span>
-                ) : (
-                  <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-gray-100 text-gray-600 dark:bg-navy-700 dark:text-gray-400 border border-gray-300 dark:border-gray-600">
-                    已关闭（已暂停实时同步，仅保留手动）
-                  </span>
-                )}
-              </span>
-            </label>
-
-            <span className="text-[11px] text-gray-500 dark:text-gray-400">
-              {liveOrderSync
-                ? '保持开启：有新成交时每 45 秒静默检测入库'
-                : '已停用实时同步，可预防不必要的自动更新'}
-            </span>
-          </div>
-
-          <div className="space-y-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-xs font-medium text-gray-700 dark:text-gray-300">同步范围:</span>
-              {[
-                { label: '本周', preset: 'week' as const },
-                { label: '本月', preset: 'month' as const },
-                { label: '今年', preset: 'year' as const },
-                { label: '全部', preset: 'all' as const },
-                { label: '最近 30 天', preset: 'days30' as const },
-                { label: '日历自选', preset: 'custom' as const },
-              ].map(opt => (
-                <button
-                  key={opt.preset}
-                  type="button"
-                  onClick={() => {
-                    setRangePreset(opt.preset);
-                    if (opt.preset !== 'custom' && opt.preset !== 'all') {
-                      const cfg = getRangeConfig(opt.preset, '', '');
-                      setCustomStartDate(cfg.startDate);
-                      setCustomEndDate(cfg.endDate);
-                    }
-                  }}
-                  className={`px-3 py-1.5 text-xs rounded-md border transition-all ${
-                    rangePreset === opt.preset
-                      ? 'border-purple-600 bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300 font-semibold shadow-sm'
-                      : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-navy-800 text-gray-700 dark:text-gray-300 hover:bg-gray-100'
-                  }`}
-                >
-                  {opt.label}
-                </button>
-              ))}
-
-              <div className="ml-auto flex items-center space-x-3">
-                <span className="hidden sm:inline-flex items-center text-[11px] text-gray-400 dark:text-gray-500">
-                  <CheckCircle2 className="w-3.5 h-3.5 mr-1 text-emerald-500" />
-                  已开启智能防重 (增量同步)
-                </span>
-                <Button
-                  onClick={handleMT5Sync}
-                  disabled={syncing || !mt5Status?.connected}
-                  variant="gradient"
-                  className="text-xs py-2 px-4 shadow-md flex items-center space-x-1.5"
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin' : ''}`} />
-                  <span>{syncing ? '正在从 MT5 抓取...' : '一键同步 MT5 交易到日志'}</span>
-                </Button>
-              </div>
-            </div>
-
-            {/* 当前选中范围提示与交互式日历范围选择器 */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs bg-gray-100/70 dark:bg-navy-900/40 px-3.5 py-2.5 rounded-lg border border-gray-200/70 dark:border-gray-700/60">
-              <div className="flex items-center space-x-2 text-gray-600 dark:text-gray-400">
-                <Calendar className="w-4 h-4 text-purple-600 dark:text-purple-400 flex-shrink-0" />
-                <span>目标范围：</span>
-                <span className="font-semibold text-purple-700 dark:text-purple-300">
-                  {getRangeConfig(rangePreset, customStartDate, customEndDate).dateLabel}
-                </span>
-              </div>
-
-              {/* 现代双月份弹出式日历选择器 */}
-              <div className="flex items-center space-x-2 self-start sm:self-auto">
-                <span className="text-gray-500 dark:text-gray-400 text-xs hidden md:inline">日历选择：</span>
-                <DateRangePicker
-                  startDate={rangePreset === 'all' ? '' : customStartDate}
-                  endDate={rangePreset === 'all' ? '' : customEndDate}
-                  onChange={(start, end) => {
-                    setCustomStartDate(start);
-                    setCustomEndDate(end);
-                    setRangePreset('custom');
-                  }}
-                  onClear={() => {
-                    setRangePreset('all');
-                  }}
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Tab 2: MQL EA 自动直推 */}
+      {/* Tab 1: MQL EA 自动直推 */}
       {activeTab === 'ea' && (
         <div className="space-y-4">
           <div className="bg-white dark:bg-navy-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
@@ -762,7 +428,7 @@ const CSVUploader: React.FC<CSVUploaderProps> = ({ onUploadSuccess }) => {
         </div>
       )}
 
-      {/* Tab 3: 报表文件全格式导入 */}
+      {/* Tab 2: 报表文件全格式导入 */}
       {activeTab === 'file' && (
         <div className="space-y-4">
           {/* 报表时区转换配置 */}

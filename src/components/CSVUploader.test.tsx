@@ -5,97 +5,93 @@ import * as api from '../services/api';
 
 vi.mock('../services/api', () => ({
   SERVER_BASE_URL: 'http://localhost:5000',
-  getMT5Status: vi.fn(),
-  syncMT5Trades: vi.fn(),
   getSyncToken: vi.fn(),
 }));
 
-describe('CSVUploader - Sync Range Options', () => {
+vi.mock('../services/realtime', () => ({
+  useRealtimeTrades: () => ({ isConnected: true }),
+}));
+
+describe('CSVUploader - Sync Center', () => {
   const onUploadSuccess = vi.fn();
 
   beforeEach(() => {
     vi.clearAllMocks();
-    (api.getMT5Status as any).mockResolvedValue({
-      connected: true,
-      account: {
-        login: 123456,
-        server: 'Demo-Server',
-        balance: 10000,
-        currency: 'USD',
+    (api.getSyncToken as any).mockResolvedValue('test-ea-token-1234567890abcdef1234567890abcdef');
+    Object.assign(navigator, {
+      clipboard: {
+        writeText: vi.fn().mockResolvedValue(undefined),
       },
-      symbolsTotal: 50,
     });
   });
 
-  it('renders default sync range options including 本周, 本月, 今年, 全部 and DateRangePicker', async () => {
+  it('renders default MQL EA direct push tab and displays token and endpoints', async () => {
     render(<CSVUploader onUploadSuccess={onUploadSuccess} />);
 
+    // Check title and subtitle
+    expect(screen.getByText('交易与行情同步中心（复盘与统计）')).toBeInTheDocument();
+    expect(screen.getByText(/支持 MQL EA 自动实时直推/)).toBeInTheDocument();
+
+    // Check tabs
+    expect(screen.getByText('MQL EA 自动直推 (订单+K线)')).toBeInTheDocument();
+    expect(screen.getByText('报表文件导入 (全格式)')).toBeInTheDocument();
+
+    // Check EA downloads
+    expect(screen.getByText('下载 MT5 EA (.mq5)')).toBeInTheDocument();
+    expect(screen.getByText('下载 MT4 EA (.mq4)')).toBeInTheDocument();
+
+    // Check API endpoint and Token
+    expect(screen.getByText('http://localhost:5000/api')).toBeInTheDocument();
     await waitFor(() => {
-      expect(screen.getByText('本周')).toBeInTheDocument();
+      expect(screen.getByText(/test-ea-token-1234567890abcdef/)).toBeInTheDocument();
     });
 
-    expect(screen.getByText('本周')).toBeInTheDocument();
-    expect(screen.getByText('本月')).toBeInTheDocument();
-    expect(screen.getByText('今年')).toBeInTheDocument();
-    expect(screen.getByText('全部')).toBeInTheDocument();
-    expect(screen.getByText('最近 30 天')).toBeInTheDocument();
-    expect(screen.getByText('日历自选')).toBeInTheDocument();
-    expect(screen.getByTitle('开始日期')).toBeInTheDocument();
-    expect(screen.getByTitle('结束日期')).toBeInTheDocument();
-
-    // Default is 本月
-    expect(screen.getByText(/（本月）/)).toBeInTheDocument();
+    // Check 4-step instructions
+    expect(screen.getByText('第一步：放置 EA 插件')).toBeInTheDocument();
+    expect(screen.getByText('第二步：开启 WebRequest')).toBeInTheDocument();
+    expect(screen.getByText('第三步：挂载并填入密钥')).toBeInTheDocument();
+    expect(screen.getByText('第四步：全自动双向同步')).toBeInTheDocument();
   });
 
-  it('switches to 本周, 今年, 全部 and updates preview', async () => {
+  it('switches to report file upload tab and renders format cards', async () => {
     render(<CSVUploader onUploadSuccess={onUploadSuccess} />);
 
     await waitFor(() => {
-      expect(screen.getByText('本周')).toBeInTheDocument();
+      expect(screen.getByText(/test-ea-token-1234567890abcdef/)).toBeInTheDocument();
     });
 
-    // Click 本周
-    fireEvent.click(screen.getByText('本周'));
-    expect(screen.getByText(/（本周）/)).toBeInTheDocument();
+    // Click file upload tab
+    fireEvent.click(screen.getByText('报表文件导入 (全格式)'));
 
-    // Click 今年
-    fireEvent.click(screen.getByText('今年'));
-    expect(screen.getByText(/（今年）/)).toBeInTheDocument();
+    // Check format items
+    expect(screen.getByText('MT4 报表')).toBeInTheDocument();
+    expect(screen.getByText('MT5 HTML 报告')).toBeInTheDocument();
+    expect(screen.getByText('MT5 XML / Excel')).toBeInTheDocument();
+    expect(screen.getByText('CSV / TSV 数据')).toBeInTheDocument();
 
-    // Click 全部
-    fireEvent.click(screen.getByText('全部'));
-    expect(screen.getByText('全量历史平仓订单')).toBeInTheDocument();
+    // Check sample download buttons
+    expect(screen.getByText('MT5 HTML')).toBeInTheDocument();
+    expect(screen.getByText('MT5 XML')).toBeInTheDocument();
+    expect(screen.getByText('MT4 HTML')).toBeInTheDocument();
+    expect(screen.getByText('MT5 CSV')).toBeInTheDocument();
+    expect(screen.getByText('TradeZen 标准')).toBeInTheDocument();
+
+    // Check upload button
+    expect(screen.getByText('开始导入报表')).toBeInTheDocument();
   });
 
-  it('allows selecting custom dates via DateRangePicker calendar', async () => {
+  it('supports copying api endpoint and ea token to clipboard', async () => {
     render(<CSVUploader onUploadSuccess={onUploadSuccess} />);
 
     await waitFor(() => {
-      expect(screen.getByTitle('开始日期')).toBeInTheDocument();
+      expect(screen.getByText(/test-ea-token-1234567890abcdef/)).toBeInTheDocument();
     });
 
-    const startInput = screen.getByTitle('开始日期');
-    fireEvent.change(startInput, { target: { value: '2026-10-01' } });
-    expect(screen.getByText(/（自定义区间）/)).toBeInTheDocument();
-  });
+    const copyButtons = screen.getAllByRole('button', { name: /复制/ });
+    expect(copyButtons.length).toBeGreaterThan(0);
 
-  it('toggles real-time incremental sync switch', async () => {
-    render(<CSVUploader onUploadSuccess={onUploadSuccess} />);
-
-    await waitFor(() => {
-      expect(screen.getByText('实时增量同步开关')).toBeInTheDocument();
-    });
-
-    // Default is ON
-    expect(screen.getByText(/已开启（默认自动抓取增量订单）/)).toBeInTheDocument();
-
-    // Toggle switch to OFF
-    const toggleCheckbox = screen.getByRole('checkbox');
-    expect(toggleCheckbox).toBeChecked();
-    fireEvent.click(toggleCheckbox);
-
-    // Now should be OFF
-    expect(screen.getByText(/已关闭（已暂停实时同步/)).toBeInTheDocument();
-    expect(toggleCheckbox).not.toBeChecked();
+    // Click first copy button (URL)
+    fireEvent.click(copyButtons[0]);
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith('http://localhost:5000/api');
   });
 });
