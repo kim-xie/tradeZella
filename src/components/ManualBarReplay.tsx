@@ -627,12 +627,12 @@ export default function ManualBarReplay({
   const [mousePos, setMousePos] = useState<{ x: number; y: number } | null>(null);
 
   // Indicators State (TradingView-Lite 技术指标)
-  const [showMa20, setShowMa20] = useState<boolean>(true);
+  const [showMa20, setShowMa20] = useState<boolean>(false);
   const [showMa50, setShowMa50] = useState<boolean>(false);
   const [showMa200, setShowMa200] = useState<boolean>(false);
   const [showEma9, setShowEma9] = useState<boolean>(false);
   const [showBollinger, setShowBollinger] = useState<boolean>(false);
-  const [showVolume, setShowVolume] = useState<boolean>(true);
+  const [showVolume, setShowVolume] = useState<boolean>(false);
   const [showRsi, setShowRsi] = useState<boolean>(false);
   const [showIndicatorMenu, setShowIndicatorMenu] = useState<boolean>(false);
 
@@ -3189,26 +3189,35 @@ export default function ManualBarReplay({
 
               {/* Indicators Menu Button */}
               <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setShowIndicatorMenu(!showIndicatorMenu)}
-                  className={`px-2 py-1 rounded-lg text-xs font-semibold flex items-center space-x-1 transition ${
-                    (showMa20 || showMa50 || showMa200 || showEma9 || showBollinger || showVolume || showRsi)
-                      ? 'bg-[#2962ff]/20 text-[#2962ff] border border-[#2962ff]/40'
-                      : 'bg-white dark:bg-[#131722] hover:bg-gray-100 dark:hover:bg-[#2a2e39] text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-[#2a2e39]'
-                  }`}
-                  title="技术指标配置：MA移动均线、EMA、布林带、成交量柱、RSI等"
-                >
-                  <Activity className="w-3.5 h-3.5 text-[#2962ff]" />
-                  <span>指标</span>
-                  <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-[#2962ff] text-white font-mono">
-                    {[showMa20, showMa50, showMa200, showEma9, showBollinger, showVolume, showRsi].filter(Boolean).length}
-                  </span>
-                  <ChevronDown className="w-3 h-3 text-gray-400" />
-                </button>
+                {(() => {
+                  const activeIndicatorCount = [showMa20, showMa50, showMa200, showEma9, showBollinger, showVolume, showRsi].filter(Boolean).length;
+                  return (
+                    <button
+                      type="button"
+                      onClick={() => setShowIndicatorMenu(!showIndicatorMenu)}
+                      className={`px-2 py-1 rounded-lg text-xs font-semibold flex items-center space-x-1 transition ${
+                        activeIndicatorCount > 0
+                          ? 'bg-[#2962ff]/20 text-[#2962ff] border border-[#2962ff]/40'
+                          : 'bg-white dark:bg-[#131722] hover:bg-gray-100 dark:hover:bg-[#2a2e39] text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-[#2a2e39]'
+                      }`}
+                      title="技术指标配置：MA移动均线、EMA、布林带、成交量柱、RSI等"
+                    >
+                      <Activity className={`w-3.5 h-3.5 ${activeIndicatorCount > 0 ? 'text-[#2962ff]' : 'text-gray-500 dark:text-gray-400'}`} />
+                      <span>指标</span>
+                      {activeIndicatorCount > 0 && (
+                        <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-[#2962ff] text-white font-mono">
+                          {activeIndicatorCount}
+                        </span>
+                      )}
+                      <ChevronDown className="w-3 h-3 text-gray-400" />
+                    </button>
+                  );
+                })()}
 
                 {showIndicatorMenu && (
-                  <div className="absolute left-0 mt-1 w-56 bg-white dark:bg-[#1e222d] rounded-xl shadow-2xl border border-gray-200 dark:border-[#2a2e39] p-2.5 z-50 text-xs space-y-1.5 text-gray-800 dark:text-gray-200">
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setShowIndicatorMenu(false)} />
+                    <div className="absolute left-0 mt-1 w-56 bg-white dark:bg-[#1e222d] rounded-xl shadow-2xl border border-gray-200 dark:border-[#2a2e39] p-2.5 z-50 text-xs space-y-1.5 text-gray-800 dark:text-gray-200">
                     <div className="font-semibold text-gray-500 dark:text-gray-400 text-[10px] uppercase px-1 pb-1 border-b border-gray-200 dark:border-[#2a2e39]">
                       技术指标叠加 (TradingView Indicators)
                     </div>
@@ -3262,7 +3271,8 @@ export default function ManualBarReplay({
                       <input type="checkbox" checked={showRsi} onChange={(e) => setShowRsi(e.target.checked)} className="rounded text-[#2962ff] bg-white dark:bg-[#131722] border-gray-300 dark:border-[#2a2e39]" />
                     </label>
                   </div>
-                )}
+                </>
+              )}
               </div>
 
               {/* Reload Button */}
