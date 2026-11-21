@@ -225,8 +225,10 @@ export const TradeExecutionChart: React.FC<TradeExecutionChartProps> = ({
         }
       }
 
+      // 1. Query candles using normalized symbol (e.g. USOIL, NAS100, XAUUSD) which backend maps to MT5 broker aliases
+      const querySymbol = cleanSymbol || symbol;
       let res = await fetchCandles({
-        symbol: cleanSymbol,
+        symbol: querySymbol,
         timeframe,
         count: countParam,
         start: startParam,
@@ -234,11 +236,11 @@ export const TradeExecutionChart: React.FC<TradeExecutionChartProps> = ({
         price: entryPrice || exitPrice,
       });
 
-      // If cleanSymbol didn't return candles and original symbol is different, try original symbol as fallback
-      if ((!res.candles || res.candles.length === 0) && cleanSymbol !== symbol && symbol) {
+      // If querySymbol didn't return candles and cleanSymbol is different, try cleanSymbol as fallback
+      if ((!res.candles || res.candles.length === 0) && cleanSymbol !== querySymbol) {
         try {
           const fallbackRes = await fetchCandles({
-            symbol,
+            symbol: cleanSymbol,
             timeframe,
             count: countParam,
             start: startParam,
@@ -272,13 +274,13 @@ export const TradeExecutionChart: React.FC<TradeExecutionChartProps> = ({
   const formattedData = useMemo(() => {
     if (!candles || candles.length === 0) return [];
     const mapped = candles.map((c, i) => {
-      // Prioritize string parsing with parseTimeToUTCSeconds for exact second-level alignment
+      // Prioritize timestamp integer from backend/MT5 for exact second-level alignment
       let t: number | null = null;
-      if (c.time) {
-        t = parseTimeToUTCSeconds(c.time);
-      }
-      if (!t && typeof c.timestamp === 'number' && !isNaN(c.timestamp) && c.timestamp > 0) {
+      if (typeof c.timestamp === 'number' && !isNaN(c.timestamp) && c.timestamp > 0) {
         t = c.timestamp > 1e11 ? Math.floor(c.timestamp / 1000) : c.timestamp;
+      }
+      if (!t && c.time) {
+        t = parseTimeToUTCSeconds(c.time);
       }
       if (!t || isNaN(t)) {
         t = 1700000000 + i * 300;
@@ -336,14 +338,20 @@ export const TradeExecutionChart: React.FC<TradeExecutionChartProps> = ({
         }
       }
 
-      // Fine-tune: if adjacent bars (within 2 bars) touch the target price, snap to the exact bar
+      // Fine-tune: check if closestIdx touches targetPrice first
       if (targetPrice && targetPrice > 0) {
-        const startScan = Math.max(0, closestIdx - 2);
-        const endScan = Math.min(formattedData.length - 1, closestIdx + 2);
-        for (let i = startScan; i <= endScan; i++) {
-          const bar = formattedData[i];
-          if (targetPrice >= bar.low && targetPrice <= bar.high) {
-            return i;
+        const currentBar = formattedData[closestIdx];
+        if (currentBar && targetPrice >= currentBar.low && targetPrice <= currentBar.high) {
+          return closestIdx;
+        }
+        // If current bar doesn't touch, scan closest neighboring bars in order of distance (+1, -1, +2, -2)
+        for (const offset of [1, -1, 2, -2]) {
+          const testIdx = closestIdx + offset;
+          if (testIdx >= 0 && testIdx < formattedData.length) {
+            const bar = formattedData[testIdx];
+            if (targetPrice >= bar.low && targetPrice <= bar.high) {
+              return testIdx;
+            }
           }
         }
       }
@@ -374,12 +382,40 @@ export const TradeExecutionChart: React.FC<TradeExecutionChartProps> = ({
     };
   }, [formattedData, entryTime, exitTime, entryPrice, exitPrice]);
 
-  // Synchronize initial replay index when switching to replay mode or when data loads
+  // Track last viewed replay time (in seconds) so switching timeframes maintains the exact chronological replay position
+  const lastReplayTimeRef = useRef<number | null>(null);
+
+  // Update lastReplayTimeRef when replayIndex or formattedData changes
+  useEffect(() => {
+    if (formattedData.length > 0 && formattedData[replayIndex]) {
+      const t = formattedData[replayIndex].time as number;
+      if (typeof t === 'number' && !isNaN(t)) {
+        lastReplayTimeRef.current = t;
+      }
+    }
+  }, [replayIndex, formattedData]);
+
+  // Synchronize replay index when switching to replay mode, switching timeframe, or when data loads
   useEffect(() => {
     if (viewMode === 'replay' && formattedData.length > 0) {
-      setReplayIndex(preEntryIndex);
+      if (lastReplayTimeRef.current !== null) {
+        // Map previous timestamp to the closest bar in the new timeframe
+        const targetTs = lastReplayTimeRef.current;
+        let closestIdx = 0;
+        let minDiff = Infinity;
+        for (let i = 0; i < formattedData.length; i++) {
+          const diff = Math.abs((formattedData[i].time as number) - targetTs);
+          if (diff < minDiff) {
+            minDiff = diff;
+            closestIdx = i;
+          }
+        }
+        setReplayIndex(Math.max(preEntryIndex, Math.min(postExitIndex, closestIdx)));
+      } else {
+        setReplayIndex(preEntryIndex);
+      }
     }
-  }, [viewMode, preEntryIndex, formattedData.length]);
+  }, [viewMode, timeframe, preEntryIndex, postExitIndex, formattedData]);
 
   // Replay playback timer loop
   useEffect(() => {
@@ -893,8 +929,10 @@ export const TradeExecutionChart: React.FC<TradeExecutionChartProps> = ({
         const toIdx = Math.min(formattedData.length - 1, exitBarIndex + 20);
         if (toIdx > fromIdx && typeof chart.timeScale().setVisibleLogicalRange === 'function') {
           chart.timeScale().setVisibleLogicalRange({ from: fromIdx, to: toIdx });
+        } else if (typeof chart.timeScale().fitContent === 'function') {
+          chart.timeScale().fitContent();
         }
-      } else if (isPlaying && typeof chart.timeScale().scrollToPosition === 'function') {
+      } else if (viewMode === 'replay' && typeof chart.timeScale().scrollToPosition === 'function') {
         chart.timeScale().scrollToPosition(0, false);
       }
     }

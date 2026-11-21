@@ -273,4 +273,35 @@ describe('TradeExecutionChart - Replay & Timeframe', () => {
     fireEvent.click(jumpExitBtn);
     expect(jumpExitBtn.className).toContain('font-bold');
   });
+
+  it('re-fetches candles and maintains chronological replay position when switching timeframe', async () => {
+    const fetchSpy = vi.spyOn(api, 'fetchCandles');
+
+    render(
+      <TradeExecutionChart
+        symbol="美国原油 - 现货."
+        direction="sell"
+        entryPrice={85.628}
+        exitPrice={84.670}
+        entryTime="2026-11-18 02:48:39"
+        exitTime="2026-11-18 09:13:45"
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.queryByText(/正在拉取/)).not.toBeInTheDocument();
+    });
+
+    const m1Btn = screen.getByRole('button', { name: 'M1' });
+    fireEvent.click(m1Btn);
+
+    await waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          symbol: 'USOIL',
+          timeframe: 'M1',
+        })
+      );
+    });
+  });
 });
