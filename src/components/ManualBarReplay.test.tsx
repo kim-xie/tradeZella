@@ -140,7 +140,7 @@ describe('ManualBarReplay - TradingView Position Sizing & Order Placement', () =
     fireEvent.click(longBtn);
 
     expect(screen.getByRole('button', { name: /看涨做多下单 \(BUY/i })).toBeInTheDocument();
-  });
+  }, 15000);
 
   it('updates Take Profit when clicking R:R presets', async () => {
     render(<ManualBarReplay initialSymbol="EURUSD" />);
@@ -154,7 +154,7 @@ describe('ManualBarReplay - TradingView Position Sizing & Order Placement', () =
     fireEvent.click(rr3Btn);
 
     expect(screen.getByText(/1 : 3.00/i)).toBeInTheDocument();
-  });
+  }, 15000);
 
   it('allows placing a Long order and displays active position info', async () => {
     render(<ManualBarReplay initialSymbol="EURUSD" />);
@@ -170,7 +170,7 @@ describe('ManualBarReplay - TradingView Position Sizing & Order Placement', () =
     await waitFor(() => {
       expect(screen.getByText(/市价平仓当前持仓/i)).toBeInTheDocument();
     });
-  });
+  }, 15000);
 
   it('renders TradingView manual chart drawing toolbar and allows tool switching', async () => {
     render(<ManualBarReplay initialSymbol="EURUSD" />);

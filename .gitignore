@@ -30,3 +30,5 @@ backend/.env
 database.sqlite
 .history
 *.tsbuildinfo
+__pycache__/
+*.pyc

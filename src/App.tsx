@@ -59,7 +59,7 @@ function AppContent() {
     <div className="min-h-screen bg-white dark:bg-navy-900">
       {isLoading && <Loader />}
       <Navbar />
-      <div className="container mx-auto p-4 pt-[65px]">
+      <div className={location.pathname.startsWith('/features/backtesting') ? 'w-full px-1 sm:px-3 pt-[65px]' : 'container mx-auto p-4 pt-[65px]'}>
         <Routes>
           <Route path="/" element={<DashboardPage />} />
           <Route path="/home" element={

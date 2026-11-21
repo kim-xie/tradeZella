@@ -36,7 +36,7 @@ export default function BacktestingPage() {
   const defaultPopular = ['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', '纳斯达克100', 'BTCUSD'];
 
   return (
-    <FeaturePageLayout hideHeader>
+    <FeaturePageLayout hideHeader fullWidth>
       <ErrorBoundary fallbackTitle="K线复盘与回测引擎加载异常">
         <ManualBarReplay 
           initialSymbol="EURUSD"
