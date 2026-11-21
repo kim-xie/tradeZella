@@ -122,17 +122,34 @@ const StatsPage: React.FC = () => {
     fetchTrades();
   });
 
+  // 交易日切日模式：'trading' (美盘 06:00 切日，与 MT5 服务器结算一致) vs 'natural' (北京时间 00:00 自然日)
+  const [cutoffMode, setCutoffMode] = useState<'trading' | 'natural'>(() => {
+    try {
+      return localStorage.getItem('tradezella_trading_day_cutoff') === '0' ? 'natural' : 'trading';
+    } catch {
+      return 'trading';
+    }
+  });
+
+  const handleCutoffChange = (mode: 'trading' | 'natural') => {
+    setCutoffMode(mode);
+    try {
+      localStorage.setItem('tradezella_trading_day_cutoff', mode === 'trading' ? '6' : '0');
+    } catch {}
+  };
+
   // Group trades by trading day: "YYYY-MM-DD"
   const tradesByDay = useMemo(() => {
     const map: Record<string, Trade[]> = {};
+    const cutoff = cutoffMode === 'trading' ? 6 : 0;
     trades.forEach((trade) => {
-      const dateStr = getTradeTradingDate(trade);
+      const dateStr = getTradeTradingDate(trade, cutoff);
       if (!dateStr || dateStr.length < 10) return;
       if (!map[dateStr]) map[dateStr] = [];
       map[dateStr].push(trade);
     });
     return map;
-  }, [trades]);
+  }, [trades, cutoffMode]);
 
   // Calendar Days (Monday first)
   const calendarRows = useMemo<(string | null)[][]>(() => {
@@ -247,14 +264,34 @@ const StatsPage: React.FC = () => {
               )}
             </div>
 
-            {/* Right: Cutoff Badge & Next Month Arrow */}
+            {/* Right: Cutoff Mode Switch & Next Month Arrow */}
             <div className="flex items-center space-x-2">
               <div
-                className="hidden md:flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-purple-50/70 dark:bg-purple-950/40 text-[11px] text-purple-700 dark:text-purple-300 border border-purple-200/60 dark:border-purple-800/50 cursor-help"
-                title="全球交易日切日标准：北京时间 00:00~06:00 之间的跨夜美盘交易统一归属前一交易日（周五晚间美盘统一归属周五交易日，周六休市）"
+                className="flex items-center bg-gray-100/90 dark:bg-navy-950/70 p-0.5 rounded-xl border border-gray-200/80 dark:border-white/10 text-[11px] font-mono shadow-2xs"
+                title="切换切日基准：【交易日】以美盘闭市 06:00 为界（对齐 MT5 结算）；【自然日】以北京时间 00:00 为界"
               >
-                <span className="w-1.5 h-1.5 rounded-full bg-purple-500 animate-pulse"></span>
-                <span className="font-mono">交易日切日: 06:00</span>
+                <button
+                  type="button"
+                  onClick={() => handleCutoffChange('trading')}
+                  className={`px-2 py-1 rounded-lg transition-all ${
+                    cutoffMode === 'trading'
+                      ? 'bg-purple-600 text-white font-bold shadow-xs'
+                      : 'text-gray-500 hover:text-gray-900 dark:hover:text-white'
+                  }`}
+                >
+                  交易日 (06:00)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleCutoffChange('natural')}
+                  className={`px-2 py-1 rounded-lg transition-all ${
+                    cutoffMode === 'natural'
+                      ? 'bg-purple-600 text-white font-bold shadow-xs'
+                      : 'text-gray-500 hover:text-gray-900 dark:hover:text-white'
+                  }`}
+                >
+                  自然日 (00:00)
+                </button>
               </div>
 
               <button
@@ -528,6 +565,7 @@ const StatsPage: React.FC = () => {
           trades={selectedDay ? tradesByDay[selectedDay] || [] : []}
           onClose={() => setSelectedDay(null)}
           onOpenChart={(trade) => setChartModalTrade(trade)}
+          cutoffMode={cutoffMode}
         />
 
         {/* 4. Week Summary Modal */}

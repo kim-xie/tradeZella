@@ -12,6 +12,7 @@ import TradeRatingModal from '../components/TradeRatingModal';
 import TradeRatingAnimationOverlay, { RatingAnimationData } from '../components/TradeRatingAnimationOverlay';
 import { getUserTrades, updateTrade, clearAllTrades, SERVER_BASE_URL as API_BASE_URL } from '../services/api';
 import { useRealtimeTrades, RealtimeTradeEvent } from '../services/realtime';
+import { getTradeTradingDate } from '../components/calendar/calendarUtils';
 
 interface Trade {
   id: number;
@@ -487,6 +488,15 @@ const TradesPage: React.FC = () => {
     const startDate = new Date();
     if (filter === 'today') {
       startDate.setHours(0, 0, 0, 0);
+    } else if (filter === 'yesterday') {
+      startDate.setDate(now.getDate() - 1);
+      startDate.setHours(0, 0, 0, 0);
+      const pad = (n: number) => String(n).padStart(2, '0');
+      const yStr = `${startDate.getFullYear()}-${pad(startDate.getMonth() + 1)}-${pad(startDate.getDate())}`;
+      setSearchEntryDateStart(yStr);
+      setSearchEntryDateEnd(yStr);
+      setQuickFilter(filter);
+      return;
     } else if (filter === 'week') {
       const day = now.getDay();
       const diff = now.getDate() - day + (day === 0 ? -6 : 1);
@@ -571,8 +581,12 @@ const TradesPage: React.FC = () => {
         const entryDate = trade.entry_time || trade.createdat;
         if (!entryDate) return false;
         const entryDateStr = entryDate.substring(0, 10);
-        if (searchEntryDateStart && entryDateStr < searchEntryDateStart) return false;
-        if (searchEntryDateEnd && entryDateStr > searchEntryDateEnd) return false;
+        const tradingDateStr = getTradeTradingDate(trade as any);
+        const inNatural = (!searchEntryDateStart || entryDateStr >= searchEntryDateStart) &&
+                          (!searchEntryDateEnd || entryDateStr <= searchEntryDateEnd);
+        const inTrading = (!searchEntryDateStart || tradingDateStr >= searchEntryDateStart) &&
+                          (!searchEntryDateEnd || tradingDateStr <= searchEntryDateEnd);
+        if (!inNatural && !inTrading) return false;
       }
       if (searchStatus) {
         const isCompleted = !!trade.exitprice;
@@ -903,6 +917,7 @@ const TradesPage: React.FC = () => {
             <div className="h-[38px] flex items-center gap-1 bg-gray-100/80 dark:bg-[#070a13] rounded-xl p-1 border border-gray-200/80 dark:border-white/10 shadow-2xs">
               {[
                 { value: 'today', label: '今日' },
+                { value: 'yesterday', label: '昨日' },
                 { value: 'week', label: '本周' },
                 { value: 'month', label: '本月' },
                 { value: 'year', label: '今年' },

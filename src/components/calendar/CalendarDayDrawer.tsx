@@ -38,6 +38,7 @@ interface CalendarDayDrawerProps {
   trades: Trade[];
   onClose: () => void;
   onOpenChart: (trade: Trade) => void;
+  cutoffMode?: 'trading' | 'natural';
 }
 
 const QUICK_TAGS = [
@@ -56,6 +57,7 @@ export const CalendarDayDrawer: React.FC<CalendarDayDrawerProps> = ({
   trades,
   onClose,
   onOpenChart,
+  cutoffMode = 'trading',
 }) => {
   const [dailyNote, setDailyNote] = useState('');
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
@@ -310,9 +312,12 @@ export const CalendarDayDrawer: React.FC<CalendarDayDrawerProps> = ({
           {/* Day Trades List Table */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <h3 className="text-xs font-bold text-gray-800 dark:text-gray-200 flex items-center space-x-1.5">
+              <h3 className="text-xs font-bold text-gray-800 dark:text-gray-200 flex items-center space-x-2">
                 <Layers className="w-4 h-4 text-purple-500" />
                 <span>当日执行订单明细 ({trades.length} 笔)</span>
+                <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-normal bg-purple-50 dark:bg-purple-950/60 text-purple-600 dark:text-purple-300 border border-purple-200/80 dark:border-purple-800/60">
+                  {cutoffMode === 'natural' ? '00:00 自然日' : '06:00 美盘交易日'}
+                </span>
               </h3>
               <span className="text-[11px] text-gray-400">点击「K线打点」查看入出场位置</span>
             </div>
