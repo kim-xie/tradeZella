@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import Button from './common/Button';
 import { createTrade, updateTrade, uploadScreenshot, deleteTrade, CreateTradeData, SERVER_BASE_URL as API_BASE_URL } from '../services/api';
-import { X, Upload, Trash2, Star, ChevronLeft, ChevronRight, ChevronDown, Layers, Target, Compass, FileText } from 'lucide-react';
+import { X, Upload, Trash2, Star, ChevronLeft, ChevronRight, ChevronDown, Layers, Target, Compass, FileText, Maximize2, Minimize2 } from 'lucide-react';
 import DateTimePicker from './common/DateTimePicker';
 import Select from './common/Select';
 interface Trade {
@@ -90,6 +91,7 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, o
     const [symbolSuggestions, setSymbolSuggestions] = useState<string[]>([]);
     const [showSymbolDropdown, setShowSymbolDropdown] = useState(false);
     const [activeTab, setActiveTab] = useState<'all' | 'details' | 'strategy' | 'journal'>('all');
+    const [isMaximized, setIsMaximized] = useState(false);
     const symbolInputRef = useRef<HTMLInputElement>(null);
     const symbolDropdownRef = useRef<HTMLDivElement>(null);
 
@@ -106,6 +108,24 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, o
             };
         }
     }, [isOpen]);
+
+    // Handle Escape key to close drawer
+    useEffect(() => {
+        if (!isOpen) return;
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') {
+                if (lightboxImage) {
+                    setLightboxImage(null);
+                } else if (showDeleteConfirm) {
+                    setShowDeleteConfirm(false);
+                } else {
+                    onClose();
+                }
+            }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [isOpen, lightboxImage, showDeleteConfirm, onClose]);
 
     useEffect(() => {
         if (!isOpen) return;
@@ -462,7 +482,9 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, o
         }
     };
 
-    return (
+    if (typeof document === 'undefined') return null;
+
+    return createPortal(
         <>
             {/* Overlay */}
             <div
@@ -519,38 +541,76 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, o
                 </div>
             )}
 
-            {/* Drawer */}
-            <div
-                className={`fixed top-0 right-0 z-[1000] h-full w-full sm:w-[580px] md:w-[680px] lg:w-[760px] xl:w-[820px] max-w-full bg-white dark:bg-gray-800 shadow-2xl transform transition-transform duration-300 ease-in-out ${isOpen ? 'translate-x-0' : 'translate-x-full'
-                    }`}
+            {/* Drawer Panel */}
+            <aside
+                aria-label={isEditMode ? '编辑交易记录抽屉' : '新建交易记录抽屉'}
+                className={`fixed top-0 right-0 bottom-0 z-[1000] ${
+                    isMaximized ? 'w-full' : 'w-full md:w-3/5 lg:w-1/2'
+                } bg-white dark:bg-[#0f172a] border-l border-gray-200 dark:border-white/10 shadow-2xl flex flex-col overflow-hidden transition-all duration-300 ease-in-out ${
+                    isOpen ? 'translate-x-0' : 'translate-x-full pointer-events-none'
+                }`}
                 onWheel={(e) => e.stopPropagation()}
             >
                 <div className="flex flex-col h-full overflow-hidden">
                     {/* Header */}
-                    <div className="flex justify-between items-center px-6 py-4 border-b border-gray-100 dark:border-gray-700/80 shrink-0 select-none bg-white dark:bg-gray-800">
-                        <div className="flex items-center space-x-3">
-                            <div className="p-2 bg-purple-50 dark:bg-purple-950/50 text-purple-600 dark:text-purple-400 rounded-xl">
-                                <Layers className="w-5 h-5" />
+                    <div
+                        className="p-4 sm:p-5 border-b border-gray-200 dark:border-white/10 flex items-center justify-between bg-gray-50/60 dark:bg-navy-950/60 shrink-0 select-none"
+                        onTouchMove={(e) => e.preventDefault()}
+                    >
+                        <div>
+                            <div className="flex items-center space-x-2 text-xs text-gray-500 dark:text-gray-400 font-medium mb-1">
+                                <Layers className="w-3.5 h-3.5 text-purple-500" />
+                                <span>{isEditMode ? '订单档案编辑 (Trade Order & Journal)' : '手动记录与风控录入 (New Trade Journal)'}</span>
                             </div>
-                            <div>
-                                <h2 className="text-lg font-bold text-gray-900 dark:text-white">
-                                    {isEditMode ? '编辑交易记录' : '新建交易记录'}
-                                </h2>
-                                <p className="text-xs text-gray-400 mt-0.5">
-                                    {isEditMode ? `正在修改订单 · ${formData.symbol || '未命名标的'}` : '规范记录交易执行、入场逻辑与心智情绪'}
-                                </p>
-                            </div>
+                            <h2 className="text-lg font-bold text-gray-900 dark:text-white flex items-center space-x-2">
+                                <span>{isEditMode ? '编辑交易记录' : '新建交易记录'}</span>
+                                {isEditMode && formData.symbol && (
+                                    <span className="text-xs font-normal font-mono text-purple-600 dark:text-purple-400">
+                                        ({formData.symbol})
+                                    </span>
+                                )}
+                            </h2>
                         </div>
-                        <button
-                            onClick={onClose}
-                            className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-                        >
-                            <X size={20} />
-                        </button>
+
+                        <div className="flex items-center space-x-2">
+                            {(() => {
+                                const p = calculatePnL();
+                                if (!p) return null;
+                                return (
+                                    <span
+                                        className={`px-3 py-1 rounded-full text-xs font-mono font-bold ${
+                                            p.pnl >= 0
+                                                ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-800'
+                                                : 'bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-400 border border-rose-300 dark:border-rose-800'
+                                        }`}
+                                    >
+                                        {p.pnl >= 0 ? '+' : ''}${p.pnl.toFixed(2)}
+                                    </span>
+                                );
+                            })()}
+                            <button
+                                type="button"
+                                onClick={() => setIsMaximized((prev) => !prev)}
+                                className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-200 dark:hover:bg-navy-800 transition"
+                                title={isMaximized ? '还原抽屉宽度' : '全屏铺满抽屉'}
+                                aria-label={isMaximized ? '还原抽屉宽度' : '全屏铺满抽屉'}
+                            >
+                                {isMaximized ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
+                            </button>
+                            <button
+                                type="button"
+                                onClick={onClose}
+                                className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-200 dark:hover:bg-navy-800 transition"
+                                title="Close drawer"
+                                aria-label="关闭抽屉"
+                            >
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
                     </div>
 
                     {/* Navigation Filter Tabs */}
-                    <div className="px-6 py-2.5 bg-gray-50/80 dark:bg-gray-900/40 border-b border-gray-100 dark:border-gray-700/60 flex items-center space-x-2 shrink-0 select-none overflow-x-auto no-scrollbar">
+                    <div className="px-6 py-2.5 bg-gray-50/80 dark:bg-navy-900/40 border-b border-gray-200 dark:border-white/10 flex items-center space-x-2 shrink-0 select-none overflow-x-auto no-scrollbar">
                         {[
                             { id: 'all' as const, label: '全部内容', icon: Layers },
                             { id: 'details' as const, label: '订单参数', icon: Target },
@@ -1142,7 +1202,7 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, o
                     </form>
 
                     {/* Footer */}
-                    <div className="flex items-center justify-between px-6 py-4 border-t border-gray-100 dark:border-gray-700/80 bg-gray-50/50 dark:bg-gray-800/80 shrink-0">
+                    <div className="flex items-center justify-between px-6 py-4 border-t border-gray-200 dark:border-white/10 bg-gray-50/60 dark:bg-navy-950/60 shrink-0">
                         <div>
                             {isEditMode && (
                                 <button
@@ -1216,7 +1276,7 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, o
                         </div>
                     )}
                 </div>
-            </div>
+            </aside>
 
             {/* Lightbox */}
             {lightboxImage && (
@@ -1266,7 +1326,8 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, o
                     />
                 </div>
             )}
-        </>
+        </>,
+        document.body
     );
 };
 

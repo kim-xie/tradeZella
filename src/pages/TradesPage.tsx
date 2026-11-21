@@ -1,4 +1,5 @@
 import TradeDrawer from '../components/TradeDrawer';
+import TradeDetailDrawer from '../components/TradeDetailDrawer';
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
@@ -361,10 +362,10 @@ const TradesPage: React.FC = () => {
   const [pageSize, setPageSize] = useState<number>(50);
   const navigate = useNavigate();
 
-  // Prevent background scrolling and hide root scrollbar while detail drawer or modals are open
+  // Prevent background scrolling and hide root scrollbar while modals are open
   useEffect(() => {
     const isAnyModalOpen = Boolean(
-      viewingTrade || chartModalTrade || lightboxImage || showClearModal || ratingModalTrade
+      chartModalTrade || lightboxImage || showClearModal || ratingModalTrade
     );
     if (!isAnyModalOpen || typeof document === 'undefined') return;
 
@@ -379,7 +380,6 @@ const TradesPage: React.FC = () => {
       document.documentElement.style.overflow = originalHtmlOverflow;
     };
   }, [
-    Boolean(viewingTrade),
     Boolean(chartModalTrade),
     Boolean(lightboxImage),
     Boolean(showClearModal),
@@ -1075,219 +1075,10 @@ const TradesPage: React.FC = () => {
       />
 
 
-      {viewingTrade && typeof document !== 'undefined' && createPortal(
-        <>
-          {/* Overlay */}
-          <div
-            className="fixed inset-0 z-40 bg-black/60 backdrop-blur-xs transition-opacity animate-in fade-in duration-200"
-            onClick={() => setViewingTrade(null)}
-            onWheel={(e) => e.stopPropagation()}
-            onTouchMove={(e) => e.preventDefault()}
-          />
-          {/* Drawer */}
-          <div 
-            className="fixed top-0 right-0 bottom-0 z-50 h-full w-full md:w-1/2 bg-white dark:bg-gray-800 shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-right duration-200"
-            onWheel={(e) => e.stopPropagation()}
-          >
-            <div className="flex flex-col h-full overflow-hidden">
-              <div 
-                className="flex justify-between items-center p-4 border-b dark:border-gray-700 shrink-0 select-none bg-white dark:bg-gray-800"
-                onTouchMove={(e) => e.preventDefault()}
-              >
-                <div className="flex items-center space-x-2.5">
-                  <h3 className="text-xl font-semibold text-gray-900 dark:text-white">交易复盘详情</h3>
-                  {(() => {
-                    const src = getTradeSource(viewingTrade);
-                    return (
-                      <span className={`text-xs px-2.5 py-0.5 rounded-full font-mono font-medium flex items-center space-x-1 ${
-                        src.type === 'synced'
-                          ? 'bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800'
-                          : 'bg-gray-100 dark:bg-white/10 text-gray-600 dark:text-gray-300'
-                      }`}>
-                        {src.type === 'synced' ? <RefreshCw className="w-2.5 h-2.5 mr-1" /> : <PenLine className="w-2.5 h-2.5 mr-1" />}
-                        <span>{src.label}</span>
-                      </span>
-                    );
-                  })()}
-                </div>
-                <button 
-                  onClick={() => setViewingTrade(null)} 
-                  className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition"
-                  title="关闭详情抽屉"
-                >
-                  <X size={24} />
-                </button>
-              </div>
-              <div className="flex-1 overflow-y-auto overflow-x-hidden overscroll-contain p-6 space-y-4">
-                {/* TradingView Execution Plotter on K-Line */}
-                <div>
-                  <h4 className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2 flex items-center justify-between">
-                    <span>K线买卖执行打点 (TradingView Plotter)</span>
-                    <span className="text-[10px] text-purple-600 dark:text-purple-400 font-mono font-normal">ENTRY / EXIT MARKERS</span>
-                  </h4>
-                  <ErrorBoundary fallbackTitle="单笔订单K线买卖执行打点图表加载异常">
-                    <TradeExecutionChart
-                      symbol={viewingTrade.symbol}
-                      direction={viewingTrade.direction}
-                      entryPrice={viewingTrade.entryprice}
-                      exitPrice={viewingTrade.exitprice}
-                      stopLoss={viewingTrade.stop_loss}
-                      takeProfit={viewingTrade.take_profit}
-                      entryTime={viewingTrade.entry_time}
-                      exitTime={viewingTrade.exit_time}
-                      size={viewingTrade.size}
-                      profit={calculateTradePnL(viewingTrade)?.pnl}
-                      pnlPercent={calculateTradePnL(viewingTrade)?.pnlPercent}
-                      notes={viewingTrade.notes}
-                      sentiment={viewingTrade.sentiment}
-                      tags={viewingTrade.tags}
-                      session={viewingTrade.session}
-                      exitReason={calculateExitMethod(viewingTrade) || undefined}
-                      height={320}
-                    />
-                  </ErrorBoundary>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div><span className="text-sm text-gray-500 dark:text-gray-400">交易标的:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{viewingTrade.symbol}</span></div>
-                  <div><span className="text-sm text-gray-500 dark:text-gray-400">交易方向:</span> <span className={`text-sm font-medium ${viewingTrade.direction === 'long' ? 'text-green-600' : 'text-red-600'}`}>{viewingTrade.direction === 'long' ? '做多 (Long)' : '做空 (Short)'}</span></div>
-                  <div><span className="text-sm text-gray-500 dark:text-gray-400">交易规模/手数:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{viewingTrade.size}</span></div>
-                  <div className="flex items-center gap-2"><span className="text-sm text-gray-500 dark:text-gray-400">结算状态:</span> {(() => { const isCompleted = !!viewingTrade.exitprice; return <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${isCompleted ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'}`}>{isCompleted ? '已平仓结算' : '持仓中'}</span>; })()}</div>
-                  <div>
-                    <span className="text-sm text-gray-500 dark:text-gray-400">所属交易日:</span>{' '}
-                    <span className="text-sm font-semibold font-mono text-purple-600 dark:text-purple-400">
-                      {getTradeTradingDate(viewingTrade as any)}
-                      {isTradeOvernightSession(viewingTrade as any) && ' (跨夜美盘)'}
-                    </span>
-                  </div>
-                  <div><span className="text-sm text-gray-500 dark:text-gray-400">入场价格:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{viewingTrade.entryprice}</span></div>
-                  <div><span className="text-sm text-gray-500 dark:text-gray-400">出场价格:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{viewingTrade.exitprice || '-'}</span></div>
-                  <div><span className="text-sm text-gray-500 dark:text-gray-400">止损点位 (SL):</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{viewingTrade.stop_loss || '-'}</span></div>
-                  <div><span className="text-sm text-gray-500 dark:text-gray-400">止盈点位 (TP):</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{viewingTrade.take_profit || '-'}</span></div>
-                  <div><span className="text-sm text-gray-500 dark:text-gray-400">入场时间:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{formatLocalTime(viewingTrade.entry_time)}</span></div>
-                  <div><span className="text-sm text-gray-500 dark:text-gray-400">出场时间:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{formatLocalTime(viewingTrade.exit_time)}</span></div>
-                  <div><span className="text-sm text-gray-500 dark:text-gray-400">持仓时长:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{formatDuration(viewingTrade.entry_time, viewingTrade.exit_time)}</span></div>
-                  {(() => { const p = calculateTradePnL(viewingTrade); return p ? <div><span className="text-sm text-gray-500 dark:text-gray-400">净盈亏:{p.isManual ? ' (手动指定)' : ''}</span> <span className={`text-sm font-semibold ${p.pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>{p.pnl >= 0 ? '+' : ''}${p.pnl.toFixed(2)} ({p.pnlPercent.toFixed(2)}%)</span></div> : null; })()}
-                  {(() => { const tr = calculateTargetRR(viewingTrade); return tr != null ? <div><span className="text-sm text-gray-500 dark:text-gray-400">目标盈亏比 (设定止盈止损):</span> <span className="text-sm font-semibold text-gray-900 dark:text-white font-mono">1 : {tr.toFixed(2)} ({tr.toFixed(1)}R)</span></div> : null; })()}
-                  {(() => { const ar = calculateActualRR(viewingTrade); const p = calculateTradePnL(viewingTrade); return ar != null ? <div><span className="text-sm text-gray-500 dark:text-gray-400">实际出场盈亏比 (Actual R/R):</span> <span className={`text-sm font-semibold font-mono ${(p?.pnl ?? ar) >= 0 ? 'text-green-600' : 'text-red-600'}`}>1 : {Math.abs(ar).toFixed(2)} ({ar >= 0 ? '+' : ''}{ar.toFixed(1)}R)</span></div> : null; })()}
-                  <div><span className="text-sm text-gray-500 dark:text-gray-400">创建时间:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{formatLocalTimeFull(viewingTrade.createdat)}</span></div>
-                  <div><span className="text-sm text-gray-500 dark:text-gray-400">更新时间:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{formatLocalTimeFull(viewingTrade.updatedat)}</span></div>
-                  <div><span className="text-sm text-gray-500 dark:text-gray-400">交易时段:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{viewingTrade.session ? `${viewingTrade.session} 盘` : '-'}</span></div>
-                  <div><span className="text-sm text-gray-500 dark:text-gray-400">入场心智/情绪:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{viewingTrade.sentiment ? `${SENTIMENT_EMOJI[viewingTrade.sentiment] || ''} ${viewingTrade.sentiment}` : '-'}</span></div>
-                  {(() => { const method = calculateExitMethod(viewingTrade); if (!method) return <div><span className="text-sm text-gray-500 dark:text-gray-400">平仓方式:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">-</span></div>; const styles: Record<ExitMethodType, string> = { takeProfit: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400', stopLoss: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400', manual: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400' }; const labels: Record<ExitMethodType, string> = { takeProfit: '止盈触发', stopLoss: '止损触发', manual: '手动平仓' }; return <div className="flex items-center gap-2"><span className="text-sm text-gray-500 dark:text-gray-400">平仓方式:</span><span className={`inline-block px-2 py-0.5 text-xs font-medium rounded-full ${styles[method]}`}>{labels[method]}</span></div>; })()}
-                  <div className="flex items-center gap-3 flex-wrap">
-                    <span className="text-sm text-gray-500 dark:text-gray-400">盈亏结果:</span>
-                    {(() => { const p = calculateTradePnL(viewingTrade); if (!viewingTrade.exitprice) return <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400">-</span>; if (!p) return <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400">-</span>; if (p.pnl > 0) return <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">盈利</span>; if (p.pnl < 0) return <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">亏损</span>; return <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300">保本</span>; })()}</div>
-                  {(() => { const rating = viewingTrade.rating || 0; if (rating <= 0) return null; return <div className="flex items-center gap-1"><span className="text-sm text-gray-500 dark:text-gray-400">纪律评分:</span><div className="flex items-center">{[1, 2, 3, 4, 5].map((star) => (<Star key={star} size={16} className={rating >= star ? 'text-yellow-400 fill-yellow-400' : 'text-gray-300 dark:text-gray-600'} />))}</div></div>; })()}
-                </div>
-                {viewingTrade.tags && viewingTrade.tags.length > 0 && (
-                  <div>
-                    <span className="text-sm text-gray-500 dark:text-gray-400 block mb-1">策略战法标签:</span>
-                    <div className="flex flex-wrap gap-2">
-                      {viewingTrade.tags.map((tag, i) => (
-                        <span key={i} className="px-2 py-1 text-xs rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">{tag}</span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {viewingTrade.entry_conditions && viewingTrade.entry_conditions.length > 0 && (
-                  <div>
-                    <span className="text-sm text-gray-500 dark:text-gray-400 block mb-1">入场条件与信号:</span>
-                    <div className="flex flex-wrap gap-2">
-                      {viewingTrade.entry_conditions.map((condition, i) => (
-                        <span key={i} className="px-2 py-1 text-xs rounded-full bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400">{condition}</span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {viewingTrade.notes && (
-                  <div>
-                    <span className="text-sm text-gray-500 dark:text-gray-400 block mb-1">复盘心得与笔记:</span>
-                    <p className="text-sm text-gray-900 dark:text-white bg-gray-50 dark:bg-gray-700/50 p-3 rounded-md">{viewingTrade.notes}</p>
-                  </div>
-                )}
-                {viewingTrade.screenshots && viewingTrade.screenshots.length > 0 && (
-                  <div>
-                    <span className="text-sm text-gray-500 dark:text-gray-400 block mb-2">行情与图表截图:</span>
-                    <div className="grid grid-cols-3 gap-2">
-                      {viewingTrade.screenshots.map((url, i) => {
-                        const fullUrl = url.startsWith('http') ? url : `${API_BASE_URL}${url}`;
-                        return (
-                          <img
-                            key={i}
-                            src={fullUrl}
-                            alt={`Screenshot ${i + 1}`}
-                            onClick={() => setLightboxImage({
-                              urls: viewingTrade.screenshots!.map(u => u.startsWith('http') ? u : `${API_BASE_URL}${u}`),
-                              index: i
-                            })}
-                            className="w-full h-20 object-cover rounded-md cursor-pointer hover:opacity-80 transition-opacity"
-                          />
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-              </div>
-              <div 
-                className="flex justify-end p-4 border-t dark:border-gray-700 shrink-0 bg-white dark:bg-gray-800"
-                onTouchMove={(e) => e.preventDefault()}
-              >
-                <Button variant="gradient" onClick={() => setViewingTrade(null)}>关闭</Button>
-              </div>
-            </div>
-          </div>
-        </>,
-        document.body
-      )}
-
-      {lightboxImage && typeof document !== 'undefined' && createPortal(
-        <div
-          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-4"
-          onClick={() => setLightboxImage(null)}
-          onWheel={(e) => e.stopPropagation()}
-          onTouchMove={(e) => e.preventDefault()}
-        >
-          <button
-            className="absolute top-4 right-4 text-white hover:text-gray-300 bg-gray-800/50 hover:bg-gray-800/70 rounded-full p-2 z-10"
-            onClick={() => setLightboxImage(null)}
-          >
-            <X size={24} />
-          </button>
-          {lightboxImage.urls.length > 1 && (
-            <>
-              <button
-                className="absolute left-4 top-1/2 -translate-y-1/2 text-white hover:text-gray-300 bg-gray-800/50 hover:bg-gray-800/70 rounded-full p-2 z-10"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setLightboxImage({ ...lightboxImage, index: (lightboxImage.index - 1 + lightboxImage.urls.length) % lightboxImage.urls.length });
-                }}
-              >
-                <ChevronLeft size={24} />
-              </button>
-              <button
-                className="absolute right-4 top-1/2 -translate-y-1/2 text-white hover:text-gray-300 bg-gray-800/50 hover:bg-gray-800/70 rounded-full p-2 z-10"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setLightboxImage({ ...lightboxImage, index: (lightboxImage.index + 1) % lightboxImage.urls.length });
-                }}
-              >
-                <ChevronRight size={24} />
-              </button>
-              <div className="absolute bottom-4 left-1/2 -translate-x-1/2 text-white text-sm bg-gray-800/50 px-3 py-1 rounded-full z-10">
-                {lightboxImage.index + 1} / {lightboxImage.urls.length}
-              </div>
-            </>
-          )}
-          <img
-            src={lightboxImage.urls[lightboxImage.index]}
-            alt="Screenshot"
-            onClick={(e) => e.stopPropagation()}
-            className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
-          />
-        </div>,
-        document.body
-      )}
+      <TradeDetailDrawer
+        trade={viewingTrade}
+        onClose={() => setViewingTrade(null)}
+      />
 
       {(trades.length > 0 || sortField !== 'entry_time' || clearSuccessMsg) && (
         <div className="flex items-center justify-between mb-2.5 px-1">

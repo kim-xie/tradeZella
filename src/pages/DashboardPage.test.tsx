@@ -247,4 +247,89 @@ describe('DashboardPage (TradeZella & TradeSync Style)', () => {
     fireEvent.click(sideBySideBtn);
     expect(screen.getByText(/并排对比/)).toBeInTheDocument();
   });
+
+  it('renders exit method stats (TP, SL, Manual with win/loss breakdown) and holding duration stats', async () => {
+    const today = new Date().toISOString().split('T')[0];
+    const mockTrades = [
+      {
+        id: 1,
+        symbol: 'EURUSD',
+        direction: 'long',
+        size: 1.0,
+        entryprice: 1.1000,
+        exitprice: 1.1050, // Win: +$0.005
+        take_profit: 1.1050,
+        final_trigger: 'takeProfit',
+        entry_time: `${today}T10:00:00`,
+        exit_time: `${today}T12:00:00`, // 120 mins = 2h
+        createdat: `${today}T10:00:00`,
+      },
+      {
+        id: 2,
+        symbol: 'GBPUSD',
+        direction: 'long',
+        size: 1.0,
+        entryprice: 1.2500,
+        exitprice: 1.2450, // Loss: -$0.005
+        stop_loss: 1.2450,
+        final_trigger: 'stopLoss',
+        entry_time: `${today}T10:00:00`,
+        exit_time: `${today}T10:30:00`, // 30 mins
+        createdat: `${today}T10:00:00`,
+      },
+      {
+        id: 3,
+        symbol: 'BTCUSD',
+        direction: 'long',
+        size: 0.1,
+        entryprice: 60000,
+        exitprice: 62000, // Win: +$200 (manual close win)
+        entry_time: `${today}T08:00:00`,
+        exit_time: `${today}T10:00:00`, // 120 mins = 2h
+        createdat: `${today}T08:00:00`,
+      },
+      {
+        id: 4,
+        symbol: 'ETHUSD',
+        direction: 'long',
+        size: 1.0,
+        entryprice: 3000,
+        exitprice: 2900, // Loss: -$100 (manual close loss)
+        entry_time: `${today}T14:00:00`,
+        exit_time: `${today}T14:50:00`, // 50 mins
+        createdat: `${today}T14:00:00`,
+      }
+    ];
+
+    vi.spyOn(api, 'getUserTrades').mockResolvedValue(mockTrades);
+    localStorage.setItem('token', 'test-token');
+
+    renderWithProviders(<DashboardPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('平仓执行方式透视')).toBeInTheDocument();
+      expect(screen.getByText('订单持仓时长透视')).toBeInTheDocument();
+    });
+
+    // 1. Exit Method Titles & Pillars
+    expect(screen.getByText('触发止盈')).toBeInTheDocument();
+    expect(screen.getByText('触发止损')).toBeInTheDocument();
+    expect(screen.getByText('手动平仓')).toBeInTheDocument();
+
+    // 2. Manual Close Breakdown (User requirement: 手动平仓盈和亏的单子数量)
+    expect(screen.getByText('手动平仓盈亏细分')).toBeInTheDocument();
+    expect(screen.getByText('手动盈利:')).toBeInTheDocument();
+    expect(screen.getByText('手动亏损:')).toBeInTheDocument();
+
+    // 3. Holding Duration
+    expect(screen.getByText('盈利订单平均持仓')).toBeInTheDocument();
+    expect(screen.getByText('亏损订单平均持仓')).toBeInTheDocument();
+    expect(screen.getByText('盈亏持仓时间比:')).toBeInTheDocument();
+    expect(screen.getByText('全部订单平均持仓:')).toBeInTheDocument();
+
+    // Win duration: 120m & 120m -> 2h
+    // Loss duration: 30m & 50m -> 40m
+    expect(screen.getAllByText('2h').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('40m').length).toBeGreaterThanOrEqual(1);
+  });
 });

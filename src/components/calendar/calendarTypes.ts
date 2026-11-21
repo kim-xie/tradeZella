@@ -1,3 +1,5 @@
+export type ExitMethodType = 'takeProfit' | 'stopLoss' | 'manual';
+
 export interface Trade {
   id: number;
   userId?: number;
@@ -25,6 +27,8 @@ export interface Trade {
   notes?: string;
   tags?: string[] | string;
   sentiment?: string;
+  final_trigger?: 'takeProfit' | 'stopLoss';
+  finalTrigger?: 'takeProfit' | 'stopLoss';
 }
 
 export interface DayStats {

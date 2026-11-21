@@ -1,4 +1,4 @@
-import { Trade, DayStats, MonthStats } from './calendarTypes';
+import { Trade, DayStats, MonthStats, ExitMethodType } from './calendarTypes';
 
 export const getTradeEntryPrice = (t: Trade): number => {
   return Number(t.entryprice ?? t.entryPrice ?? 0);
@@ -280,9 +280,45 @@ export const getTradeDurationMinutes = (trade: Trade): number | null => {
   const entry = getTradeEntryTime(trade);
   const exit = getTradeExitTime(trade);
   if (!entry || !exit) return null;
-  const diff = new Date(exit).getTime() - new Date(entry).getTime();
+  const entryMs = new Date(String(entry).replace(' ', 'T')).getTime();
+  const exitMs = new Date(String(exit).replace(' ', 'T')).getTime();
+  const diff = exitMs - entryMs;
   if (isNaN(diff) || diff < 0) return null;
   return diff / 60000;
+};
+
+export const calculateTradeExitMethod = (trade: Trade): ExitMethodType | null => {
+  // 1. 优先使用终局触发标记 (例如 MT5 / 券商同步的 [tp] / [sl] 触发)
+  const finalTrigger = trade.final_trigger || trade.finalTrigger;
+  if (finalTrigger === 'takeProfit') return 'takeProfit';
+  if (finalTrigger === 'stopLoss') return 'stopLoss';
+
+  // 2. 兼容历史数据在 notes 中带有 MT5 SL/TP 触发标记的情况
+  if (trade.notes) {
+    const lower = trade.notes.toLowerCase();
+    if (lower.includes('[tp') || lower.includes('take profit')) return 'takeProfit';
+    if (lower.includes('[sl') || lower.includes('stop loss')) return 'stopLoss';
+  }
+
+  // 3. 检查是否为已平仓订单
+  const exit = getTradeExitPrice(trade);
+  const isClosed = exit > 0 || (trade.manual_pnl != null || (trade as any).manualPnl != null) || getTradeExitTime(trade) !== '';
+  if (!isClosed) return null;
+
+  const sl = getTradeStopLoss(trade);
+  const tp = getTradeTakeProfit(trade);
+  const dir = getTradeDirection(trade);
+
+  // 4. 根据多空方向与止盈/止损价格推算
+  if (dir === 'long') {
+    if (tp != null && tp > 0 && exit >= tp) return 'takeProfit';
+    if (sl != null && sl > 0 && exit <= sl) return 'stopLoss';
+    return 'manual';
+  } else {
+    if (tp != null && tp > 0 && exit <= tp) return 'takeProfit';
+    if (sl != null && sl > 0 && exit >= sl) return 'stopLoss';
+    return 'manual';
+  }
 };
 
 export const isTradeMistake = (trade: Trade): boolean => {

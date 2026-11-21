@@ -34,6 +34,7 @@ import { Trade } from '../components/calendar/calendarTypes';
 import {
   calculateTradePnL,
   calculateTradeRR,
+  calculateTradeExitMethod,
   getTradeEntryPrice,
   getTradeExitPrice,
   getTradeSize,
@@ -44,6 +45,7 @@ import {
   getCurrentTradingDate,
   getTradingWeekRange,
   getTradeExitTime,
+  getTradeDurationMinutes,
   formatCurrency,
   formatDurationShort,
   formatDateTime
@@ -181,6 +183,17 @@ export default function DashboardPage() {
     let bestTrade = 0;
     let worstTrade = 0;
 
+    let takeProfitTrades = 0;
+    let stopLossTrades = 0;
+    let manualCloseTrades = 0;
+    let manualCloseWins = 0;
+    let manualCloseLosses = 0;
+    let manualCloseBreakevens = 0;
+
+    const winDurations: number[] = [];
+    const lossDurations: number[] = [];
+    const allDurations: number[] = [];
+
     // Sort chronologically for equity curve & drawdown
     const sortedCompleted = [...completedTrades].sort((a, b) => {
       const timeA = new Date(getTradeEntryTime(a) || 0).getTime();
@@ -212,6 +225,34 @@ export default function DashboardPage() {
       } else {
         breakevenTrades++;
       }
+
+      // Exit method calculation (触发止盈、止损、手动平仓，及手动平仓盈/亏)
+      const exitMethod = calculateTradeExitMethod(trade);
+      if (exitMethod === 'takeProfit') {
+        takeProfitTrades++;
+      } else if (exitMethod === 'stopLoss') {
+        stopLossTrades++;
+      } else if (exitMethod === 'manual') {
+        manualCloseTrades++;
+        if (pnl > 0.001) {
+          manualCloseWins++;
+        } else if (pnl < -0.001) {
+          manualCloseLosses++;
+        } else {
+          manualCloseBreakevens++;
+        }
+      }
+
+      // Holding duration calculation
+      const dur = getTradeDurationMinutes(trade);
+      if (dur !== null && dur >= 0) {
+        allDurations.push(dur);
+        if (pnl > 0.001) {
+          winDurations.push(dur);
+        } else if (pnl < -0.001) {
+          lossDurations.push(dur);
+        }
+      }
     });
 
     filteredTrades.forEach((t) => {
@@ -225,6 +266,16 @@ export default function DashboardPage() {
     const profitFactor = grossLoss > 0 ? grossProfit / grossLoss : (grossProfit > 0 ? 99.9 : 0);
     const winLossRatio = avgLoss > 0 ? avgWin / avgLoss : (avgWin > 0 ? avgWin : 0);
     const expectancy = closedCount > 0 ? totalProfitLoss / closedCount : 0;
+
+    const avgWinDuration = winDurations.length > 0 ? winDurations.reduce((a, b) => a + b, 0) / winDurations.length : 0;
+    const avgLossDuration = lossDurations.length > 0 ? lossDurations.reduce((a, b) => a + b, 0) / lossDurations.length : 0;
+    const avgHoldingDuration = allDurations.length > 0 ? allDurations.reduce((a, b) => a + b, 0) / allDurations.length : 0;
+    const manualWinRate = (manualCloseWins + manualCloseLosses) > 0
+      ? (manualCloseWins / (manualCloseWins + manualCloseLosses)) * 100
+      : 0;
+    const durationRatio = avgLossDuration > 0
+      ? avgWinDuration / avgLossDuration
+      : (avgWinDuration > 0 ? 99.9 : 1);
 
     // Unique trading days (TradeZella / TraderSync Session Standard)
     const daysMap = new Set<string>();
@@ -256,7 +307,20 @@ export default function DashboardPage() {
       totalVolume,
       tradingDaysCount,
       avgDailyPnL,
-      sortedCompleted
+      sortedCompleted,
+      takeProfitTrades,
+      stopLossTrades,
+      manualCloseTrades,
+      manualCloseWins,
+      manualCloseLosses,
+      manualCloseBreakevens,
+      manualWinRate,
+      avgWinDuration,
+      avgLossDuration,
+      avgHoldingDuration,
+      durationRatio,
+      winDurationsCount: winDurations.length,
+      lossDurationsCount: lossDurations.length
     };
   }, [filteredTrades]);
 
@@ -654,9 +718,13 @@ export default function DashboardPage() {
                   className="bg-purple-500 transition-all duration-300"
                 />
               </div>
-              <div className="flex items-center justify-between text-[11px] text-gray-500 dark:text-gray-400 border-t border-gray-100 dark:border-white/5 pt-2">
-                <span>平均盈利: <span className="font-mono font-bold text-emerald-500">+${metrics.avgWin.toFixed(1)}</span></span>
-                <span>平均亏损: <span className="font-mono font-bold text-rose-500">-${metrics.avgLoss.toFixed(1)}</span></span>
+              <div className="flex items-center justify-between text-[11px] text-gray-500 dark:text-gray-400 border-t border-gray-100 dark:border-white/5 pt-2 font-mono">
+                <span>平均盈利: <span className="font-bold text-emerald-500">+${metrics.avgWin.toFixed(1)}</span></span>
+                <span>平均亏损: <span className="font-bold text-rose-500">-${metrics.avgLoss.toFixed(1)}</span></span>
+              </div>
+              <div className="flex items-center justify-between text-[11px] text-gray-500 dark:text-gray-400 border-t border-gray-100/60 dark:border-white/5 pt-1.5 font-mono">
+                <span>盈利均持: <strong className="text-emerald-600 dark:text-emerald-400 font-bold">{formatDurationShort(metrics.avgWinDuration)}</strong></span>
+                <span>亏损均持: <strong className="text-rose-600 dark:text-rose-400 font-bold">{formatDurationShort(metrics.avgLossDuration)}</strong></span>
               </div>
             </div>
 
@@ -708,6 +776,240 @@ export default function DashboardPage() {
               <div className="flex items-center justify-between text-[11px] text-gray-500 dark:text-gray-400 border-t border-gray-100 dark:border-white/5 pt-2">
                 <span>总交易手数: <strong className="font-mono text-gray-900 dark:text-white">{metrics.totalVolume.toFixed(2)} 手</strong></span>
                 <span>活跃交易日: <strong className="font-mono text-gray-900 dark:text-white">{metrics.tradingDaysCount} 天</strong></span>
+              </div>
+            </div>
+
+          </div>
+
+          {/* 2.5 Trade Execution & Holding Duration Analytics Panel */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+            
+            {/* Card A: 平仓执行方式透视 (Exit Strategy Distribution) */}
+            <div className="bg-white dark:bg-[#111827] rounded-2xl p-5 border border-gray-200/80 dark:border-white/10 shadow-xs hover:border-purple-400/50 transition-all duration-300 flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between pb-3 border-b border-gray-100 dark:border-white/5 mb-3.5">
+                  <div className="flex items-center space-x-2">
+                    <span className="p-1.5 rounded-lg bg-purple-50 dark:bg-purple-950/60 text-purple-600 dark:text-purple-400">
+                      <Target className="w-4 h-4" />
+                    </span>
+                    <div>
+                      <h3 className="text-sm font-bold text-gray-900 dark:text-white">平仓执行方式透视</h3>
+                      <p className="text-[10px] text-gray-400">止盈 · 止损 · 手动平仓 (盈/亏细分)</p>
+                    </div>
+                  </div>
+                  <span className="text-[10px] font-mono text-gray-400 uppercase bg-gray-100 dark:bg-white/5 px-2 py-0.5 rounded-md">
+                    EXIT METHOD
+                  </span>
+                </div>
+
+                {/* Stacked Execution Progress Bar */}
+                <div className="mb-4">
+                  <div className="flex items-center justify-between text-xs font-mono text-gray-500 dark:text-gray-400 mb-1.5">
+                    <span>执行方式分布</span>
+                    <span className="text-gray-400">已平仓 {metrics.completedTrades} 笔</span>
+                  </div>
+                  <div className="w-full bg-gray-100 dark:bg-navy-900 h-2.5 rounded-full overflow-hidden flex">
+                    <div
+                      style={{ width: `${metrics.completedTrades > 0 ? (metrics.takeProfitTrades / metrics.completedTrades) * 100 : 0}%` }}
+                      className="bg-emerald-500 transition-all duration-300"
+                      title={`触发止盈: ${metrics.takeProfitTrades}笔`}
+                    />
+                    <div
+                      style={{ width: `${metrics.completedTrades > 0 ? (metrics.stopLossTrades / metrics.completedTrades) * 100 : 0}%` }}
+                      className="bg-rose-500 transition-all duration-300"
+                      title={`触发止损: ${metrics.stopLossTrades}笔`}
+                    />
+                    <div
+                      style={{ width: `${metrics.completedTrades > 0 ? (metrics.manualCloseTrades / metrics.completedTrades) * 100 : 0}%` }}
+                      className="bg-amber-500 transition-all duration-300"
+                      title={`手动平仓: ${metrics.manualCloseTrades}笔`}
+                    />
+                  </div>
+                </div>
+
+                {/* 3 Metric Pillars: Take Profit, Stop Loss, Manual Close */}
+                <div className="grid grid-cols-3 gap-2.5 mb-3.5">
+                  {/* Pillar 1: Take Profit */}
+                  <div className="p-3 rounded-xl bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/40">
+                    <div className="flex items-center justify-between text-[11px] font-medium text-emerald-700 dark:text-emerald-300 mb-1">
+                      <span>触发止盈</span>
+                      <span className="text-[10px] font-mono px-1 py-0.2 rounded bg-emerald-100 dark:bg-emerald-900/50 text-emerald-800 dark:text-emerald-200">
+                        TP
+                      </span>
+                    </div>
+                    <div className="text-xl sm:text-2xl font-black font-mono text-emerald-600 dark:text-emerald-400 leading-none mb-1">
+                      {metrics.takeProfitTrades} <span className="text-xs font-normal">单</span>
+                    </div>
+                    <div className="text-[10px] font-mono text-emerald-600/80 dark:text-emerald-400/80">
+                      占比 {metrics.completedTrades > 0 ? ((metrics.takeProfitTrades / metrics.completedTrades) * 100).toFixed(1) : 0}%
+                    </div>
+                  </div>
+
+                  {/* Pillar 2: Stop Loss */}
+                  <div className="p-3 rounded-xl bg-rose-50/50 dark:bg-rose-950/20 border border-rose-100 dark:border-rose-900/40">
+                    <div className="flex items-center justify-between text-[11px] font-medium text-rose-700 dark:text-rose-300 mb-1">
+                      <span>触发止损</span>
+                      <span className="text-[10px] font-mono px-1 py-0.2 rounded bg-rose-100 dark:bg-rose-900/50 text-rose-800 dark:text-rose-200">
+                        SL
+                      </span>
+                    </div>
+                    <div className="text-xl sm:text-2xl font-black font-mono text-rose-600 dark:text-rose-400 leading-none mb-1">
+                      {metrics.stopLossTrades} <span className="text-xs font-normal">单</span>
+                    </div>
+                    <div className="text-[10px] font-mono text-rose-600/80 dark:text-rose-400/80">
+                      占比 {metrics.completedTrades > 0 ? ((metrics.stopLossTrades / metrics.completedTrades) * 100).toFixed(1) : 0}%
+                    </div>
+                  </div>
+
+                  {/* Pillar 3: Manual Close Total */}
+                  <div className="p-3 rounded-xl bg-amber-50/50 dark:bg-amber-950/20 border border-amber-100 dark:border-amber-900/40">
+                    <div className="flex items-center justify-between text-[11px] font-medium text-amber-700 dark:text-amber-300 mb-1">
+                      <span>手动平仓</span>
+                      <span className="text-[10px] font-mono px-1 py-0.2 rounded bg-amber-100 dark:bg-amber-900/50 text-amber-800 dark:text-amber-200">
+                        Manual
+                      </span>
+                    </div>
+                    <div className="text-xl sm:text-2xl font-black font-mono text-amber-600 dark:text-amber-400 leading-none mb-1">
+                      {metrics.manualCloseTrades} <span className="text-xs font-normal">单</span>
+                    </div>
+                    <div className="text-[10px] font-mono text-amber-600/80 dark:text-amber-400/80">
+                      占比 {metrics.completedTrades > 0 ? ((metrics.manualCloseTrades / metrics.completedTrades) * 100).toFixed(1) : 0}%
+                    </div>
+                  </div>
+                </div>
+
+                {/* Manual Close Breakdown: 盈亏订单细分 */}
+                <div className="p-3 rounded-xl bg-gray-50/80 dark:bg-[#070a13] border border-gray-200/70 dark:border-white/5">
+                  <div className="flex items-center justify-between text-xs mb-2">
+                    <span className="font-semibold text-gray-700 dark:text-gray-300 flex items-center space-x-1.5">
+                      <span>手动平仓盈亏细分</span>
+                      <span className="text-[10px] font-normal text-gray-400">
+                        (胜率 {metrics.manualWinRate.toFixed(1)}%)
+                      </span>
+                    </span>
+                    <span className="text-[11px] font-mono text-gray-500">
+                      共 {metrics.manualCloseTrades} 笔
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-xs font-mono">
+                    <div className="flex items-center space-x-1.5">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
+                      <span className="text-gray-600 dark:text-gray-400">手动盈利:</span>
+                      <strong className="text-emerald-600 dark:text-emerald-400 font-bold">{metrics.manualCloseWins} 单</strong>
+                    </div>
+                    <span className="text-gray-300 dark:text-gray-700">|</span>
+                    <div className="flex items-center space-x-1.5">
+                      <span className="w-2 h-2 rounded-full bg-rose-500 inline-block" />
+                      <span className="text-gray-600 dark:text-gray-400">手动亏损:</span>
+                      <strong className="text-rose-600 dark:text-rose-400 font-bold">{metrics.manualCloseLosses} 单</strong>
+                    </div>
+                    {metrics.manualCloseBreakevens > 0 && (
+                      <>
+                        <span className="text-gray-300 dark:text-gray-700">|</span>
+                        <div className="flex items-center space-x-1.5">
+                          <span className="w-2 h-2 rounded-full bg-gray-400 inline-block" />
+                          <span className="text-gray-600 dark:text-gray-400">打平:</span>
+                          <strong className="text-gray-500 font-bold">{metrics.manualCloseBreakevens} 单</strong>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Card B: 订单持仓时长透视 (Holding Duration Analysis) */}
+            <div className="bg-white dark:bg-[#111827] rounded-2xl p-5 border border-gray-200/80 dark:border-white/10 shadow-xs hover:border-purple-400/50 transition-all duration-300 flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between pb-3 border-b border-gray-100 dark:border-white/5 mb-3.5">
+                  <div className="flex items-center space-x-2">
+                    <span className="p-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400">
+                      <Clock className="w-4 h-4" />
+                    </span>
+                    <div>
+                      <h3 className="text-sm font-bold text-gray-900 dark:text-white">订单持仓时长透视</h3>
+                      <p className="text-[10px] text-gray-400">盈利均持 · 亏损均持 · 盈亏时间比</p>
+                    </div>
+                  </div>
+                  <span className="text-[10px] font-mono text-gray-400 uppercase bg-gray-100 dark:bg-white/5 px-2 py-0.5 rounded-md">
+                    DURATION
+                  </span>
+                </div>
+
+                {/* 2 Main Duration Pillars: Win Avg Duration & Loss Avg Duration */}
+                <div className="grid grid-cols-2 gap-3 mb-4">
+                  {/* Win Avg Duration */}
+                  <div className="p-3.5 rounded-xl bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/40">
+                    <div className="flex items-center justify-between text-xs font-semibold text-emerald-700 dark:text-emerald-300 mb-1.5">
+                      <span>盈利订单平均持仓</span>
+                      <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-emerald-100 dark:bg-emerald-900/50 text-emerald-800 dark:text-emerald-200 font-mono">
+                        WIN
+                      </span>
+                    </div>
+                    <div className="text-2xl sm:text-3xl font-black font-mono text-emerald-600 dark:text-emerald-400 mb-1">
+                      {formatDurationShort(metrics.avgWinDuration)}
+                    </div>
+                    <div className="text-[11px] text-gray-500 dark:text-gray-400 font-mono flex items-center justify-between">
+                      <span>样本数: {metrics.winDurationsCount} 笔</span>
+                      <span className="text-emerald-600 dark:text-emerald-400 font-medium">让利润奔跑</span>
+                    </div>
+                  </div>
+
+                  {/* Loss Avg Duration */}
+                  <div className="p-3.5 rounded-xl bg-rose-50/50 dark:bg-rose-950/20 border border-rose-100 dark:border-rose-900/40">
+                    <div className="flex items-center justify-between text-xs font-semibold text-rose-700 dark:text-rose-300 mb-1.5">
+                      <span>亏损订单平均持仓</span>
+                      <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-rose-100 dark:bg-rose-900/50 text-rose-800 dark:text-rose-200 font-mono">
+                        LOSS
+                      </span>
+                    </div>
+                    <div className="text-2xl sm:text-3xl font-black font-mono text-rose-600 dark:text-rose-400 mb-1">
+                      {formatDurationShort(metrics.avgLossDuration)}
+                    </div>
+                    <div className="text-[11px] text-gray-500 dark:text-gray-400 font-mono flex items-center justify-between">
+                      <span>样本数: {metrics.lossDurationsCount} 笔</span>
+                      <span className="text-rose-600 dark:text-rose-400 font-medium">快速止损</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Duration Ratio & Insight Bar */}
+                <div className="p-3 rounded-xl bg-gray-50/80 dark:bg-[#070a13] border border-gray-200/70 dark:border-white/5 space-y-2">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-gray-600 dark:text-gray-400 font-medium">盈亏持仓时间比:</span>
+                    <span className="font-mono font-bold text-gray-900 dark:text-white">
+                      <strong className={metrics.durationRatio >= 1 ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}>
+                        {metrics.durationRatio >= 99 ? '∞' : metrics.durationRatio.toFixed(2)}x
+                      </strong>
+                      <span className="text-gray-400 text-[10px] ml-1">
+                        (盈利持仓 / 亏损持仓)
+                      </span>
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between text-xs pt-1 border-t border-gray-200/60 dark:border-white/5">
+                    <span className="text-gray-600 dark:text-gray-400 font-medium">全部订单平均持仓:</span>
+                    <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                      {formatDurationShort(metrics.avgHoldingDuration)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Holding Discipline Evaluation Footer */}
+              <div className="mt-3 pt-2.5 border-t border-gray-100 dark:border-white/5 text-[11px] flex items-center justify-between">
+                <span className="text-gray-400">持仓纪律评估:</span>
+                <span className={`font-medium ${
+                  metrics.avgWinDuration >= metrics.avgLossDuration
+                    ? 'text-emerald-600 dark:text-emerald-400'
+                    : 'text-amber-600 dark:text-amber-400'
+                }`}>
+                  {metrics.avgWinDuration === 0 && metrics.avgLossDuration === 0
+                    ? '暂无持仓时长数据'
+                    : metrics.avgWinDuration >= metrics.avgLossDuration
+                    ? '✨ 盈利持仓长于亏损，符合“让利润奔跑，截断亏损”原则'
+                    : '⚠️ 亏损持仓长于盈利，请注意规避死扛亏损订单'}
+                </span>
               </div>
             </div>
 

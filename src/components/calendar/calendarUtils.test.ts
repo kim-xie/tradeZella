@@ -16,6 +16,8 @@ import {
   getTradingWeekRange,
   getTradeDayOfWeek,
   getTradeMonthAndYear,
+  calculateTradeExitMethod,
+  getTradeDurationMinutes,
 } from './calendarUtils';
 import { Trade } from './calendarTypes';
 
@@ -325,6 +327,96 @@ describe('calendarUtils', () => {
       const ym = getTradeMonthAndYear(monthBoundaryTrade);
       expect(ym.year).toBe(2026);
       expect(ym.month).toBe(9); // October (0-indexed 9)
+    });
+
+    it('calculates trade exit methods accurately', () => {
+      // 1. Explicit final_trigger takeProfit / stopLoss
+      expect(calculateTradeExitMethod({
+        id: 1,
+        symbol: 'EURUSD',
+        direction: 'long',
+        size: 1,
+        entryprice: 1.1000,
+        exitprice: 1.1050,
+        final_trigger: 'takeProfit',
+      })).toBe('takeProfit');
+
+      expect(calculateTradeExitMethod({
+        id: 2,
+        symbol: 'EURUSD',
+        direction: 'long',
+        size: 1,
+        entryprice: 1.1000,
+        exitprice: 1.0950,
+        finalTrigger: 'stopLoss',
+      })).toBe('stopLoss');
+
+      // 2. MT5 notes with [tp] or [sl]
+      expect(calculateTradeExitMethod({
+        id: 3,
+        symbol: 'BTCUSD',
+        direction: 'long',
+        size: 1,
+        entryprice: 50000,
+        exitprice: 51000,
+        notes: 'MT5 Position #1234 [tp 51000.0]',
+      })).toBe('takeProfit');
+
+      // 3. Price comparison for long position
+      expect(calculateTradeExitMethod({
+        id: 4,
+        symbol: 'XAUUSD',
+        direction: 'long',
+        size: 1,
+        entryprice: 2000,
+        exitprice: 2020,
+        take_profit: 2020,
+        stop_loss: 1990,
+      })).toBe('takeProfit');
+
+      expect(calculateTradeExitMethod({
+        id: 5,
+        symbol: 'XAUUSD',
+        direction: 'long',
+        size: 1,
+        entryprice: 2000,
+        exitprice: 1990,
+        take_profit: 2020,
+        stop_loss: 1990,
+      })).toBe('stopLoss');
+
+      expect(calculateTradeExitMethod({
+        id: 6,
+        symbol: 'XAUUSD',
+        direction: 'long',
+        size: 1,
+        entryprice: 2000,
+        exitprice: 2005,
+        take_profit: 2020,
+        stop_loss: 1990,
+      })).toBe('manual');
+
+      // 4. Open trade has no exit method
+      expect(calculateTradeExitMethod({
+        id: 7,
+        symbol: 'XAUUSD',
+        direction: 'long',
+        size: 1,
+        entryprice: 2000,
+      })).toBeNull();
+    });
+
+    it('calculates duration in minutes accurately', () => {
+      const trade: Trade = {
+        id: 8,
+        symbol: 'AAPL',
+        direction: 'long',
+        size: 10,
+        entryprice: 150,
+        entry_time: '2026-11-20 10:00:00',
+        exit_time: '2026-11-20 12:30:00',
+      };
+      expect(getTradeDurationMinutes(trade)).toBe(150); // 2.5 hours = 150 minutes
     });
   });
 });

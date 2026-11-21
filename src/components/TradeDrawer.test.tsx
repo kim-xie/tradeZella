@@ -99,4 +99,33 @@ describe('TradeDrawer - Layout & Spacing', () => {
     expect(screen.getByText('策略信号与交易心智')).toBeInTheDocument();
     expect(screen.getAllByText(/请至少选择一个入场形态或信号条件/i).length).toBeGreaterThanOrEqual(1);
   });
+
+  it('supports maximizing and restoring drawer width, and closing via header button', () => {
+    const handleClose = vi.fn();
+    render(
+      <TradeDrawer
+        isOpen={true}
+        onClose={handleClose}
+        onSuccess={vi.fn()}
+        trade={mockTrade}
+        availableSymbols={['BTCUSD']}
+      />
+    );
+
+    const toggleBtn = screen.getByTitle('全屏铺满抽屉');
+    expect(toggleBtn).toBeInTheDocument();
+
+    // Click to maximize
+    fireEvent.click(toggleBtn);
+    expect(screen.getByTitle('还原抽屉宽度')).toBeInTheDocument();
+
+    // Click to restore
+    fireEvent.click(screen.getByTitle('还原抽屉宽度'));
+    expect(screen.getByTitle('全屏铺满抽屉')).toBeInTheDocument();
+
+    // Click close button in header
+    const closeBtn = screen.getByTitle('Close drawer');
+    fireEvent.click(closeBtn);
+    expect(handleClose).toHaveBeenCalled();
+  });
 });

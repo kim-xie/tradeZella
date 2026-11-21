@@ -99,6 +99,18 @@ export const CalendarDayDrawer: React.FC<CalendarDayDrawerProps> = ({
     }
   }, [dateStr, trades]);
 
+  // Support pressing Escape to close drawer
+  useEffect(() => {
+    if (!dateStr) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [dateStr, onClose]);
+
   if (!dateStr) return null;
 
   const stats = computeDayStats(trades, dateStr);
@@ -194,6 +206,7 @@ export const CalendarDayDrawer: React.FC<CalendarDayDrawerProps> = ({
               onClick={onClose}
               className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-200 dark:hover:bg-navy-800 transition"
               title="Close drawer"
+              aria-label="关闭抽屉"
             >
               <X className="w-5 h-5" />
             </button>

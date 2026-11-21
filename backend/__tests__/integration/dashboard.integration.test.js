@@ -72,6 +72,13 @@ describe('Dashboard API', () => {
       expect(metrics).toHaveProperty('expectancy');
       expect(metrics).toHaveProperty('bestTrade');
       expect(metrics).toHaveProperty('worstTrade');
+      expect(metrics).toHaveProperty('takeProfitTrades');
+      expect(metrics).toHaveProperty('stopLossTrades');
+      expect(metrics).toHaveProperty('manualCloseTrades');
+      expect(metrics).toHaveProperty('manualCloseWins');
+      expect(metrics).toHaveProperty('manualCloseLosses');
+      expect(metrics).toHaveProperty('avgWinDuration');
+      expect(metrics).toHaveProperty('avgLossDuration');
       
       // Check recent trades structure
       expect(Array.isArray(res.body.data.recentTrades)).toBe(true);
