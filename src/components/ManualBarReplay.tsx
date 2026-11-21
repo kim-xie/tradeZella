@@ -6,7 +6,8 @@ import {
   Calculator, Target, Shield, Percent, Sparkles, Sliders, Check,
   MousePointer, Minus, MoveDiagonal, Trash2, Layers, Crosshair,
   Scissors, X, ArrowUpRight, ArrowDownRight, Filter,
-  Square, Maximize2, Minimize2, Activity, ChevronDown
+  Square, Maximize2, Minimize2, Activity, ChevronDown,
+  EyeOff, Shuffle, FastForward, Clock
 } from 'lucide-react';
 import {
   createChart,
@@ -31,6 +32,10 @@ interface ChartRectangle {
   price1: number;
   price2: number;
   label?: string;
+  timeSec1?: number;
+  timeSec2?: number;
+  logical1?: number;
+  logical2?: number;
 }
 
 // Indicator Calculation Helpers
@@ -600,11 +605,23 @@ export default function ManualBarReplay({
   const horizontalLinesRef = useRef<Array<{ id: string; price: number; label?: string }>>([]);
   horizontalLinesRef.current = horizontalLines;
 
-  const [trendLines, setTrendLines] = useState<Array<{ id: string; x1: number; y1: number; price1: number; x2: number; y2: number; price2: number }>>([]);
+  const [trendLines, setTrendLines] = useState<Array<{
+    id: string;
+    x1: number;
+    y1: number;
+    price1: number;
+    x2: number;
+    y2: number;
+    price2: number;
+    timeSec1?: number;
+    timeSec2?: number;
+    logical1?: number;
+    logical2?: number;
+  }>>([]);
   const [rectangles, setRectangles] = useState<ChartRectangle[]>([]);
   const [isDrawingRect, setIsDrawingRect] = useState<boolean>(false);
-  const [rectStart, setRectStart] = useState<{ x: number; y: number; price: number } | null>(null);
-  const [rectCurrent, setRectCurrent] = useState<{ x: number; y: number; price: number } | null>(null);
+  const [rectStart, setRectStart] = useState<{ x: number; y: number; price: number; timeSec?: number; logical?: number } | null>(null);
+  const [rectCurrent, setRectCurrent] = useState<{ x: number; y: number; price: number; timeSec?: number; logical?: number } | null>(null);
 
   const [dragTarget, setDragTarget] = useState<{
     type: 'tp' | 'sl' | 'entry' | 'width' | 'horizontal';
@@ -621,8 +638,8 @@ export default function ManualBarReplay({
   const hoverHandleRef = useRef<string | null>(null);
   hoverHandleRef.current = hoverHandle;
   const [isDrawingTrend, setIsDrawingTrend] = useState<boolean>(false);
-  const [trendStart, setTrendStart] = useState<{ x: number; y: number; price: number } | null>(null);
-  const [trendCurrent, setTrendCurrent] = useState<{ x: number; y: number; price: number } | null>(null);
+  const [trendStart, setTrendStart] = useState<{ x: number; y: number; price: number; timeSec?: number; logical?: number } | null>(null);
+  const [trendCurrent, setTrendCurrent] = useState<{ x: number; y: number; price: number; timeSec?: number; logical?: number } | null>(null);
   const [hoverPrice, setHoverPrice] = useState<number | null>(null);
   const [mousePos, setMousePos] = useState<{ x: number; y: number } | null>(null);
 
@@ -635,6 +652,34 @@ export default function ManualBarReplay({
   const [showVolume, setShowVolume] = useState<boolean>(false);
   const [showRsi, setShowRsi] = useState<boolean>(false);
   const [showIndicatorMenu, setShowIndicatorMenu] = useState<boolean>(false);
+
+  // Replay Mode Toggle (TradingView 原生回放栏显隐)
+  const [isReplayActive, setIsReplayActive] = useState<boolean>(true);
+  const [showDrawings, setShowDrawings] = useState<boolean>(true);
+
+  // TradingView Style Random Replay (随机K线盲测训练)
+  const handleRandomReplay = () => {
+    if (allCandles.length < 80) return;
+    const minIdx = 40;
+    const maxIdx = Math.max(minIdx + 1, allCandles.length - 50);
+    const randomIdx = Math.floor(Math.random() * (maxIdx - minIdx + 1)) + minIdx;
+    setCurrentIndex(randomIdx);
+    setPosition(null);
+    setIsPlaying(false);
+    setPlannedEntryPrice(null);
+    setRulerStartBarTime(null);
+    setSaveSuccessMsg(`已随机切入历史行情 (第 ${randomIdx + 1} 根 K 线)，盲测训练开始！`);
+    setTimeout(() => setSaveSuccessMsg(null), 3500);
+  };
+
+  // Jump to latest candle
+  const handleJumpToLatest = () => {
+    if (allCandles.length > 0) {
+      setCurrentIndex(allCandles.length - 1);
+      setPosition(null);
+      setIsPlaying(false);
+    }
+  };
 
   // Fullscreen State (全屏沉浸式操作)
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
@@ -749,19 +794,23 @@ export default function ManualBarReplay({
 
       if (data.candles && data.candles.length > 50) {
         setAllCandles(data.candles);
-        setContractSize(data.contractSize || 100000);
+        const firstPrice = data.candles[0]?.close || 0;
+        const defaultContractSize = (firstPrice > 100 || symbol.includes('纳斯达克') || symbol.includes('BTC') || symbol.includes('US100') || symbol.includes('XAU')) ? 1.0 : 100000.0;
+        setContractSize(data.contractSize || defaultContractSize);
         setCurrentIndex(50); // Cut off past 50 bars
       } else {
         const fallback = generateClientFallbackCandles(symbol, timeframe, 400);
         setAllCandles(fallback);
-        setContractSize(symbol.includes('JPY') || symbol.includes('XAU') || symbol.includes('BTC') ? 1.0 : 100000);
+        const firstPrice = fallback[0]?.close || 0;
+        setContractSize(firstPrice > 100 || symbol.includes('JPY') || symbol.includes('XAU') || symbol.includes('BTC') || symbol.includes('纳斯达克') || symbol.includes('US100') ? 1.0 : 100000);
         setCurrentIndex(50);
       }
     } catch (err: any) {
       console.warn('获取行情接口失败，自动启用前端高保真本地仿真行情备用引擎:', err);
       const fallback = generateClientFallbackCandles(symbol, timeframe, 400);
       setAllCandles(fallback);
-      setContractSize(symbol.includes('JPY') || symbol.includes('XAU') || symbol.includes('BTC') ? 1.0 : 100000);
+      const firstPrice = fallback[0]?.close || 0;
+      setContractSize(firstPrice > 100 || symbol.includes('JPY') || symbol.includes('XAU') || symbol.includes('BTC') || symbol.includes('纳斯达克') || symbol.includes('US100') ? 1.0 : 100000);
       setCurrentIndex(50);
     } finally {
       setLoading(false);
@@ -891,6 +940,7 @@ export default function ManualBarReplay({
   // 1. Initialize TradingView Charts for active windows
   useEffect(() => {
     const resizeObservers: ResizeObserver[] = [];
+    const containerCleanups: (() => void)[] = [];
 
     for (let winIdx = 0; winIdx < windowCount; winIdx++) {
       const container = tvContainers.current[winIdx];
@@ -950,12 +1000,46 @@ export default function ManualBarReplay({
         tvSeries.current[winIdx] = series;
         tvMarkers.current[winIdx] = createSeriesMarkers(series, []);
 
-        // Listen for visible logical range changes to sync overlay canvas drawings
+        // Listen for visible logical range and visible time range changes to sync overlay canvas drawings
         try {
           chart.timeScale().subscribeVisibleLogicalRangeChange(() => {
             setTvViewportTick(t => (t + 1) % 100000);
           });
+          chart.timeScale().subscribeVisibleTimeRangeChange(() => {
+            setTvViewportTick(t => (t + 1) % 100000);
+          });
         } catch {}
+
+        let isPointerDownOnContainer = false;
+        const handleContainerPointerDown = () => {
+          isPointerDownOnContainer = true;
+        };
+        const handleContainerPointerUp = () => {
+          if (isPointerDownOnContainer) {
+            isPointerDownOnContainer = false;
+            setTvViewportTick(t => (t + 1) % 100000);
+          }
+        };
+        const handleContainerPointerMove = () => {
+          if (isPointerDownOnContainer) {
+            setTvViewportTick(t => (t + 1) % 100000);
+          }
+        };
+        const handleContainerWheel = () => {
+          setTvViewportTick(t => (t + 1) % 100000);
+        };
+
+        container.addEventListener('pointerdown', handleContainerPointerDown);
+        window.addEventListener('pointerup', handleContainerPointerUp);
+        container.addEventListener('pointermove', handleContainerPointerMove);
+        container.addEventListener('wheel', handleContainerWheel, { passive: true });
+
+        containerCleanups.push(() => {
+          container.removeEventListener('pointerdown', handleContainerPointerDown);
+          window.removeEventListener('pointerup', handleContainerPointerUp);
+          container.removeEventListener('pointermove', handleContainerPointerMove);
+          container.removeEventListener('wheel', handleContainerWheel);
+        });
 
         chart.subscribeCrosshairMove((param) => {
           if (winIdx === 0 && param.time && param.seriesData.has(series)) {
@@ -1044,6 +1128,7 @@ export default function ManualBarReplay({
 
     return () => {
       resizeObservers.forEach((ro) => ro.disconnect());
+      containerCleanups.forEach((fn) => fn());
     };
   }, [windowCount, isDark]);
 
@@ -1398,7 +1483,13 @@ export default function ManualBarReplay({
       let exitReason: 'Stop Loss' | 'Take Profit' | 'Manual Close' | null = null;
 
       if (position.direction === 'long') {
-        if (position.stopLoss && nextBar.low <= position.stopLoss) {
+        if (position.stopLoss && nextBar.open <= position.stopLoss) {
+          exitPrice = nextBar.open;
+          exitReason = 'Stop Loss';
+        } else if (position.takeProfit && nextBar.open >= position.takeProfit) {
+          exitPrice = nextBar.open;
+          exitReason = 'Take Profit';
+        } else if (position.stopLoss && nextBar.low <= position.stopLoss) {
           exitPrice = position.stopLoss;
           exitReason = 'Stop Loss';
         } else if (position.takeProfit && nextBar.high >= position.takeProfit) {
@@ -1407,7 +1498,13 @@ export default function ManualBarReplay({
         }
       } else {
         // short
-        if (position.stopLoss && nextBar.high >= position.stopLoss) {
+        if (position.stopLoss && nextBar.open >= position.stopLoss) {
+          exitPrice = nextBar.open;
+          exitReason = 'Stop Loss';
+        } else if (position.takeProfit && nextBar.open <= position.takeProfit) {
+          exitPrice = nextBar.open;
+          exitReason = 'Take Profit';
+        } else if (position.stopLoss && nextBar.high >= position.stopLoss) {
           exitPrice = position.stopLoss;
           exitReason = 'Stop Loss';
         } else if (position.takeProfit && nextBar.low <= position.takeProfit) {
@@ -1580,6 +1677,11 @@ export default function ManualBarReplay({
     setPosition(null);
   };
 
+  // In-chart HUD Instant Order helper
+  const handleOpenOrder = (dir: 'long' | 'short') => {
+    openOrder(dir);
+  };
+
   // Calculate floating PnL
   let floatingProfit = 0;
   let floatingPct = 0;
@@ -1623,14 +1725,38 @@ export default function ManualBarReplay({
     if (activeTool === 'jump') {
       const winVisible = getWindowVisibleSlice(winIdx);
       if (winVisible.length > 0) {
-        const displayCount = Math.min(65, winVisible.length);
-        const chartW = scale?.chartW || (rect.width - 74);
-        const paddingLeft = scale?.chartPadding?.left || 12;
-        const barSpacing = chartW / displayCount;
-        const clickedCol = Math.floor((mouseX - paddingLeft) / Math.max(1, barSpacing));
-        const sliceCandles = winVisible.slice(winVisible.length - displayCount);
-        if (clickedCol >= 0 && clickedCol < sliceCandles.length) {
-          const targetCandle = sliceCandles[clickedCol];
+        let targetCandle: CandleItem | null = null;
+        const chart = tvCharts.current[winIdx];
+        if (chart) {
+          const timeScale = chart.timeScale();
+          const t = timeScale.coordinateToTime(mouseX);
+          const log = timeScale.coordinateToLogical(mouseX);
+          if (t !== null && typeof t === 'number') {
+            targetCandle = winVisible.find(c => {
+              const sec = parseCandleTimeToSeconds(c.time, c.timestamp);
+              return Math.abs(sec - (t as number)) < 60;
+            }) || null;
+          }
+          if (!targetCandle && log !== null && typeof log === 'number') {
+            const lIdx = Math.round(log);
+            if (lIdx >= 0 && lIdx < winVisible.length) {
+              targetCandle = winVisible[lIdx];
+            }
+          }
+        }
+        if (!targetCandle) {
+          const displayCount = Math.min(65, winVisible.length);
+          const chartW = scale?.chartW || (rect.width - 74);
+          const paddingLeft = scale?.chartPadding?.left || 12;
+          const barSpacing = chartW / displayCount;
+          const clickedCol = Math.floor((mouseX - paddingLeft) / Math.max(1, barSpacing));
+          const sliceCandles = winVisible.slice(winVisible.length - displayCount);
+          if (clickedCol >= 0 && clickedCol < sliceCandles.length) {
+            targetCandle = sliceCandles[clickedCol];
+          }
+        }
+
+        if (targetCandle) {
           const targetTs = targetCandle.timestamp || parseTimestamp(targetCandle.time);
           let targetIdx = allCandles.findIndex(c => c.time === targetCandle.time);
           if (targetIdx < 0 && targetTs > 0) {
@@ -1669,21 +1795,46 @@ export default function ManualBarReplay({
       const entry = clickedPrice;
       setPlannedEntryPrice(entry);
 
-      // Determine clicked bar timestamp to pin the box
+      // Determine clicked bar timestamp using TradingView coordinate if available
       const winVisible = getWindowVisibleSlice(winIdx);
-      if (winVisible.length > 0) {
-        const displayCount = Math.min(65, winVisible.length);
-        const chartW = scale?.chartW || (rect.width - 74);
-        const paddingLeft = scale?.chartPadding?.left || 12;
-        const barSpacing = chartW / Math.max(1, displayCount);
-        const clickedCol = Math.floor((mouseX - paddingLeft) / Math.max(1, barSpacing));
-        const sliceCandles = winVisible.slice(winVisible.length - displayCount);
-        if (clickedCol >= 0 && clickedCol < sliceCandles.length) {
-          setRulerStartBarTime(sliceCandles[clickedCol].time);
-        } else if (sliceCandles.length > 0) {
-          setRulerStartBarTime(sliceCandles[sliceCandles.length - 1].time);
+      const chart = tvCharts.current[winIdx];
+      let startBarTime: string | null = null;
+      let startLogical: number | null = null;
+
+      if (chart) {
+        const timeScale = chart.timeScale();
+        const t = timeScale.coordinateToTime(mouseX);
+        const log = timeScale.coordinateToLogical(mouseX);
+        if (log !== null && typeof log === 'number') {
+          startLogical = Math.round(log);
+        }
+        if (t !== null && typeof t === 'number') {
+          const found = winVisible.find(c => {
+            const sec = parseCandleTimeToSeconds(c.time, c.timestamp);
+            return Math.abs(sec - (t as number)) < 60;
+          });
+          if (found) startBarTime = found.time;
         }
       }
+
+      if (!startBarTime && winVisible.length > 0) {
+        if (startLogical !== null && startLogical >= 0 && startLogical < winVisible.length) {
+          startBarTime = winVisible[startLogical].time;
+        } else {
+          const displayCount = Math.min(65, winVisible.length);
+          const chartW = scale?.chartW || (rect.width - 74);
+          const paddingLeft = scale?.chartPadding?.left || 12;
+          const barSpacing = chartW / Math.max(1, displayCount);
+          const clickedCol = Math.floor((mouseX - paddingLeft) / Math.max(1, barSpacing));
+          const sliceCandles = winVisible.slice(winVisible.length - displayCount);
+          if (clickedCol >= 0 && clickedCol < sliceCandles.length) {
+            startBarTime = sliceCandles[clickedCol].time;
+          } else if (sliceCandles.length > 0) {
+            startBarTime = sliceCandles[sliceCandles.length - 1].time;
+          }
+        }
+      }
+      setRulerStartBarTime(startBarTime);
 
       const visibleRange = scale ? (scale.maxPrice - scale.minPrice) : entry * 0.05;
       const typicalDist = Math.max(visibleRange * 0.08, entry * 0.004);
@@ -1701,17 +1852,35 @@ export default function ManualBarReplay({
 
     // 4. Tool: Trendline Drawing Start
     if (activeTool === 'trendline') {
+      const chart = tvCharts.current[winIdx];
+      let timeSec: number | undefined;
+      let logical: number | undefined;
+      if (chart) {
+        const t = chart.timeScale().coordinateToTime(mouseX);
+        if (t !== null && typeof t === 'number') timeSec = t;
+        const log = chart.timeScale().coordinateToLogical(mouseX);
+        if (log !== null && typeof log === 'number') logical = log;
+      }
       setIsDrawingTrend(true);
-      setTrendStart({ x: mouseX, y: mouseY, price: clickedPrice });
-      setTrendCurrent({ x: mouseX, y: mouseY, price: clickedPrice });
+      setTrendStart({ x: mouseX, y: mouseY, price: clickedPrice, timeSec, logical });
+      setTrendCurrent({ x: mouseX, y: mouseY, price: clickedPrice, timeSec, logical });
       return;
     }
 
     // 4.5. Tool: Rectangle Drawing Start (供求区间 / 矩形区域)
     if (activeTool === 'rectangle') {
+      const chart = tvCharts.current[winIdx];
+      let timeSec: number | undefined;
+      let logical: number | undefined;
+      if (chart) {
+        const t = chart.timeScale().coordinateToTime(mouseX);
+        if (t !== null && typeof t === 'number') timeSec = t;
+        const log = chart.timeScale().coordinateToLogical(mouseX);
+        if (log !== null && typeof log === 'number') logical = log;
+      }
       setIsDrawingRect(true);
-      setRectStart({ x: mouseX, y: mouseY, price: clickedPrice });
-      setRectCurrent({ x: mouseX, y: mouseY, price: clickedPrice });
+      setRectStart({ x: mouseX, y: mouseY, price: clickedPrice, timeSec, logical });
+      setRectCurrent({ x: mouseX, y: mouseY, price: clickedPrice, timeSec, logical });
       return;
     }
 
@@ -1877,12 +2046,23 @@ export default function ManualBarReplay({
         }
       } else if (dragTarget.type === 'width') {
         const deltaX = mouseX - (dragTarget.startX || mouseX);
-        const winVisible = getWindowVisibleSlice(winIdx);
-        const displayCount = Math.min(65, winVisible.length);
-        const chartW = scale?.chartW || (rect.width - 74);
-        const barSpacing = chartW / Math.max(1, displayCount);
-        const deltaBars = Math.round(deltaX / Math.max(1, barSpacing));
-        const newSpan = Math.max(5, Math.min(80, (dragTarget.startSpan || 25) + deltaBars));
+        const chart = tvCharts.current[winIdx];
+        let deltaBars = 0;
+        if (chart) {
+          const log1 = chart.timeScale().coordinateToLogical(dragTarget.startX || mouseX);
+          const log2 = chart.timeScale().coordinateToLogical(mouseX);
+          if (log1 !== null && log2 !== null) {
+            deltaBars = Math.round((log2 as number) - (log1 as number));
+          }
+        }
+        if (deltaBars === 0 && Math.abs(deltaX) > 2) {
+          const winVisible = getWindowVisibleSlice(winIdx);
+          const displayCount = Math.min(65, winVisible.length);
+          const chartW = scale?.chartW || (rect.width - 74);
+          const barSpacing = chartW / Math.max(1, displayCount);
+          deltaBars = Math.round(deltaX / Math.max(1, barSpacing));
+        }
+        const newSpan = Math.max(5, Math.min(120, (dragTarget.startSpan || 25) + deltaBars));
         setRulerBarSpan(newSpan);
       } else if (dragTarget.type === 'horizontal' && dragTarget.lineId) {
         setHorizontalLines(prev =>
@@ -1893,14 +2073,32 @@ export default function ManualBarReplay({
     }
 
     // If currently drawing trendline preview
-    if (isDrawingTrend) {
-      setTrendCurrent({ x: mouseX, y: mouseY, price: currentPrice });
+    if (isDrawingTrend && trendStart) {
+      const chart = tvCharts.current[winIdx];
+      let timeSec: number | undefined;
+      let logical: number | undefined;
+      if (chart) {
+        const t = chart.timeScale().coordinateToTime(mouseX);
+        if (t !== null && typeof t === 'number') timeSec = t;
+        const log = chart.timeScale().coordinateToLogical(mouseX);
+        if (log !== null && typeof log === 'number') logical = log;
+      }
+      setTrendCurrent({ x: mouseX, y: mouseY, price: currentPrice, timeSec, logical });
       return;
     }
 
     // If currently drawing rectangle preview
     if (isDrawingRect && rectStart) {
-      setRectCurrent({ x: mouseX, y: mouseY, price: currentPrice });
+      const chart = tvCharts.current[winIdx];
+      let timeSec: number | undefined;
+      let logical: number | undefined;
+      if (chart) {
+        const t = chart.timeScale().coordinateToTime(mouseX);
+        if (t !== null && typeof t === 'number') timeSec = t;
+        const log = chart.timeScale().coordinateToLogical(mouseX);
+        if (log !== null && typeof log === 'number') logical = log;
+      }
+      setRectCurrent({ x: mouseX, y: mouseY, price: currentPrice, timeSec, logical });
       return;
     }
 
@@ -1962,6 +2160,10 @@ export default function ManualBarReplay({
             x2: trendCurrent.x,
             y2: trendCurrent.y,
             price2: trendCurrent.price,
+            timeSec1: trendStart.timeSec,
+            timeSec2: trendCurrent.timeSec,
+            logical1: trendStart.logical,
+            logical2: trendCurrent.logical,
           }
         ]);
       }
@@ -1985,6 +2187,10 @@ export default function ManualBarReplay({
             x2: Math.max(rectStart.x, rectCurrent.x),
             y2: Math.max(rectStart.y, rectCurrent.y),
             price2: Math.min(rectStart.price, rectCurrent.price),
+            timeSec1: rectStart.timeSec,
+            timeSec2: rectCurrent.timeSec,
+            logical1: rectStart.logical,
+            logical2: rectCurrent.logical,
           }
         ]);
       }
@@ -2194,7 +2400,7 @@ export default function ManualBarReplay({
 
       // Draw TV Visuals Shaded Box (TradingView 风格闭合多空盈亏区间)
       let tvBoxState: any = undefined;
-      if (showTvVisuals && activeOrPlannedEntry && activeOrPlannedSl) {
+      if (showTvVisuals && showDrawings && activeOrPlannedEntry && activeOrPlannedSl) {
         const series = tvSeries.current[winIdx];
         let entryY: number | null = null;
         let slY: number | null = null;
@@ -2212,20 +2418,70 @@ export default function ManualBarReplay({
         if (slY === null || !isFinite(slY)) slY = priceToY(activeOrPlannedSl);
         if (tpY === null && activeOrPlannedTp && activeOrPlannedTp > 0) tpY = priceToY(activeOrPlannedTp);
 
-        // Calculate bounded box horizontally
-        let startIndex = Math.max(0, displayCount - (rulerBarSpan || 25));
+        // Calculate bounded box horizontally (TradingView timeScale synced)
+        const span = rulerBarSpan || 25;
         const anchorTime = position ? position.entryTime : rulerStartBarTime;
-        if (anchorTime) {
-          const foundIdx = sliceCandles.findIndex(c => c.time === anchorTime);
-          if (foundIdx >= 0) {
-            startIndex = foundIdx;
+        const chart = tvCharts.current[winIdx];
+        let boxLeft: number;
+        let boxRight: number;
+        let boxW: number;
+        let boxCenterX: number;
+
+        if (chart) {
+          const timeScale = chart.timeScale();
+          let startX: number | null = null;
+          let endX: number | null = null;
+
+          let anchorIdx = -1;
+          if (anchorTime) {
+            const anchorTs = parseTimestamp(anchorTime);
+            anchorIdx = winVisibleCandles.findIndex(c => {
+              if (c.time === anchorTime) return true;
+              if (anchorTs > 0) {
+                const ts = c.timestamp || parseTimestamp(c.time);
+                return Math.abs(ts - anchorTs) < 300000;
+              }
+              return false;
+            });
           }
+          if (anchorIdx === -1) {
+            anchorIdx = Math.max(0, winVisibleCandles.length - 1);
+          }
+
+          try {
+            startX = timeScale.logicalToCoordinate(anchorIdx as any);
+            endX = timeScale.logicalToCoordinate((anchorIdx + span) as any);
+          } catch {}
+
+          if (startX !== null && endX !== null && isFinite(startX) && isFinite(endX)) {
+            boxLeft = Math.min(startX, endX);
+            boxW = Math.max(30, Math.abs(endX - startX));
+            boxRight = boxLeft + boxW;
+            boxCenterX = boxLeft + boxW / 2;
+          } else {
+            let startIndex = Math.max(0, displayCount - span);
+            if (anchorTime) {
+              const foundIdx = sliceCandles.findIndex(c => c.time === anchorTime);
+              if (foundIdx >= 0) startIndex = foundIdx;
+            }
+            boxLeft = Math.max(chartPadding.left, chartPadding.left + startIndex * barSpacing);
+            const maxAvailW = Math.max(40, (w - chartPadding.right - 8) - boxLeft);
+            boxW = Math.max(40, Math.min(barSpacing * span, maxAvailW));
+            boxRight = boxLeft + boxW;
+            boxCenterX = boxLeft + boxW / 2;
+          }
+        } else {
+          let startIndex = Math.max(0, displayCount - span);
+          if (anchorTime) {
+            const foundIdx = sliceCandles.findIndex(c => c.time === anchorTime);
+            if (foundIdx >= 0) startIndex = foundIdx;
+          }
+          boxLeft = Math.max(chartPadding.left, chartPadding.left + startIndex * barSpacing);
+          const maxAvailW = Math.max(40, (w - chartPadding.right - 8) - boxLeft);
+          boxW = Math.max(40, Math.min(barSpacing * span, maxAvailW));
+          boxRight = boxLeft + boxW;
+          boxCenterX = boxLeft + boxW / 2;
         }
-        const boxLeft = Math.max(chartPadding.left + startIndex * barSpacing, chartPadding.left);
-        const maxAvailW = Math.max(80, (w - chartPadding.right - 8) - boxLeft);
-        const boxW = Math.max(80, Math.min(barSpacing * (rulerBarSpan || 25), maxAvailW));
-        const boxRight = boxLeft + boxW;
-        const boxCenterX = boxLeft + boxW / 2;
 
         const activeOrPlannedDir = position ? position.direction : orderDirection;
         const topY = Math.min(entryY, slY, tpY !== null ? tpY : entryY);
@@ -2278,8 +2534,9 @@ export default function ManualBarReplay({
         }
       }
 
-      // Draw Horizontal Lines (Global across all windows)
-      horizontalLines.forEach((hl) => {
+      // Draw Horizontal Lines & Rectangles (Global across all windows)
+      if (showDrawings) {
+        horizontalLines.forEach((hl) => {
         const series = tvSeries.current[winIdx];
         let ly: number | null = null;
         if (series) {
@@ -2315,6 +2572,7 @@ export default function ManualBarReplay({
       // Draw Rectangles (Global across all windows)
       rectangles.forEach((rect) => {
         const series = tvSeries.current[winIdx];
+        const chart = tvCharts.current[winIdx];
         let topY: number | null = null;
         let bottomY: number | null = null;
         if (series) {
@@ -2326,10 +2584,26 @@ export default function ManualBarReplay({
         if (topY === null || !isFinite(topY)) topY = priceToY(rect.price1);
         if (bottomY === null || !isFinite(bottomY)) bottomY = priceToY(rect.price2);
 
+        let rx1 = rect.x1;
+        let rx2 = rect.x2;
+        if (chart) {
+          try {
+            const timeScale = chart.timeScale();
+            let c1: number | null = null;
+            let c2: number | null = null;
+            if (rect.timeSec1 !== undefined) c1 = timeScale.timeToCoordinate(rect.timeSec1 as any);
+            if (c1 === null && rect.logical1 !== undefined) c1 = timeScale.logicalToCoordinate(rect.logical1 as any);
+            if (rect.timeSec2 !== undefined) c2 = timeScale.timeToCoordinate(rect.timeSec2 as any);
+            if (c2 === null && rect.logical2 !== undefined) c2 = timeScale.logicalToCoordinate(rect.logical2 as any);
+            if (c1 !== null && isFinite(c1)) rx1 = c1;
+            if (c2 !== null && isFinite(c2)) rx2 = c2;
+          } catch {}
+        }
+
         const rectY = Math.min(topY, bottomY);
         const rectH = Math.max(2, Math.abs(topY - bottomY));
-        const rectX = Math.max(chartPadding.left, Math.min(rect.x1, rect.x2));
-        const rectW = Math.max(20, Math.abs(rect.x2 - rect.x1));
+        const rectX = Math.min(rx1, rx2);
+        const rectW = Math.max(10, Math.abs(rx2 - rx1));
 
         ctx.save?.();
         ctx.fillStyle = isDark ? 'rgba(168, 85, 247, 0.18)' : 'rgba(168, 85, 247, 0.12)';
@@ -2358,13 +2632,18 @@ export default function ManualBarReplay({
         ctx.setLineDash?.([]);
         ctx.restore?.();
       }
+      }
 
       // Draw Trendlines (on active window)
-      if (activeWindowIndex === winIdx) {
+      if (showDrawings && activeWindowIndex === winIdx) {
         trendLines.forEach((tl) => {
           const series = tvSeries.current[winIdx];
+          const chart = tvCharts.current[winIdx];
           let y1 = tl.y1;
           let y2 = tl.y2;
+          let x1 = tl.x1;
+          let x2 = tl.x2;
+
           if (series) {
             try {
               const c1 = series.priceToCoordinate(tl.price1);
@@ -2373,12 +2652,26 @@ export default function ManualBarReplay({
               if (c2 !== null && isFinite(c2)) y2 = c2;
             } catch {}
           }
+          if (chart) {
+            try {
+              const timeScale = chart.timeScale();
+              let cx1: number | null = null;
+              let cx2: number | null = null;
+              if (tl.timeSec1 !== undefined) cx1 = timeScale.timeToCoordinate(tl.timeSec1 as any);
+              if (cx1 === null && tl.logical1 !== undefined) cx1 = timeScale.logicalToCoordinate(tl.logical1 as any);
+              if (tl.timeSec2 !== undefined) cx2 = timeScale.timeToCoordinate(tl.timeSec2 as any);
+              if (cx2 === null && tl.logical2 !== undefined) cx2 = timeScale.logicalToCoordinate(tl.logical2 as any);
+              if (cx1 !== null && isFinite(cx1)) x1 = cx1;
+              if (cx2 !== null && isFinite(cx2)) x2 = cx2;
+            } catch {}
+          }
+
           ctx.save?.();
           ctx.strokeStyle = '#0284c7';
           ctx.lineWidth = 2;
           ctx.beginPath();
-          ctx.moveTo(tl.x1, y1);
-          ctx.lineTo(tl.x2, y2);
+          ctx.moveTo(x1, y1);
+          ctx.lineTo(x2, y2);
           ctx.stroke();
           ctx.restore?.();
         });
@@ -2452,46 +2745,100 @@ export default function ManualBarReplay({
       // Draw Indicators on this window's visible slice
       if (showBollinger) {
         const winBb = calculateBollingerBands(winVisibleCandles, 20, 2);
+        const series = tvSeries.current[winIdx];
+        const chart = tvCharts.current[winIdx];
         if (winBb) {
-          const sliceBb = winBb.slice(winVisibleCandles.length - displayCount);
           ctx.save?.();
           ctx.strokeStyle = 'rgba(56, 189, 248, 0.6)';
           ctx.lineWidth = 1;
-          ctx.beginPath();
-          let started = false;
-          sliceBb.forEach((bb, i) => {
-            if (!bb) return;
-            const x = chartPadding.left + i * barSpacing + barSpacing / 2;
-            const yUpper = priceToY(bb.upper);
-            if (!started) { ctx.moveTo(x, yUpper); started = true; } else { ctx.lineTo(x, yUpper); }
-          });
-          ctx.stroke();
 
+          // Upper band
           ctx.beginPath();
-          started = false;
-          sliceBb.forEach((bb, i) => {
-            if (!bb) return;
-            const x = chartPadding.left + i * barSpacing + barSpacing / 2;
-            const yLower = priceToY(bb.lower);
-            if (!started) { ctx.moveTo(x, yLower); started = true; } else { ctx.lineTo(x, yLower); }
+          let startedUpper = false;
+          winBb.upper.forEach((val, i) => {
+            if (val === null || isNaN(val)) return;
+            let x: number | null = null;
+            let y: number | null = null;
+            if (chart && series) {
+              try {
+                x = chart.timeScale().logicalToCoordinate(i as any);
+                y = series.priceToCoordinate(val);
+              } catch {}
+            }
+            if (x === null || !isFinite(x) || y === null || !isFinite(y)) {
+              const sliceStart = winVisibleCandles.length - displayCount;
+              if (i < sliceStart) return;
+              x = chartPadding.left + (i - sliceStart) * barSpacing + barSpacing / 2;
+              y = priceToY(val);
+            }
+            if (x < chartPadding.left - 50 || x > w - chartPadding.right + 50) return;
+            if (!startedUpper) { ctx.moveTo(x, y); startedUpper = true; } else { ctx.lineTo(x, y); }
           });
-          ctx.stroke();
+          if (startedUpper) ctx.stroke();
+
+          // Lower band
+          ctx.beginPath();
+          let startedLower = false;
+          winBb.lower.forEach((val, i) => {
+            if (val === null || isNaN(val)) return;
+            let x: number | null = null;
+            let y: number | null = null;
+            if (chart && series) {
+              try {
+                x = chart.timeScale().logicalToCoordinate(i as any);
+                y = series.priceToCoordinate(val);
+              } catch {}
+            }
+            if (x === null || !isFinite(x) || y === null || !isFinite(y)) {
+              const sliceStart = winVisibleCandles.length - displayCount;
+              if (i < sliceStart) return;
+              x = chartPadding.left + (i - sliceStart) * barSpacing + barSpacing / 2;
+              y = priceToY(val);
+            }
+            if (x < chartPadding.left - 50 || x > w - chartPadding.right + 50) return;
+            if (!startedLower) { ctx.moveTo(x, y); startedLower = true; } else { ctx.lineTo(x, y); }
+          });
+          if (startedLower) ctx.stroke();
           ctx.restore?.();
         }
       }
 
       const drawIndLine = (data: Array<number | null>, color: string, lineWidth = 1.3) => {
-        const sliceData = data.slice(winVisibleCandles.length - displayCount);
+        const series = tvSeries.current[winIdx];
+        const chart = tvCharts.current[winIdx];
         ctx.save?.();
         ctx.strokeStyle = color;
         ctx.lineWidth = lineWidth;
         ctx.beginPath();
         let started = false;
-        sliceData.forEach((val, i) => {
+
+        data.forEach((val, i) => {
           if (val === null || isNaN(val)) return;
-          const x = chartPadding.left + i * barSpacing + barSpacing / 2;
-          const y = priceToY(val);
-          if (!started) { ctx.moveTo(x, y); started = true; } else { ctx.lineTo(x, y); }
+          let x: number | null = null;
+          let y: number | null = null;
+
+          if (chart && series) {
+            try {
+              x = chart.timeScale().logicalToCoordinate(i as any);
+              y = series.priceToCoordinate(val);
+            } catch {}
+          }
+          if (x === null || !isFinite(x) || y === null || !isFinite(y)) {
+            const sliceStart = winVisibleCandles.length - displayCount;
+            if (i < sliceStart) return;
+            const sliceIdx = i - sliceStart;
+            x = chartPadding.left + sliceIdx * barSpacing + barSpacing / 2;
+            y = priceToY(val);
+          }
+
+          if (x < chartPadding.left - 50 || x > w - chartPadding.right + 50) return;
+
+          if (!started) {
+            ctx.moveTo(x, y);
+            started = true;
+          } else {
+            ctx.lineTo(x, y);
+          }
         });
         if (started) ctx.stroke();
         ctx.restore?.();
@@ -2503,7 +2850,7 @@ export default function ManualBarReplay({
       if (showEma9) drawIndLine(calculateEMA(winVisibleCandles, 9), '#38bdf8');
 
       // Draw TradingView position lines & draggable handles
-      if (showTvVisuals && tvBoxState && activeOrPlannedEntry && activeOrPlannedSl) {
+      if (showTvVisuals && showDrawings && tvBoxState && activeOrPlannedEntry && activeOrPlannedSl) {
         const { entryY, slY, tpY, boxLeft, boxRight, boxW, boxCenterX, topY, bottomY, handleWidthY } = tvBoxState;
         const activeOrPlannedDir = position ? position.direction : orderDirection;
 
@@ -2811,7 +3158,7 @@ export default function ManualBarReplay({
     horizontalLines, trendLines, rectangles, isDrawingTrend, trendStart, trendCurrent, 
     isDrawingRect, rectStart, rectCurrent, hoverHandle, dragTarget, activeTool, mousePos,
     showMa20, showMa50, showMa200, showEma9, showBollinger, showVolume, showRsi,
-    syncHoverTime, activeWindowIndex, getWindowVisibleSlice
+    showDrawings, syncHoverTime, activeWindowIndex, getWindowVisibleSlice
   ]);
 
   // Save replay trades to TradeZen database
@@ -2839,6 +3186,8 @@ export default function ManualBarReplay({
         exitTime: t.exitTime,
         tradeDate: t.entryTime,
         manualPnl: t.profit,
+        stopLoss: t.stopLoss || undefined,
+        takeProfit: t.takeProfit || undefined,
         notes: `手动K线复盘订单 | 原因: ${t.exitReason}`,
         tags: ['Bar-Replay', t.symbol],
         finalTrigger: t.exitReason === 'Stop Loss' ? ('stopLoss' as const) : (t.exitReason === 'Take Profit' ? ('takeProfit' as const) : undefined),
@@ -2868,7 +3217,9 @@ export default function ManualBarReplay({
   const totalGrossLoss = Math.abs(losingTrades.reduce((acc, t) => acc + t.profit, 0));
   const totalNetProfit = totalGrossProfit - totalGrossLoss;
   const netProfitPercent = accountCapital > 0 ? ((totalNetProfit / accountCapital) * 100).toFixed(2) : '0.00';
-  const currentEquity = accountCapital + totalNetProfit;
+  const currentBalance = Math.round((accountCapital + totalNetProfit) * 100) / 100;
+  const liveEquity = Math.round((currentBalance + (position ? floatingProfit : 0)) * 100) / 100;
+  const currentEquity = currentBalance;
 
   const profitFactor = totalGrossLoss > 0 
     ? (totalGrossProfit / totalGrossLoss).toFixed(2) 
@@ -3067,6 +3418,76 @@ export default function ManualBarReplay({
 
         {/* TradingView Chart Container + Drawing Canvas Overlay */}
         <div className="relative flex-1 h-full min-h-0 bg-white dark:bg-[#131722] overflow-hidden">
+          {/* TradingView Top-Left In-Chart HUD & Quick Trade Buttons */}
+          {isPrimary && (
+            <div className="absolute top-2 left-3 z-20 pointer-events-auto flex flex-col space-y-1.5 select-none">
+              {/* HUD Status Line */}
+              <div className="flex items-center space-x-2 text-[11px] font-mono bg-black/60 dark:bg-[#131722]/80 backdrop-blur-md px-2.5 py-1 rounded-md border border-white/10 text-gray-200">
+                <span className="font-bold text-white tracking-wide">
+                  {symbol}
+                </span>
+                <span className="text-gray-400">·</span>
+                <span className="text-gray-300 font-sans font-semibold">
+                  {windowTimeframes[0] || timeframe}
+                </span>
+                {displayCandle && (
+                  <>
+                    <span className="text-gray-400">·</span>
+                    <span>开 <b className="text-white">{displayCandle.open}</b></span>
+                    <span>高 <b className="text-white">{displayCandle.high}</b></span>
+                    <span>低 <b className="text-white">{displayCandle.low}</b></span>
+                    <span>收 <b className={displayCandle.close >= displayCandle.open ? 'text-[#089981]' : 'text-[#f23645]'}>{displayCandle.close}</b></span>
+                    {hoveredCandle && typeof hoveredCandle.change === 'number' && (
+                      <span className={`font-bold ${hoveredCandle.change >= 0 ? 'text-[#089981]' : 'text-[#f23645]'}`}>
+                        {hoveredCandle.change >= 0 ? '+' : ''}{hoveredCandle.change.toFixed(2)} ({hoveredCandle.changePercent.toFixed(2)}%)
+                      </span>
+                    )}
+                    {displayCandle.volume !== undefined && (
+                      <span className="text-gray-400 hidden xl:inline">Vol {displayCandle.volume}</span>
+                    )}
+                  </>
+                )}
+              </div>
+
+              {/* TradingView In-Chart Instant Order Capsule (原生图表快捷买卖胶囊) */}
+              <div className="flex items-center space-x-1 bg-black/70 dark:bg-[#131722]/90 backdrop-blur-md p-1 rounded-lg border border-white/15 shadow-xl text-xs w-fit">
+                <button
+                  type="button"
+                  onClick={() => handleOpenOrder('long')}
+                  className="px-2.5 py-1 bg-[#2962ff] hover:bg-[#1e54e4] text-white font-bold rounded flex items-center space-x-1.5 transition active:scale-95 shadow-xs"
+                  title="一键以当前市价或做多标尺买入做多 (BUY)"
+                >
+                  <span className="font-mono text-[11px]">{displayCandle?.close || 0}</span>
+                  <span className="text-[11px]">买入</span>
+                </button>
+
+                <div className="relative">
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    value={lotSize}
+                    onChange={(e) => {
+                      setAutoSizing(false);
+                      setLotSize(e.target.value);
+                    }}
+                    className="w-14 text-center font-mono font-bold bg-white/10 dark:bg-black/40 border border-white/20 rounded py-0.5 text-white text-[11px] focus:outline-none focus:border-[#2962ff]"
+                    title="开仓手数"
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => handleOpenOrder('short')}
+                  className="px-2.5 py-1 bg-[#f23645] hover:bg-[#d92332] text-white font-bold rounded flex items-center space-x-1.5 transition active:scale-95 shadow-xs"
+                  title="一键以当前市价或做空标尺卖出做空 (SELL)"
+                >
+                  <span className="font-mono text-[11px]">{displayCandle?.close || 0}</span>
+                  <span className="text-[11px]">卖出</span>
+                </button>
+              </div>
+            </div>
+          )}
           {/* TradingView Lightweight Charts Container */}
           <div
             ref={(el) => {
@@ -3145,8 +3566,174 @@ export default function ManualBarReplay({
     >
 
 
-      {/* 2. MAIN WORKSPACE ROW (Full Width Chart + Right Order Panel) */}
+      {/* 2. MAIN WORKSPACE ROW (Left Vertical Toolbar + Center Chart + Right Order Panel) */}
       <div className="flex flex-1 overflow-hidden relative items-stretch">
+        {/* 2.0 TRADINGVIEW LEFT VERTICAL DRAWING TOOLBAR (经典原生左侧垂直工具栏) */}
+        <div className="w-11 sm:w-12 bg-white dark:bg-[#1e222d] border-r border-gray-200 dark:border-[#2a2e39] flex flex-col items-center py-2 space-y-1.5 z-20 shrink-0 select-none">
+          <span className="sr-only">手动画线工具:</span>
+          {activeTool === 'pointer' && (
+            <span className="sr-only">(按住鼠标上下拖拽手柄调价)</span>
+          )}
+
+          {/* Pointer / Crosshair */}
+          <button
+            type="button"
+            onClick={() => setActiveTool('pointer')}
+            className={`p-2 rounded-lg transition ${
+              activeTool === 'pointer'
+                ? 'bg-[#2962ff] text-white shadow-xs'
+                : 'text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-white dark:hover:bg-[#2a2e39]'
+            }`}
+            title="指针 / 拖动手柄 (按住鼠标上下拖拽手柄调价)"
+          >
+            <MousePointer className="w-4 h-4" />
+            <span className="sr-only">指针 / 拖动手柄</span>
+          </button>
+
+          {/* Trendline */}
+          <button
+            type="button"
+            onClick={() => {
+              setShowDrawings(true);
+              setActiveTool(activeTool === 'trendline' ? 'pointer' : 'trendline');
+            }}
+            className={`p-2 rounded-lg transition ${
+              activeTool === 'trendline'
+                ? 'bg-sky-500 text-white shadow-xs'
+                : 'text-gray-500 hover:text-sky-500 hover:bg-sky-500/10 dark:text-gray-400 dark:hover:text-sky-400 dark:hover:bg-[#2a2e39]'
+            }`}
+            title="趋势线：在图表上拖动绘制倾斜趋势线"
+          >
+            <MoveDiagonal className="w-4 h-4" />
+            <span className="sr-only">趋势线</span>
+          </button>
+
+          {/* Horizontal Support/Resistance Line */}
+          <button
+            type="button"
+            onClick={() => {
+              setShowDrawings(true);
+              setActiveTool(activeTool === 'horizontal' ? 'pointer' : 'horizontal');
+            }}
+            className={`p-2 rounded-lg transition ${
+              activeTool === 'horizontal'
+                ? 'bg-amber-500 text-white shadow-xs'
+                : 'text-gray-500 hover:text-amber-500 hover:bg-amber-500/10 dark:text-gray-400 dark:hover:text-amber-400 dark:hover:bg-[#2a2e39]'
+            }`}
+            title="水平支撑阻力线：点击图表任意价位画出水平线"
+          >
+            <Minus className="w-4 h-4" />
+            <span className="sr-only">水平支撑阻力线</span>
+          </button>
+
+          {/* Rectangle Zone */}
+          <button
+            type="button"
+            onClick={() => {
+              setShowDrawings(true);
+              setActiveTool(activeTool === 'rectangle' ? 'pointer' : 'rectangle');
+            }}
+            className={`p-2 rounded-lg transition ${
+              activeTool === 'rectangle'
+                ? 'bg-purple-600 text-white shadow-xs'
+                : 'text-gray-500 hover:text-purple-500 hover:bg-purple-500/10 dark:text-gray-400 dark:hover:text-purple-400 dark:hover:bg-[#2a2e39]'
+            }`}
+            title="矩形区域：框选震荡箱体或供求区间"
+          >
+            <Square className="w-4 h-4" />
+            <span className="sr-only">矩形区域</span>
+          </button>
+
+          <div className="w-6 h-px bg-gray-200 dark:bg-[#2a2e39] my-1" />
+
+          {/* Long Position Ruler */}
+          <button
+            type="button"
+            onClick={() => {
+              setShowDrawings(true);
+              setActiveTool('long');
+              handleSwitchDirection('long');
+            }}
+            className={`p-2 rounded-lg transition ${
+              activeTool === 'long'
+                ? 'bg-[#089981] text-white shadow-xs'
+                : 'text-gray-500 hover:text-[#089981] hover:bg-[#089981]/10 dark:text-gray-400 dark:hover:text-emerald-400 dark:hover:bg-[#2a2e39]'
+            }`}
+            title="做多画线标尺：测算做多盈亏比与风控"
+          >
+            <TrendingUp className="w-4 h-4" />
+            <span className="sr-only">做多画线标尺</span>
+          </button>
+
+          {/* Short Position Ruler */}
+          <button
+            type="button"
+            onClick={() => {
+              setShowDrawings(true);
+              setActiveTool('short');
+              handleSwitchDirection('short');
+            }}
+            className={`p-2 rounded-lg transition ${
+              activeTool === 'short'
+                ? 'bg-[#f23645] text-white shadow-xs'
+                : 'text-gray-500 hover:text-[#f23645] hover:bg-[#f23645]/10 dark:text-gray-400 dark:hover:text-rose-400 dark:hover:bg-[#2a2e39]'
+            }`}
+            title="做空画线标尺：测算做空盈亏比与风控"
+          >
+            <TrendingDown className="w-4 h-4" />
+            <span className="sr-only">做空画线标尺</span>
+          </button>
+
+          {/* Scissors: Cut-in / Jump Replay */}
+          <button
+            type="button"
+            onClick={() => setActiveTool(activeTool === 'jump' ? 'pointer' : 'jump')}
+            className={`p-2 rounded-lg transition ${
+              activeTool === 'jump'
+                ? 'bg-amber-500 text-white shadow-xs'
+                : 'text-gray-500 hover:text-amber-500 hover:bg-amber-500/10 dark:text-gray-400 dark:hover:text-amber-400 dark:hover:bg-[#2a2e39]'
+            }`}
+            title="切片复盘：点击K线任意位置作为切入起点"
+          >
+            <Scissors className="w-4 h-4" />
+            <span className="sr-only">切片复盘</span>
+          </button>
+
+          <div className="w-6 h-px bg-gray-200 dark:bg-[#2a2e39] my-1" />
+
+          {/* Show/Hide Drawings Toggle */}
+          <button
+            type="button"
+            onClick={() => setShowDrawings(!showDrawings)}
+            className={`p-2 rounded-lg transition ${
+              !showDrawings
+                ? 'text-amber-500 bg-amber-500/15'
+                : 'text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-white dark:hover:bg-[#2a2e39]'
+            }`}
+            title={showDrawings ? '隐藏所有绘图标尺与图形' : '显示绘图标尺与图形'}
+          >
+            {showDrawings ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+            <span className="sr-only">切换画线显示</span>
+          </button>
+
+          {/* Clear All Drawings */}
+          {(horizontalLines.length > 0 || trendLines.length > 0 || rectangles.length > 0) && (
+            <button
+              type="button"
+              onClick={() => {
+                setHorizontalLines([]);
+                setTrendLines([]);
+                setRectangles([]);
+              }}
+              className="p-2 rounded-lg text-rose-500 hover:bg-rose-500/10 transition"
+              title="清空画线"
+            >
+              <Trash2 className="w-4 h-4" />
+              <span className="sr-only">清空画线</span>
+            </button>
+          )}
+        </div>
+
         {/* 2.1 CENTER CHART VIEWPORT (Full Width) */}
         <div className="flex-1 flex flex-col relative overflow-hidden bg-white dark:bg-[#131722] min-w-0 h-full">
           {/* TradingView Unified Pro Chart Header (品种、指标、画图、信息、下单一体化) */}
@@ -3185,6 +3772,35 @@ export default function ManualBarReplay({
                 <option value="H4">4 小时 (H4)</option>
                 <option value="D1">日线 (D1)</option>
               </select>
+
+              {/* Visual Timeframe Selector Pills (TradingView 经典周期选择药丸) */}
+              <div className="flex items-center space-x-0.5 bg-gray-100 dark:bg-[#131722] p-0.5 rounded-lg border border-gray-200 dark:border-[#2a2e39]">
+                {[
+                  { tf: 'M1', label: '1分' },
+                  { tf: 'M5', label: '5分' },
+                  { tf: 'M15', label: '15分' },
+                  { tf: 'M30', label: '30分' },
+                  { tf: 'H1', label: '1时' },
+                  { tf: 'H4', label: '4时' },
+                  { tf: 'D1', label: '日' },
+                ].map(({ tf, label }) => (
+                  <button
+                    key={tf}
+                    type="button"
+                    onClick={() => {
+                      setTimeframe(tf);
+                      handleWindowTimeframeChange(0, tf);
+                    }}
+                    className={`px-1.5 py-0.5 rounded text-[11px] font-semibold transition ${
+                      timeframe === tf
+                        ? 'bg-[#2962ff] text-white shadow-xs'
+                        : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200 dark:text-gray-400 dark:hover:text-white dark:hover:bg-[#2a2e39]'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
 
 
               {/* Indicators Menu Button */}
@@ -3275,6 +3891,21 @@ export default function ManualBarReplay({
               )}
               </div>
 
+              {/* Prominent TradingView [<< 回放] Toggle Button */}
+              <button
+                type="button"
+                onClick={() => setIsReplayActive(!isReplayActive)}
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center space-x-1.5 transition shadow-xs ${
+                  isReplayActive
+                    ? 'bg-blue-600 dark:bg-white text-white dark:text-gray-900 shadow-blue-500/20'
+                    : 'bg-white dark:bg-[#131722] hover:bg-gray-100 dark:hover:bg-[#2a2e39] text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-[#2a2e39]'
+                }`}
+                title={isReplayActive ? '收起K线回放控制栏' : '开启TradingView原生K线回放模式'}
+              >
+                <FastForward className="w-3.5 h-3.5 rotate-180" />
+                <span>回放</span>
+              </button>
+
               {/* Reload Button */}
               <button
                 type="button"
@@ -3293,135 +3924,6 @@ export default function ManualBarReplay({
                 <span className="text-[11px] font-mono text-gray-500 dark:text-gray-400 hidden lg:inline">
                   时间: <b className="text-gray-800 dark:text-gray-200">{displayCandle.time}</b>
                 </span>
-              )}
-            </div>
-
-            {/* Center: Integrated Top Drawing & Position Sizing Tools (手动画线与多空分析工具栏) */}
-            <div className="flex items-center space-x-0.5 bg-gray-100 dark:bg-[#131722] p-1 rounded-lg border border-gray-200 dark:border-[#2a2e39] select-none">
-              <span className="sr-only">手动画线工具:</span>
-              {activeTool === 'pointer' && (
-                <span className="sr-only">(可按住鼠标上下拖拽手柄调价)</span>
-              )}
-
-              {/* Pointer */}
-              <button
-                type="button"
-                onClick={() => setActiveTool('pointer')}
-                className={`px-1.5 py-1 rounded-md text-xs font-semibold flex items-center space-x-1 transition ${
-                  activeTool === 'pointer'
-                    ? 'bg-[#2962ff] text-white shadow-xs'
-                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200 dark:text-gray-400 dark:hover:text-white dark:hover:bg-[#2a2e39]'
-                }`}
-                title="指针模式：在图表上直接按住绿色止盈手柄或红色止损手柄上下拖动，实时修改价格"
-              >
-                <MousePointer className="w-3.5 h-3.5" />
-                <span className="hidden xl:inline text-[11px]">指针</span>
-                <span className="sr-only">指针 / 拖动手柄</span>
-              </button>
-
-              {/* Long Position Tool */}
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveTool('long');
-                  handleSwitchDirection('long');
-                }}
-                className={`px-1.5 py-1 rounded-md text-xs font-semibold flex items-center space-x-1 transition ${
-                  activeTool === 'long'
-                    ? 'bg-[#089981] text-white shadow-xs'
-                    : 'text-emerald-500 hover:bg-emerald-500/10 dark:hover:bg-[#2a2e39]'
-                }`}
-                title="点击图表任意K线或价格位置，放置做多画线标尺（支持拖动手柄调整止盈止损）"
-              >
-                <TrendingUp className="w-3.5 h-3.5" />
-                <span className="hidden xl:inline text-[11px]">做多标尺</span>
-                <span className="sr-only">做多画线标尺</span>
-              </button>
-
-              {/* Short Position Tool */}
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveTool('short');
-                  handleSwitchDirection('short');
-                }}
-                className={`px-1.5 py-1 rounded-md text-xs font-semibold flex items-center space-x-1 transition ${
-                  activeTool === 'short'
-                    ? 'bg-[#f23645] text-white shadow-xs'
-                    : 'text-rose-500 hover:bg-rose-500/10 dark:hover:bg-[#2a2e39]'
-                }`}
-                title="点击图表任意K线或价格位置，放置做空画线标尺（支持拖动手柄调整止盈止损）"
-              >
-                <TrendingDown className="w-3.5 h-3.5" />
-                <span className="hidden xl:inline text-[11px]">做空标尺</span>
-                <span className="sr-only">做空画线标尺</span>
-              </button>
-
-              <div className="h-4 w-px bg-gray-200 dark:bg-[#2a2e39] mx-0.5" />
-
-              {/* Horizontal Line */}
-              <button
-                type="button"
-                onClick={() => setActiveTool(activeTool === 'horizontal' ? 'pointer' : 'horizontal')}
-                className={`px-1.5 py-1 rounded-md text-xs font-semibold flex items-center space-x-1 transition ${
-                  activeTool === 'horizontal'
-                    ? 'bg-amber-500 text-white shadow-xs'
-                    : 'text-amber-500 hover:bg-amber-500/10 dark:hover:bg-[#2a2e39]'
-                }`}
-                title="点击图表任意价格位置，画出一条水平支撑/阻力线，支持拖动调整"
-              >
-                <Minus className="w-3.5 h-3.5" />
-                <span className="hidden xl:inline text-[11px]">水平线</span>
-                <span className="sr-only">水平支撑阻力线</span>
-              </button>
-
-              {/* Trendline */}
-              <button
-                type="button"
-                onClick={() => setActiveTool(activeTool === 'trendline' ? 'pointer' : 'trendline')}
-                className={`px-1.5 py-1 rounded-md text-xs font-semibold flex items-center space-x-1 transition ${
-                  activeTool === 'trendline'
-                    ? 'bg-sky-500 text-white shadow-xs'
-                    : 'text-sky-500 hover:bg-sky-500/10 dark:hover:bg-[#2a2e39]'
-                }`}
-                title="在图表上按住鼠标左键并拖动到终点，绘制倾斜趋势线"
-              >
-                <MoveDiagonal className="w-3.5 h-3.5" />
-                <span className="hidden xl:inline text-[11px]">趋势线</span>
-                <span className="sr-only">趋势线</span>
-              </button>
-
-              {/* Rectangle Zone */}
-              <button
-                type="button"
-                onClick={() => setActiveTool(activeTool === 'rectangle' ? 'pointer' : 'rectangle')}
-                className={`px-1.5 py-1 rounded-md text-xs font-semibold flex items-center space-x-1 transition ${
-                  activeTool === 'rectangle'
-                    ? 'bg-purple-600 text-white shadow-xs'
-                    : 'text-purple-500 hover:bg-purple-500/10 dark:hover:bg-[#2a2e39]'
-                }`}
-                title="按住鼠标左键并拖动绘制供求区间矩形框，直观标记震荡/突破区间"
-              >
-                <Square className="w-3.5 h-3.5" />
-                <span className="hidden xl:inline text-[11px]">矩形</span>
-                <span className="sr-only">矩形区域</span>
-              </button>
-
-              {/* Clear drawings */}
-              {(horizontalLines.length > 0 || trendLines.length > 0 || rectangles.length > 0) && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setHorizontalLines([]);
-                    setTrendLines([]);
-                    setRectangles([]);
-                  }}
-                  className="p-1 rounded-md text-rose-500 hover:bg-rose-500/20 transition"
-                  title="清除所有已画的水平支撑阻力线、趋势线和矩形区域"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  <span className="sr-only">清空画线</span>
-                </button>
               )}
             </div>
 
@@ -3536,6 +4038,35 @@ export default function ManualBarReplay({
             {Array.from({ length: windowCount }, (_, i) => renderWindow(i))}
           </div>
 
+          {/* TradingView Bottom Timeline Range Bar (时间范围选择与时钟) */}
+          <div className="h-7 bg-white dark:bg-[#1e222d] border-t border-gray-200 dark:border-[#2a2e39] px-3 flex items-center justify-between text-[11px] text-gray-500 dark:text-gray-400 select-none shrink-0 z-10">
+            <div className="flex items-center space-x-1 sm:space-x-2">
+              {['1天', '5天', '1个月', '3个月', '6个月', '1年', '全部'].map((range) => (
+                <button
+                  key={range}
+                  type="button"
+                  onClick={() => {
+                    for (let i = 0; i < windowCount; i++) {
+                      const chart = tvCharts.current[i];
+                      if (chart) {
+                        try {
+                          chart.timeScale().fitContent();
+                        } catch {}
+                      }
+                    }
+                  }}
+                  className="px-1.5 py-0.5 rounded hover:bg-gray-100 dark:hover:bg-[#2a2e39] hover:text-gray-900 dark:hover:text-white transition font-medium"
+                >
+                  {range}
+                </button>
+              ))}
+            </div>
+            <div className="flex items-center space-x-2 font-mono text-[10px]">
+              <Clock className="w-3 h-3 text-gray-400" />
+              <span>{new Date().toLocaleTimeString()} (UTC+8)</span>
+            </div>
+          </div>
+
           {/* Order notification toasts */}
           {orderErrorMsg && (
             <div className="absolute top-14 left-1/2 -translate-x-1/2 z-30 bg-rose-500 text-white px-4 py-2 rounded-xl shadow-2xl text-xs font-bold flex items-center space-x-2 backdrop-blur-md animate-fade-in border border-rose-400">
@@ -3552,85 +4083,121 @@ export default function ManualBarReplay({
           )}
 
           {/* TradingView Floating Replay Controller Island (回放控制浮岛) */}
-          <div className={`absolute z-30 ${
-            replayBarPosition === 'bottom' 
-              ? 'bottom-6 left-1/2 -translate-x-1/2' 
-              : 'top-14 left-1/2 -translate-x-1/2'
-          } flex items-center space-x-2 bg-white/95 dark:bg-[#1e222d]/95 backdrop-blur-md px-3.5 py-2 rounded-2xl border border-gray-200/90 dark:border-[#2a2e39]/90 shadow-2xl select-none transition-all duration-200 whitespace-nowrap`}>
-            {/* Reset */}
-            <button
-              onClick={() => {
-                setCurrentIndex(50);
-                setPosition(null);
-                setIsPlaying(false);
-              }}
-              title="重置到起点"
-              className="p-2 hover:bg-gray-100 dark:hover:bg-[#2a2e39] rounded-xl text-gray-700 dark:text-gray-300 transition shrink-0"
-            >
-              <RotateCcw className="w-4 h-4" />
-            </button>
+          {isReplayActive && (
+            <div className={`absolute z-30 ${
+              replayBarPosition === 'bottom' 
+                ? 'bottom-10 left-1/2 -translate-x-1/2' 
+                : 'top-14 left-1/2 -translate-x-1/2'
+            } flex items-center space-x-2 bg-white/95 dark:bg-[#1e222d]/95 backdrop-blur-md px-3.5 py-1.5 rounded-2xl border border-gray-200/90 dark:border-[#2a2e39]/90 shadow-2xl select-none transition-all duration-200 whitespace-nowrap`}>
+              {/* Random Historical Bar (🎲 随机K线盲测训练) */}
+              <button
+                type="button"
+                onClick={handleRandomReplay}
+                className="px-2.5 py-1 rounded-xl text-xs font-bold bg-[#2962ff]/10 hover:bg-[#2962ff]/20 text-[#2962ff] flex items-center space-x-1 transition active:scale-95 shrink-0"
+                title="随机切入历史任意K线起点，开启盲测训练"
+              >
+                <Shuffle className="w-3.5 h-3.5 text-[#2962ff]" />
+                <span>随机K线</span>
+              </button>
 
-            <div className="h-6 w-px bg-gray-200 dark:bg-[#2a2e39] shrink-0" />
+              <div className="h-5 w-px bg-gray-200 dark:bg-[#2a2e39] shrink-0" />
 
-            {/* Big Circular Play / Pause Button */}
-            <button
-              onClick={() => setIsPlaying(!isPlaying)}
-              title={isPlaying ? '暂停' : '自动播放'}
-              className={`w-9 h-9 rounded-full font-bold text-xs flex items-center justify-center transition shadow-md active:scale-95 shrink-0 ${
-                isPlaying 
-                  ? 'bg-amber-500 text-white hover:bg-amber-600 ring-4 ring-amber-300/40' 
-                  : 'bg-[#2962ff] text-white hover:bg-[#1e54e4] ring-4 ring-[#2962ff]/30'
-              }`}
-            >
-              {isPlaying ? <Pause className="w-4 h-4 fill-white" /> : <Play className="w-4 h-4 fill-white ml-0.5" />}
-            </button>
+              {/* Reset */}
+              <button
+                onClick={() => {
+                  setCurrentIndex(50);
+                  setPosition(null);
+                  setIsPlaying(false);
+                }}
+                title="重置到起点"
+                className="p-1.5 hover:bg-gray-100 dark:hover:bg-[#2a2e39] rounded-xl text-gray-700 dark:text-gray-300 transition shrink-0"
+              >
+                <RotateCcw className="w-4 h-4" />
+              </button>
 
-            {/* Step Forward (前进一根) */}
-            <button
-              onClick={stepForward}
-              title="前进一根 K 线 (快捷键: 空格或右方向键)"
-              className="px-3.5 py-1.5 bg-gray-100 hover:bg-gray-200 dark:bg-[#2a2e39] dark:hover:bg-[#363a45] rounded-xl text-xs font-bold text-gray-800 dark:text-gray-100 flex items-center space-x-1.5 transition active:scale-95 shadow-xs whitespace-nowrap shrink-0"
-            >
-              <span className="whitespace-nowrap">前进一根</span>
-              <span className="text-[10px] font-mono px-1 py-0.2 bg-white/80 dark:bg-[#131722]/80 text-gray-500 dark:text-gray-400 rounded border border-gray-200 dark:border-[#363a45] shrink-0">Space</span>
-              <SkipForward className="w-3.5 h-3.5 text-[#2962ff] shrink-0" />
-            </button>
+              {/* Big Circular Play / Pause Button */}
+              <button
+                onClick={() => setIsPlaying(!isPlaying)}
+                title={isPlaying ? '暂停' : '自动播放'}
+                className={`w-8 h-8 rounded-full font-bold text-xs flex items-center justify-center transition shadow-md active:scale-95 shrink-0 ${
+                  isPlaying 
+                    ? 'bg-amber-500 text-white hover:bg-amber-600 ring-4 ring-amber-300/40' 
+                    : 'bg-[#2962ff] text-white hover:bg-[#1e54e4] ring-4 ring-[#2962ff]/30'
+                }`}
+              >
+                {isPlaying ? <Pause className="w-3.5 h-3.5 fill-white" /> : <Play className="w-3.5 h-3.5 fill-white ml-0.5" />}
+              </button>
 
-            {/* Speed Select */}
-            <select
-              value={playSpeed}
-              onChange={(e) => setPlaySpeed(parseInt(e.target.value))}
-              className="text-xs font-semibold px-2 py-1.5 border border-gray-200 dark:border-[#2a2e39] rounded-xl bg-gray-50 dark:bg-[#131722] text-gray-800 dark:text-gray-200 focus:outline-none cursor-pointer whitespace-nowrap shrink-0"
-            >
-              <option value={2000}>0.5x 慢速</option>
-              <option value={1000}>1.0x 正常</option>
-              <option value={500}>2.0x 快速</option>
-              <option value={200}>5.0x 极速</option>
-            </select>
+              {/* Step Forward (前进一根) */}
+              <button
+                onClick={stepForward}
+                title="前进一根 K 线 (快捷键: 空格或右方向键)"
+                className="px-3 py-1 bg-gray-100 hover:bg-gray-200 dark:bg-[#2a2e39] dark:hover:bg-[#363a45] rounded-xl text-xs font-bold text-gray-800 dark:text-gray-100 flex items-center space-x-1.5 transition active:scale-95 shadow-xs whitespace-nowrap shrink-0"
+              >
+                <span className="whitespace-nowrap">前进一根</span>
+                <span className="text-[10px] font-mono px-1 py-0.2 bg-white/80 dark:bg-[#131722]/80 text-gray-500 dark:text-gray-400 rounded border border-gray-200 dark:border-[#363a45] shrink-0">Space</span>
+                <SkipForward className="w-3.5 h-3.5 text-[#2962ff] shrink-0" />
+              </button>
 
-            <div className="h-6 w-px bg-gray-200 dark:bg-[#2a2e39] shrink-0" />
+              {/* Speed Select */}
+              <select
+                value={playSpeed}
+                onChange={(e) => setPlaySpeed(parseInt(e.target.value))}
+                className="text-xs font-semibold px-2 py-1 border border-gray-200 dark:border-[#2a2e39] rounded-xl bg-gray-50 dark:bg-[#131722] text-gray-800 dark:text-gray-200 focus:outline-none cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <option value={2000}>0.5x 慢速</option>
+                <option value={1000}>1.0x 正常</option>
+                <option value={500}>2.0x 快速</option>
+                <option value={200}>5.0x 极速</option>
+              </select>
 
-            {/* Progress Badge */}
-            <div className="text-[11px] font-mono text-gray-600 dark:text-gray-300 flex items-center space-x-1.5 px-1.5 whitespace-nowrap shrink-0">
-              <span className="text-[#2962ff] font-bold">{currentIndex + 1}</span>
-              <span className="text-gray-400">/</span>
-              <span className="whitespace-nowrap">{allCandles.length} 根</span>
+              {/* Timeframe Pill */}
+              <span className="px-2 py-0.5 rounded-lg bg-gray-100 dark:bg-[#131722] text-[11px] font-bold text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-[#2a2e39] shrink-0">
+                {windowTimeframes[0] || timeframe}
+              </span>
+
+              {/* Progress Badge */}
+              <div className="text-[11px] font-mono text-gray-600 dark:text-gray-300 flex items-center space-x-1.5 px-1 whitespace-nowrap shrink-0">
+                <span className="text-[#2962ff] font-bold">{currentIndex + 1}</span>
+                <span className="text-gray-400">/</span>
+                <span className="whitespace-nowrap">{allCandles.length} 根</span>
+              </div>
+
+              {/* Jump to latest */}
+              <button
+                type="button"
+                onClick={handleJumpToLatest}
+                className="p-1.5 hover:bg-gray-100 dark:hover:bg-[#2a2e39] rounded-lg text-gray-500 hover:text-[#2962ff] transition shrink-0"
+                title="跳转到最新一根K线"
+              >
+                <FastForward className="w-3.5 h-3.5" />
+              </button>
+
+              {/* Position switch toggle button */}
+              <button
+                type="button"
+                onClick={() => setReplayBarPosition(prev => prev === 'bottom' ? 'top' : 'bottom')}
+                className="p-1.5 hover:bg-gray-100 dark:hover:bg-[#2a2e39] rounded-lg text-gray-400 hover:text-[#2962ff] transition shrink-0"
+                title={replayBarPosition === 'bottom' ? '切换浮岛到上方' : '切换浮岛到下方'}
+              >
+                {replayBarPosition === 'bottom' ? (
+                  <ArrowUpRight className="w-3.5 h-3.5" />
+                ) : (
+                  <ArrowDownRight className="w-3.5 h-3.5" />
+                )}
+              </button>
+
+              {/* Close Replay Island */}
+              <button
+                type="button"
+                onClick={() => setIsReplayActive(false)}
+                className="p-1.5 hover:bg-gray-100 dark:hover:bg-[#2a2e39] rounded-lg text-gray-400 hover:text-rose-500 transition shrink-0"
+                title="关闭回放浮岛 (可在顶部栏点击'回放'重新开启)"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
             </div>
-
-            {/* Position switch toggle button */}
-            <button
-              type="button"
-              onClick={() => setReplayBarPosition(prev => prev === 'bottom' ? 'top' : 'bottom')}
-              className="p-1.5 hover:bg-gray-100 dark:hover:bg-[#2a2e39] rounded-lg text-gray-400 hover:text-[#2962ff] transition shrink-0"
-              title={replayBarPosition === 'bottom' ? '切换浮岛到上方' : '切换浮岛到下方'}
-            >
-              {replayBarPosition === 'bottom' ? (
-                <ArrowUpRight className="w-3.5 h-3.5" />
-              ) : (
-                <ArrowDownRight className="w-3.5 h-3.5" />
-              )}
-            </button>
-          </div>
+          )}
         </div>
 
         {/* 2.3 RIGHT DOCK: TRADINGVIEW ORDER TICKET & RISK CALCULATOR */}
@@ -4120,7 +4687,7 @@ export default function ManualBarReplay({
 
         {/* Dock Content Body */}
         {isBottomDockOpen && (
-          <div className="p-4 bg-white dark:bg-[#131722] overflow-y-auto max-h-[460px]">
+          <div className="p-4 bg-white dark:bg-[#131722] no-scrollbar">
             {bottomDockTab === 'strategy' ? (
               <div className="space-y-4">
                 {/* Sub-tabs inside Strategy Tester */}
@@ -4323,7 +4890,7 @@ export default function ManualBarReplay({
                       </div>
                     ) : (
                       <div className="border border-gray-200 dark:border-[#2a2e39] rounded-xl overflow-hidden bg-white dark:bg-[#1e222d]">
-                        <div className="overflow-x-auto max-h-96">
+                        <div className="overflow-x-auto max-h-96 no-scrollbar">
                           <table className="min-w-full divide-y divide-gray-200 dark:divide-[#2a2e39] text-xs">
                             <thead className="bg-gray-100 dark:bg-[#131722] text-gray-600 dark:text-gray-400 font-semibold sticky top-0 z-10">
                               <tr>
@@ -4410,13 +4977,13 @@ export default function ManualBarReplay({
               <div className="space-y-4">
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   <div className="bg-gray-50 dark:bg-[#1e222d] p-3 rounded-xl border border-gray-200 dark:border-[#2a2e39]">
-                    <p className="text-[11px] text-gray-500 dark:text-gray-400">账户本金 (Balance)</p>
-                    <p className="text-lg font-bold font-mono text-gray-900 dark:text-white mt-1">${accountCapital.toLocaleString()}</p>
+                    <p className="text-[11px] text-gray-500 dark:text-gray-400">账户余额 (Balance)</p>
+                    <p className="text-lg font-bold font-mono text-gray-900 dark:text-white mt-1">${currentBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
                   </div>
                   <div className="bg-gray-50 dark:bg-[#1e222d] p-3 rounded-xl border border-gray-200 dark:border-[#2a2e39]">
-                    <p className="text-[11px] text-gray-500 dark:text-gray-400">动态净值 (Equity)</p>
-                    <p className={`text-lg font-bold font-mono mt-1 ${currentEquity >= accountCapital ? 'text-emerald-500 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'}`}>
-                      ${currentEquity.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    <p className="text-[11px] text-gray-500 dark:text-gray-400">实时动态净值 (Equity)</p>
+                    <p className={`text-lg font-bold font-mono mt-1 ${liveEquity >= accountCapital ? 'text-emerald-500 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'}`}>
+                      ${liveEquity.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </p>
                   </div>
                   <div className="bg-gray-50 dark:bg-[#1e222d] p-3 rounded-xl border border-gray-200 dark:border-[#2a2e39]">

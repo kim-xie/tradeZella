@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
-import { Calendar, TrendingUp, TrendingDown } from 'lucide-react';
+import { Calendar, TrendingUp, TrendingDown, Clock } from 'lucide-react';
+import { getTradeDayOfWeek, calculateTradePnL } from '../calendar/calendarUtils';
 
 interface DayOfWeekChartProps {
   trades: any[];
@@ -25,27 +26,21 @@ export const DayOfWeekChart: React.FC<DayOfWeekChartProps> = ({ trades, classNam
     }));
 
     trades.forEach(t => {
-      const timeStr = t.entry_time || t.createdat || t.trade_date;
-      if (!timeStr) return;
-      const d = new Date(timeStr);
-      if (isNaN(d.getTime())) return;
+      const dayIdx = getTradeDayOfWeek(t);
+      if (dayIdx < 0) return;
 
-      const dayIdx = d.getDay(); // 0 is Sun, 1 is Mon, 5 is Fri
-      const target = map.find(m => m.day === dayIdx);
+      // 国际金融市场标准交易日（周一至周五）。
+      // 若出现周日夜盘开盘（dayIdx 0），归入周一交易日；若出现极少数周六白天订单，归入周五交易日。
+      let targetDay = dayIdx;
+      if (targetDay === 0) targetDay = 1;
+      if (targetDay === 6) targetDay = 5;
+
+      const target = map.find(m => m.day === targetDay);
       if (target) {
-        let profit = 0;
-        if (t.manual_pnl !== undefined && t.manual_pnl !== null) {
-          profit = Number(t.manual_pnl);
-        } else if (t.entryprice && t.exitprice) {
-          const isLong = (t.direction || 'long').toLowerCase() === 'long';
-          profit = isLong
-            ? (t.exitprice - t.entryprice) * (t.size || 1)
-            : (t.entryprice - t.exitprice) * (t.size || 1);
-        }
-
+        const profit = calculateTradePnL(t);
         target.count++;
         target.pnl += profit;
-        if (profit > 0) target.wins++;
+        if (profit > 0.001) target.wins++;
       }
     });
 
@@ -61,13 +56,21 @@ export const DayOfWeekChart: React.FC<DayOfWeekChartProps> = ({ trades, classNam
 
   return (
     <div className={`bg-white/90 dark:bg-[#111827]/90 backdrop-blur-xl rounded-2xl border border-gray-200/80 dark:border-white/10 p-5 shadow-xs ${className}`}>
-      <div className="flex items-center space-x-2 mb-4">
-        <span className="p-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/60">
-          <Calendar className="w-4 h-4" />
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+        <div className="flex items-center space-x-2">
+          <span className="p-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/60">
+            <Calendar className="w-4 h-4" />
+          </span>
+          <h3 className="text-sm font-bold text-gray-900 dark:text-white">
+            星期胜率与盈亏分布 (Day of Week)
+          </h3>
+        </div>
+        <span
+          className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-purple-50 dark:bg-purple-950/60 text-purple-600 dark:text-purple-300 border border-purple-200 dark:border-purple-800/60 font-semibold"
+          title="周五下半夜美盘（周六凌晨 00:00~06:00）成交的订单，全部按交易日时间归属周五统计"
+        >
+          交易日时间统计
         </span>
-        <h3 className="text-sm font-bold text-gray-900 dark:text-white">
-          星期胜率与盈亏分布 (Day of Week)
-        </h3>
       </div>
 
       <div className="space-y-3">

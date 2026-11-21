@@ -21,19 +21,25 @@ export const getTradeEntryTime = (t: Trade): string => {
   return t.entry_time || t.entryTime || (t as any).trade_date || t.createdat || t.createdAt || '';
 };
 
+export const getTradeExitTime = (t: Trade): string => {
+  return t.exit_time || t.exitTime || '';
+};
+
 /**
  * 获取交易所属的“交易日”（Trading Day / Session Date），格式为 YYYY-MM-DD。
  *
- * 核心金融逻辑与行业标准 (TradeZella / TraderSync)：
+ * 核心金融逻辑与行业标准 (TradeZella / TraderSync / MT5)：
  * 全球金融市场（外汇、美股大盘指数、黄金原油等大宗商品）美盘交易跨越北京时间零点（前一日 21:00 至次日凌晨 05:00/06:00 闭市）。
  * 国际主流交易日志平台统一以每日清算结算休市时间（美东 17:00 / 冬令时北京时间 06:00，夏令时 05:00）作为交易日切日点。
- * 因此，北京时间凌晨 00:00:00 ~ 05:59:59 间成交的交易，实质上属于前一天的交易日（特别是周五美盘下半夜延续至周六清晨的订单统一归属【周五交易日】，周六休市无交易）。
+ * 1. 已平仓订单：以【平仓出场时间 exit_time】归集所属交易日（因为已实现盈亏 Realized P&L 在出场时刻结算）。
+ * 2. 未平仓持仓/挂单：回退以【开仓入场时间 entry_time】归集。
+ * 3. 因此，北京时间凌晨 00:00:00 ~ 05:59:59 间出场的交易，实质上属于前一天的交易日（特别是周五美盘下半夜延续至周六清晨的订单统一归属【周五交易日】，周六休市无交易）。
  *
  * @param trade 交易记录对象
  * @param cutoffHour 切日小时（默认 6，即 06:00:00 前归属前一交易日）
  */
 export const getTradeTradingDate = (trade: Trade, cutoffHour: number = 6): string => {
-  const rawDate = getTradeEntryTime(trade);
+  const rawDate = getTradeExitTime(trade) || getTradeEntryTime(trade);
   if (!rawDate) return '';
 
   const str = String(rawDate).trim();
@@ -47,15 +53,20 @@ export const getTradeTradingDate = (trade: Trade, cutoffHour: number = 6): strin
   const day = parseInt(match[3], 10);
   const hour = match[4] !== undefined ? parseInt(match[4], 10) : 12;
 
-  let effectiveCutoff = cutoffHour;
-  try {
-    if (typeof localStorage !== 'undefined') {
-      const savedCutoff = localStorage.getItem('tradezella_trading_day_cutoff');
-      if (savedCutoff !== null && !isNaN(Number(savedCutoff))) {
-        effectiveCutoff = Number(savedCutoff);
+  let effectiveCutoff = 6;
+  if (typeof cutoffHour === 'number' && !isNaN(cutoffHour)) {
+    effectiveCutoff = cutoffHour;
+  } else {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        const savedCutoff = localStorage.getItem('tradezella_trading_day_cutoff');
+        if (savedCutoff !== null && !isNaN(Number(savedCutoff))) {
+          const val = Number(savedCutoff);
+          if (val > 0) effectiveCutoff = val;
+        }
       }
-    }
-  } catch {}
+    } catch {}
+  }
 
   const pad = (n: number) => String(n).padStart(2, '0');
 
@@ -72,25 +83,124 @@ export const getTradeTradingDate = (trade: Trade, cutoffHour: number = 6): strin
  * 判断某笔交易是否属于跨夜美盘交易（北京时间 00:00 ~ 05:59:59）
  */
 export const isTradeOvernightSession = (trade: Trade, cutoffHour: number = 6): boolean => {
-  const rawDate = getTradeEntryTime(trade);
+  const rawDate = getTradeExitTime(trade) || getTradeEntryTime(trade);
   if (!rawDate) return false;
   const match = String(rawDate).trim().match(/[T\s](\d{1,2}):/);
   if (!match) return false;
   const hour = parseInt(match[1], 10);
-  let effectiveCutoff = cutoffHour;
-  try {
-    if (typeof localStorage !== 'undefined') {
-      const savedCutoff = localStorage.getItem('tradezella_trading_day_cutoff');
-      if (savedCutoff !== null && !isNaN(Number(savedCutoff))) {
-        effectiveCutoff = Number(savedCutoff);
+
+  let effectiveCutoff = 6;
+  if (typeof cutoffHour === 'number' && !isNaN(cutoffHour)) {
+    effectiveCutoff = cutoffHour;
+  } else {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        const savedCutoff = localStorage.getItem('tradezella_trading_day_cutoff');
+        if (savedCutoff !== null && !isNaN(Number(savedCutoff))) {
+          const val = Number(savedCutoff);
+          if (val > 0) effectiveCutoff = val;
+        }
       }
-    }
-  } catch {}
+    } catch {}
+  }
   return hour < effectiveCutoff;
 };
 
-export const getTradeExitTime = (t: Trade): string => {
-  return t.exit_time || t.exitTime || '';
+/**
+ * 获取当前时刻所属的交易日（格式 YYYY-MM-DD）。
+ * 例如：周六凌晨 02:00（美盘下半夜），当前交易日属于【周五】。
+ */
+export const getCurrentTradingDate = (cutoffHour: number = 6): string => {
+  const now = new Date();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const localNowStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+  return getTradeTradingDate({ entry_time: localNowStr } as any, cutoffHour);
+};
+
+/**
+ * 获取上一交易日（跳过周末闭市）。
+ * 例如：周一的前一交易日为【周五】；周五的前一交易日为【周四】。
+ */
+export const getPreviousTradingDate = (currentTradingDateStr?: string, cutoffHour: number = 6): string => {
+  const baseDateStr = currentTradingDateStr || getCurrentTradingDate(cutoffHour);
+  const parts = baseDateStr.split('-');
+  const y = parseInt(parts[0], 10);
+  const m = parseInt(parts[1], 10) - 1;
+  const d = parseInt(parts[2], 10);
+  const date = new Date(y, m, d);
+
+  date.setDate(date.getDate() - 1);
+  if (date.getDay() === 0) {
+    // Sunday -> Friday
+    date.setDate(date.getDate() - 2);
+  } else if (date.getDay() === 6) {
+    // Saturday -> Friday
+    date.setDate(date.getDate() - 1);
+  }
+
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+};
+
+/**
+ * 获取指定交易日所在的周度范围（周一至周日，格式 YYYY-MM-DD）。
+ */
+export const getTradingWeekRange = (
+  referenceTradingDate?: string,
+  cutoffHour: number = 6
+): { start: string; end: string } => {
+  const baseDateStr = referenceTradingDate || getCurrentTradingDate(cutoffHour);
+  const parts = baseDateStr.split('-');
+  const y = parseInt(parts[0], 10);
+  const m = parseInt(parts[1], 10) - 1;
+  const d = parseInt(parts[2], 10);
+  const date = new Date(y, m, d);
+
+  const day = date.getDay(); // 0 is Sun, 1 is Mon ... 6 is Sat
+  const diffToMonday = date.getDate() - day + (day === 0 ? -6 : 1);
+  const monday = new Date(y, m, diffToMonday);
+
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const start = `${monday.getFullYear()}-${pad(monday.getMonth() + 1)}-${pad(monday.getDate())}`;
+  const end = `${sunday.getFullYear()}-${pad(sunday.getMonth() + 1)}-${pad(sunday.getDate())}`;
+
+  return { start, end };
+};
+
+/**
+ * 获取订单在交易日体系下的星期几（1 = 周一, 2 = 周二 ... 5 = 周五, 6 = 周六, 0 = 周日）。
+ * 周五跨夜美盘订单（周六 00:00~06:00 成交）归属为 5 (周五交易日)。
+ */
+export const getTradeDayOfWeek = (trade: Trade, cutoffHour: number = 6): number => {
+  const tradingDate = getTradeTradingDate(trade, cutoffHour);
+  if (!tradingDate || tradingDate.length < 10) return -1;
+  const parts = tradingDate.split('-');
+  const y = parseInt(parts[0], 10);
+  const m = parseInt(parts[1], 10) - 1;
+  const d = parseInt(parts[2], 10);
+  const dateObj = new Date(y, m, d);
+  return dateObj.getDay();
+};
+
+/**
+ * 获取订单在交易日体系下的年份与月份 (month 0-indexed: 0 = 1月, 11 = 12月)。
+ * 月末跨夜订单归属上月交易日。
+ */
+export const getTradeMonthAndYear = (
+  trade: Trade,
+  cutoffHour: number = 6
+): { year: number; month: number } => {
+  const tradingDate = getTradeTradingDate(trade, cutoffHour);
+  if (!tradingDate || tradingDate.length < 7) {
+    const d = new Date();
+    return { year: d.getFullYear(), month: d.getMonth() };
+  }
+  const year = parseInt(tradingDate.substring(0, 4), 10);
+  const month = parseInt(tradingDate.substring(5, 7), 10) - 1;
+  return { year, month };
 };
 
 export const getTradeStopLoss = (t: Trade): number | undefined => {

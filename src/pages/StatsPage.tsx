@@ -13,6 +13,7 @@ import {
   getTradeSize,
   getTradeEntryTime,
   getTradeTradingDate,
+  getCurrentTradingDate,
   getTradeExitTime,
   getTradeStopLoss,
   getTradeTakeProfit,
@@ -30,6 +31,7 @@ import {
   ChevronRight,
   LineChart,
   X,
+  Clock,
 } from 'lucide-react';
 
 const WEEKDAYS = [
@@ -122,14 +124,14 @@ const StatsPage: React.FC = () => {
     fetchTrades();
   });
 
-  // 交易日切日模式：'trading' (美盘 06:00 切日，与 MT5 服务器结算一致) vs 'natural' (北京时间 00:00 自然日)
-  const [cutoffMode, setCutoffMode] = useState<'trading' | 'natural'>(() => {
+  // 交易日切日模式：默认美盘 06:00 切日（与 MT5 服务器结算一致）
+  const [cutoffMode, setCutoffMode] = useState<'trading' | 'natural'>('trading');
+
+  useEffect(() => {
     try {
-      return localStorage.getItem('tradezella_trading_day_cutoff') === '0' ? 'natural' : 'trading';
-    } catch {
-      return 'trading';
-    }
-  });
+      localStorage.setItem('tradezella_trading_day_cutoff', '6');
+    } catch {}
+  }, []);
 
   const handleCutoffChange = (mode: 'trading' | 'natural') => {
     setCutoffMode(mode);
@@ -195,8 +197,7 @@ const StatsPage: React.FC = () => {
   };
 
   const todayStr = useMemo(() => {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    return getCurrentTradingDate();
   }, []);
 
   const isCurrentMonthAndYear = useMemo(() => {
@@ -264,34 +265,14 @@ const StatsPage: React.FC = () => {
               )}
             </div>
 
-            {/* Right: Cutoff Mode Switch & Next Month Arrow */}
+            {/* Right: Cutoff Mode Badge & Next Month Arrow */}
             <div className="flex items-center space-x-2">
               <div
-                className="flex items-center bg-gray-100/90 dark:bg-navy-950/70 p-0.5 rounded-xl border border-gray-200/80 dark:border-white/10 text-[11px] font-mono shadow-2xs"
-                title="切换切日基准：【交易日】以美盘闭市 06:00 为界（对齐 MT5 结算）；【自然日】以北京时间 00:00 为界"
+                className="flex items-center bg-gray-100/90 dark:bg-navy-950/70 px-2.5 py-1.5 rounded-xl border border-gray-200/80 dark:border-white/10 text-[11px] font-mono shadow-2xs space-x-1.5 text-purple-700 dark:text-purple-300 font-bold"
+                title="全平台统一以美盘闭市 06:00 为界统计交易日（对齐 MT5 / TradeZella 结算标准）"
               >
-                <button
-                  type="button"
-                  onClick={() => handleCutoffChange('trading')}
-                  className={`px-2 py-1 rounded-lg transition-all ${
-                    cutoffMode === 'trading'
-                      ? 'bg-purple-600 text-white font-bold shadow-xs'
-                      : 'text-gray-500 hover:text-gray-900 dark:hover:text-white'
-                  }`}
-                >
-                  交易日 (06:00)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleCutoffChange('natural')}
-                  className={`px-2 py-1 rounded-lg transition-all ${
-                    cutoffMode === 'natural'
-                      ? 'bg-purple-600 text-white font-bold shadow-xs'
-                      : 'text-gray-500 hover:text-gray-900 dark:hover:text-white'
-                  }`}
-                >
-                  自然日 (00:00)
-                </button>
+                <Clock className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
+                <span>美盘交易日 (06:00 切日)</span>
               </div>
 
               <button

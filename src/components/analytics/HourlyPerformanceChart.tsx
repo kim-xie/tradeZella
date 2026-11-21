@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Clock, TrendingUp, TrendingDown, DollarSign } from 'lucide-react';
+import { calculateTradePnL } from '../calendar/calendarUtils';
 
 interface HourlyPerformanceChartProps {
   trades: any[];
@@ -29,19 +30,10 @@ export const HourlyPerformanceChart: React.FC<HourlyPerformanceChartProps> = ({ 
 
       const hour = dateObj.getHours();
       if (hour >= 0 && hour < 24) {
-        let profit = 0;
-        if (t.manual_pnl !== undefined && t.manual_pnl !== null) {
-          profit = Number(t.manual_pnl);
-        } else if (t.entryprice && t.exitprice) {
-          const isLong = (t.direction || 'long').toLowerCase() === 'long';
-          profit = isLong
-            ? (t.exitprice - t.entryprice) * (t.size || 1)
-            : (t.entryprice - t.exitprice) * (t.size || 1);
-        }
-
+        const profit = calculateTradePnL(t);
         hours[hour].tradesCount++;
         hours[hour].pnl += profit;
-        if (profit > 0) hours[hour].winningTrades++;
+        if (profit > 0.001) hours[hour].winningTrades++;
       }
     });
 

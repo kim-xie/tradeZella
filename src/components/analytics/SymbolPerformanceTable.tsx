@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Layers, ArrowUpDown, TrendingUp, TrendingDown, Award } from 'lucide-react';
+import { calculateTradePnL } from '../calendar/calendarUtils';
 
 interface SymbolPerformanceTableProps {
   trades: any[];
@@ -43,15 +44,7 @@ export const SymbolPerformanceTable: React.FC<SymbolPerformanceTableProps> = ({ 
         };
       }
 
-      let profit = 0;
-      if (t.manual_pnl !== undefined && t.manual_pnl !== null) {
-        profit = Number(t.manual_pnl);
-      } else if (t.entryprice && t.exitprice) {
-        const isLong = (t.direction || 'long').toLowerCase() === 'long';
-        profit = isLong
-          ? (t.exitprice - t.entryprice) * (t.size || 1)
-          : (t.entryprice - t.exitprice) * (t.size || 1);
-      }
+      const profit = calculateTradePnL(t);
 
       const item = map[sym];
       item.tradesCount++;

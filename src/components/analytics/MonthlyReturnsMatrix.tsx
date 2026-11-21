@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Calendar, DollarSign, Percent, TrendingUp, Award } from 'lucide-react';
+import { getTradeMonthAndYear, calculateTradePnL } from '../calendar/calendarUtils';
 
 interface MonthlyReturnsMatrixProps {
   trades: any[];
@@ -33,13 +34,7 @@ export const MonthlyReturnsMatrix: React.FC<MonthlyReturnsMatrixProps> = ({
     }> = {};
 
     trades.forEach(t => {
-      const timeStr = t.entry_time || t.createdat || t.trade_date;
-      if (!timeStr) return;
-      const d = new Date(timeStr);
-      if (isNaN(d.getTime())) return;
-
-      const year = d.getFullYear();
-      const month = d.getMonth(); // 0-11
+      const { year, month } = getTradeMonthAndYear(t);
 
       if (!yearMap[year]) {
         yearMap[year] = {
@@ -56,19 +51,11 @@ export const MonthlyReturnsMatrix: React.FC<MonthlyReturnsMatrixProps> = ({
         };
       }
 
-      let profit = 0;
-      if (t.manual_pnl !== undefined && t.manual_pnl !== null) {
-        profit = Number(t.manual_pnl);
-      } else if (t.entryprice && t.exitprice) {
-        const isLong = (t.direction || 'long').toLowerCase() === 'long';
-        profit = isLong
-          ? (t.exitprice - t.entryprice) * (t.size || 1)
-          : (t.entryprice - t.exitprice) * (t.size || 1);
-      }
+      const profit = calculateTradePnL(t);
 
       yearMap[year].months[month].pnl += profit;
       yearMap[year].months[month].count++;
-      if (profit > 0) yearMap[year].months[month].wins++;
+      if (profit > 0.001) yearMap[year].months[month].wins++;
 
       yearMap[year].totalPnl += profit;
       yearMap[year].totalCount++;

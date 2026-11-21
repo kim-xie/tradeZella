@@ -11,6 +11,11 @@ import {
   formatDateTime,
   getTradeTradingDate,
   isTradeOvernightSession,
+  getCurrentTradingDate,
+  getPreviousTradingDate,
+  getTradingWeekRange,
+  getTradeDayOfWeek,
+  getTradeMonthAndYear,
 } from './calendarUtils';
 import { Trade } from './calendarTypes';
 
@@ -265,10 +270,61 @@ describe('calendarUtils', () => {
       expect(getTradeTradingDate(yearBoundaryTrade)).toBe('2025-12-31');
     });
 
+    it('prioritizes exit_time over entry_time for closed trades to match MT5/broker realized PnL settlement day', () => {
+      // Trade entered on 2026-11-18 evening, closed on 2026-11-19 16:46:00
+      const swingTrade: Trade = {
+        id: 106,
+        symbol: '道琼斯指数',
+        direction: 'long',
+        size: 0.1,
+        entryprice: 50200,
+        exitprice: 50220,
+        entry_time: '2026-11-18T22:30:00',
+        exit_time: '2026-11-19T16:46:00',
+      };
+      expect(getTradeTradingDate(swingTrade)).toBe('2026-11-19');
+    });
+
     it('handles various date format separators (dot, slash, ISO)', () => {
       expect(getTradeTradingDate({ entry_time: '2026.11.14 03:00:00' } as any)).toBe('2026-11-13');
       expect(getTradeTradingDate({ entry_time: '2026/11/14 03:00:00' } as any)).toBe('2026-11-13');
       expect(getTradeTradingDate({ entry_time: '2026-11-13' } as any)).toBe('2026-11-13');
+    });
+
+    it('calculates trading day helpers accurately', () => {
+      // 2026-11-16 is Monday. Previous trading day must be Friday 2026-11-13!
+      expect(getPreviousTradingDate('2026-11-16')).toBe('2026-11-13');
+      // 2026-11-13 is Friday. Previous trading day is Thursday 2026-11-12.
+      expect(getPreviousTradingDate('2026-11-13')).toBe('2026-11-12');
+
+      // Trading week range for 2026-11-18 (Wednesday)
+      const weekRange = getTradingWeekRange('2026-11-18');
+      expect(weekRange.start).toBe('2026-11-16'); // Monday
+      expect(weekRange.end).toBe('2026-11-22'); // Sunday
+
+      // Trade Day of Week: Saturday 02:00 trade maps to Friday (day 5)
+      const fridayNightTrade: Trade = {
+        id: 999,
+        symbol: 'NAS100',
+        direction: 'long',
+        size: 1,
+        entryprice: 20000,
+        entry_time: '2026-11-14T02:00:00', // Saturday 02:00 AM
+      };
+      expect(getTradeDayOfWeek(fridayNightTrade)).toBe(5); // 5 = Friday
+
+      // Trade Month & Year: 2026-11-01 02:00 trade maps to 2026 October (month 9)
+      const monthBoundaryTrade: Trade = {
+        id: 1000,
+        symbol: 'XAUUSD',
+        direction: 'long',
+        size: 1,
+        entryprice: 2600,
+        entry_time: '2026-11-01 02:30:00',
+      };
+      const ym = getTradeMonthAndYear(monthBoundaryTrade);
+      expect(ym.year).toBe(2026);
+      expect(ym.month).toBe(9); // October (0-indexed 9)
     });
   });
 });

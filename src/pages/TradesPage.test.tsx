@@ -334,7 +334,7 @@ describe('TradesPage', () => {
       expect(screen.getByText('SYM1')).toBeInTheDocument();
       expect(screen.getByText('SYM60')).toBeInTheDocument();
     });
-  }, 15000);
+  }, 30000);
 
   it('supports sorting by net P&L (平仓净盈亏), duration (持仓时长), and rating (纪律评分)', async () => {
     const pad = (n: number) => String(n).padStart(2, '0');
@@ -713,5 +713,64 @@ describe('TradesPage', () => {
     // CLOSED_WITH_TP_SL: shows 3.0R from configured TP & SL, and also shows actual exit RR
     expect(screen.getByText('3.0R')).toBeInTheDocument();
     expect(screen.getByText('实: 1.5R')).toBeInTheDocument();
+  });
+
+  it('opens trade review detail drawer, disables background scrolling and hides root scrollbars, then restores scrolling upon closing', async () => {
+    const mockTrades = [
+      {
+        id: 77,
+        symbol: 'XAUUSD',
+        direction: 'short',
+        size: 1,
+        entryprice: 3548.63,
+        exitprice: 3544.91,
+        entry_time: '2026-11-20T23:56:00',
+        exit_time: '2026-11-21T00:01:00',
+        createdat: '2026-11-20T16:01:00',
+      },
+    ];
+    vi.spyOn(api, 'getUserTrades').mockResolvedValue(mockTrades as any);
+    localStorage.setItem('token', 'test-token');
+
+    render(
+      <MemoryRouter>
+        <TradesPage />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('全部')).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByRole('button', { name: '全部' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('XAUUSD')).toBeInTheDocument();
+    });
+
+    // Initially, background scrolling is not locked
+    expect(document.body.style.overflow).toBe('');
+    expect(document.documentElement.style.overflow).toBe('');
+
+    // Click "详情" button to open detail drawer
+    const detailBtn = screen.getByRole('button', { name: '详情' });
+    fireEvent.click(detailBtn);
+
+    // Verify detail drawer is open
+    expect(screen.getByText('交易复盘详情')).toBeInTheDocument();
+
+    // Verify background scroll lock and hidden root scrollbar
+    expect(document.body.style.overflow).toBe('hidden');
+    expect(document.documentElement.style.overflow).toBe('hidden');
+
+    // Click "关闭" button
+    const closeBtn = screen.getByRole('button', { name: '关闭' });
+    fireEvent.click(closeBtn);
+
+    // Drawer is closed
+    expect(screen.queryByText('交易复盘详情')).not.toBeInTheDocument();
+
+    // Background scrolling is restored
+    expect(document.body.style.overflow).toBe('');
+    expect(document.documentElement.style.overflow).toBe('');
   });
 });

@@ -253,7 +253,7 @@ export class TradeController {
           exitPrice,
           entryTime,
           exitTime,
-          tradeDate: entryTime || new Date().toISOString(),
+          tradeDate: exitTime || entryTime || new Date().toISOString(),
           manualPnl,
           stopLoss: parseFloat(t.stopLoss || t.sl) || null,
           takeProfit: parseFloat(t.takeProfit || t.tp) || null,

@@ -187,7 +187,7 @@ def sync_trades(days=30, limit=None, all_history=False, from_date=None, to_date=
                 "exitPrice": round(exit_price, 5),
                 "entryTime": entry_iso,
                 "exitTime": exit_iso,
-                "tradeDate": entry_iso,
+                "tradeDate": exit_iso or entry_iso,
                 "manualPnl": round(total_profit, 2),
                 "stopLoss": round(sl, 5) if sl else None,
                 "takeProfit": round(tp, 5) if tp else None,

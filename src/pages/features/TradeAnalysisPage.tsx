@@ -4,6 +4,11 @@ import FeaturePageLayout from './FeaturePageLayout';
 import SEO from '../../components/common/SEO';
 import { Loader, BarChart2, TrendingUp, DollarSign, Target, Calendar, ShieldAlert, Layers, Sparkles } from 'lucide-react';
 import { SERVER_BASE_URL as API_BASE_URL } from '../../services/api';
+import {
+  getCurrentTradingDate,
+  getTradeTradingDate,
+  calculateTradePnL,
+} from '../../components/calendar/calendarUtils';
 import MfeMaeScatterChart from '../../components/analytics/MfeMaeScatterChart';
 import HourlyPerformanceChart from '../../components/analytics/HourlyPerformanceChart';
 import DayOfWeekChart from '../../components/analytics/DayOfWeekChart';
@@ -156,8 +161,33 @@ export default function TradeAnalysisPage() {
     fetchTrades();
   }, []);
 
+  // Filter trades based on timeframe (全部以交易日时间统计)
+  const filteredTrades = useMemo(() => {
+    if (timeframe === 'all') return trades;
+    const currentTradingDay = getCurrentTradingDate();
+    const curDate = new Date(currentTradingDay);
+
+    let daysToSubtract = 30;
+    if (timeframe === '7d') daysToSubtract = 7;
+    else if (timeframe === '30d') daysToSubtract = 30;
+    else if (timeframe === '90d') daysToSubtract = 90;
+    else if (timeframe === '1y') daysToSubtract = 365;
+
+    const startDate = new Date(curDate);
+    startDate.setDate(curDate.getDate() - daysToSubtract);
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const startTradingDay = `${startDate.getFullYear()}-${pad(startDate.getMonth() + 1)}-${pad(startDate.getDate())}`;
+
+    return trades.filter(t => {
+      const td = getTradeTradingDate(t as any);
+      return td && td >= startTradingDay && td <= currentTradingDay;
+    });
+  }, [trades, timeframe]);
+
   const metrics = useMemo<PerformanceMetrics>(() => {
-    const completedTrades = trades.filter(t => t.exitPrice != null && t.exitPrice > 0);
+    const completedTrades = filteredTrades.filter(
+      t => (t.exitPrice != null && t.exitPrice > 0) || (t as any).exitprice > 0 || (t as any).manual_pnl != null || (t as any).manualPnl != null
+    );
 
     let totalProfitLoss = 0;
     let winningTrades = 0;
@@ -169,19 +199,15 @@ export default function TradeAnalysisPage() {
     let runningTotal = 0;
 
     // Calculate profit/loss for each trade
-    const tradeResults: number[] = [];
     completedTrades.forEach(trade => {
-      const profit = trade.direction === 'buy'
-        ? (trade.exitPrice! - trade.entryPrice) * trade.size
-        : (trade.entryPrice - trade.exitPrice!) * trade.size;
+      const profit = calculateTradePnL(trade as any);
 
-      tradeResults.push(profit);
       totalProfitLoss += profit;
       
-      if (profit > 0) {
+      if (profit > 0.001) {
         winningTrades++;
         totalWins += profit;
-      } else {
+      } else if (profit < -0.001) {
         losingTrades++;
         totalLosses += Math.abs(profit);
       }
@@ -201,12 +227,12 @@ export default function TradeAnalysisPage() {
     const winRate = totalClosedTrades > 0 ? (winningTrades / totalClosedTrades) * 100 : 0;
     const avgWin = winningTrades > 0 ? totalWins / winningTrades : 0;
     const avgLoss = losingTrades > 0 ? totalLosses / losingTrades : 0;
-    const profitFactor = avgLoss > 0 ? totalWins / totalLosses : 0;
+    const profitFactor = totalLosses > 0 ? totalWins / totalLosses : (totalWins > 0 ? 99 : 0);
     const expectancy = totalClosedTrades > 0 ? totalProfitLoss / totalClosedTrades : 0;
     const sharpeRatio = 1.5; // Simplified - would be calculated from actual returns
 
     return {
-      totalTrades: trades.length,
+      totalTrades: filteredTrades.length,
       completedTrades: completedTrades.length,
       totalProfitLoss,
       winRate,
@@ -219,7 +245,7 @@ export default function TradeAnalysisPage() {
       sharpeRatio,
       expectancy
     };
-  }, [trades]);
+  }, [filteredTrades]);
 
   // Calculate "what-if" scenarios
   useEffect(() => {
@@ -405,14 +431,14 @@ export default function TradeAnalysisPage() {
             {/* Advanced Quant Analytics Charts */}
             <div className="space-y-6">
               {/* MFE / MAE Excursion Analysis (TraderSync / TradeZella 核心分析图) */}
-              <MfeMaeScatterChart trades={trades} />
+              <MfeMaeScatterChart trades={filteredTrades} />
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {/* Hourly Performance */}
-                <HourlyPerformanceChart trades={trades} />
+                <HourlyPerformanceChart trades={filteredTrades} />
                 
                 {/* Day of Week Performance */}
-                <DayOfWeekChart trades={trades} />
+                <DayOfWeekChart trades={filteredTrades} />
               </div>
             </div>
           </div>
@@ -420,25 +446,25 @@ export default function TradeAnalysisPage() {
 
         {activeTab === 'mistakes' && (
           <div className="space-y-6">
-            <MistakeTracker trades={trades} />
+            <MistakeTracker trades={filteredTrades} />
           </div>
         )}
 
         {activeTab === 'matrix' && (
           <div className="space-y-6">
-            <MonthlyReturnsMatrix trades={trades} />
+            <MonthlyReturnsMatrix trades={filteredTrades} />
           </div>
         )}
 
         {activeTab === 'symbols' && (
           <div className="space-y-6">
-            <SymbolPerformanceTable trades={trades} />
+            <SymbolPerformanceTable trades={filteredTrades} />
           </div>
         )}
 
         {activeTab === 'r_distribution' && (
           <div className="space-y-6">
-            <RMultipleDistributionChart trades={trades} />
+            <RMultipleDistributionChart trades={filteredTrades} />
           </div>
         )}
 

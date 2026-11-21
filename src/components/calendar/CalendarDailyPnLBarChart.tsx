@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Trade } from './calendarTypes';
-import { computeDayStats, formatCurrency } from './calendarUtils';
+import { computeDayStats, formatCurrency, getCurrentTradingDate } from './calendarUtils';
 import { BarChart3, TrendingUp, TrendingDown, Target, Award, Calendar, Zap } from 'lucide-react';
 
 interface CalendarDailyPnLBarChartProps {
@@ -38,10 +38,9 @@ export const CalendarDailyPnLBarChart: React.FC<CalendarDailyPnLBarChartProps> =
 }) => {
   const [hoveredDay, setHoveredDay] = useState<DayBarData | null>(null);
 
-  // Compute daily stats for every day of current month
+  // Compute daily stats for every day of current month (按交易日时间统计)
   const { days, totalPnL, greenDays, redDays, breakevenDays, winDayRate, bestDay, worstDay, maxAbsPnl, activeDaysCount } = useMemo(() => {
-    const today = new Date();
-    const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    const todayStr = getCurrentTradingDate();
     
     // Total days in the current month
     const totalDays = new Date(currentYear, currentMonth + 1, 0).getDate();

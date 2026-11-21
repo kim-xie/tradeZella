@@ -1,5 +1,6 @@
 import TradeDrawer from '../components/TradeDrawer';
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { X, Star, ChevronLeft, ChevronRight, RefreshCw, Upload, Database, CheckCircle2, BarChart2, Calendar, PenLine, Trash2, AlertTriangle, ArrowUpDown, ArrowUp, ArrowDown, Zap } from 'lucide-react';
 import Button from '../components/common/Button';
@@ -12,7 +13,13 @@ import TradeRatingModal from '../components/TradeRatingModal';
 import TradeRatingAnimationOverlay, { RatingAnimationData } from '../components/TradeRatingAnimationOverlay';
 import { getUserTrades, updateTrade, clearAllTrades, SERVER_BASE_URL as API_BASE_URL } from '../services/api';
 import { useRealtimeTrades, RealtimeTradeEvent } from '../services/realtime';
-import { getTradeTradingDate } from '../components/calendar/calendarUtils';
+import {
+  getTradeTradingDate,
+  getCurrentTradingDate,
+  getPreviousTradingDate,
+  getTradingWeekRange,
+  isTradeOvernightSession,
+} from '../components/calendar/calendarUtils';
 
 interface Trade {
   id: number;
@@ -354,6 +361,43 @@ const TradesPage: React.FC = () => {
   const [pageSize, setPageSize] = useState<number>(50);
   const navigate = useNavigate();
 
+  // Prevent background scrolling and hide root scrollbar while detail drawer or modals are open
+  useEffect(() => {
+    const isAnyModalOpen = Boolean(
+      viewingTrade || chartModalTrade || lightboxImage || showClearModal || ratingModalTrade
+    );
+    if (!isAnyModalOpen || typeof document === 'undefined') return;
+
+    const originalBodyOverflow = document.body.style.overflow;
+    const originalHtmlOverflow = document.documentElement.style.overflow;
+
+    document.body.style.overflow = 'hidden';
+    document.documentElement.style.overflow = 'hidden';
+
+    return () => {
+      document.body.style.overflow = originalBodyOverflow;
+      document.documentElement.style.overflow = originalHtmlOverflow;
+    };
+  }, [
+    Boolean(viewingTrade),
+    Boolean(chartModalTrade),
+    Boolean(lightboxImage),
+    Boolean(showClearModal),
+    Boolean(ratingModalTrade),
+  ]);
+
+  // Support pressing Escape to close detail drawer
+  useEffect(() => {
+    if (!viewingTrade) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setViewingTrade(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [viewingTrade]);
+
   const handleUploadSuccess = async (info?: { count?: number; message?: string; platform?: string }) => {
     // 1. 自动切换为“全部”视图，重置分页到第 1 页，确保导入的各历史时间段交易立即可见
     setSearchEntryDateStart('');
@@ -484,37 +528,41 @@ const TradesPage: React.FC = () => {
   };
 
   const handleQuickFilter = (filter: string) => {
-    const now = new Date();
-    const startDate = new Date();
+    const currentTradingDay = getCurrentTradingDate();
     if (filter === 'today') {
-      startDate.setHours(0, 0, 0, 0);
-    } else if (filter === 'yesterday') {
-      startDate.setDate(now.getDate() - 1);
-      startDate.setHours(0, 0, 0, 0);
-      const pad = (n: number) => String(n).padStart(2, '0');
-      const yStr = `${startDate.getFullYear()}-${pad(startDate.getMonth() + 1)}-${pad(startDate.getDate())}`;
-      setSearchEntryDateStart(yStr);
-      setSearchEntryDateEnd(yStr);
+      setSearchEntryDateStart(currentTradingDay);
+      setSearchEntryDateEnd(currentTradingDay);
       setQuickFilter(filter);
       return;
-    } else if (filter === 'week') {
-      const day = now.getDay();
-      const diff = now.getDate() - day + (day === 0 ? -6 : 1);
-      startDate.setDate(diff);
-      startDate.setHours(0, 0, 0, 0);
-    } else if (filter === 'month') {
-      startDate.setDate(1);
-      startDate.setHours(0, 0, 0, 0);
-    } else if (filter === 'year') {
-      startDate.setMonth(0, 1);
-      startDate.setHours(0, 0, 0, 0);
     }
-    const pad = (n: number) => String(n).padStart(2, '0');
-    const startStr = `${startDate.getFullYear()}-${pad(startDate.getMonth() + 1)}-${pad(startDate.getDate())}`;
-    const endStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
-    setSearchEntryDateStart(startStr);
-    setSearchEntryDateEnd(endStr);
-    setQuickFilter(filter);
+    if (filter === 'yesterday') {
+      const prevTradingDay = getPreviousTradingDate(currentTradingDay);
+      setSearchEntryDateStart(prevTradingDay);
+      setSearchEntryDateEnd(prevTradingDay);
+      setQuickFilter(filter);
+      return;
+    }
+    if (filter === 'week') {
+      const weekRange = getTradingWeekRange(currentTradingDay);
+      setSearchEntryDateStart(weekRange.start);
+      setSearchEntryDateEnd(currentTradingDay);
+      setQuickFilter(filter);
+      return;
+    }
+    if (filter === 'month') {
+      const monthStart = `${currentTradingDay.substring(0, 7)}-01`;
+      setSearchEntryDateStart(monthStart);
+      setSearchEntryDateEnd(currentTradingDay);
+      setQuickFilter(filter);
+      return;
+    }
+    if (filter === 'year') {
+      const yearStart = `${currentTradingDay.substring(0, 4)}-01-01`;
+      setSearchEntryDateStart(yearStart);
+      setSearchEntryDateEnd(currentTradingDay);
+      setQuickFilter(filter);
+      return;
+    }
   };
 
 
@@ -578,15 +626,10 @@ const TradesPage: React.FC = () => {
     return trades.filter((trade) => {
       if (searchSymbol && !trade.symbol.toLowerCase().includes(searchSymbol.toLowerCase())) return false;
       if (searchEntryDateStart || searchEntryDateEnd) {
-        const entryDate = trade.entry_time || trade.createdat;
-        if (!entryDate) return false;
-        const entryDateStr = entryDate.substring(0, 10);
         const tradingDateStr = getTradeTradingDate(trade as any);
-        const inNatural = (!searchEntryDateStart || entryDateStr >= searchEntryDateStart) &&
-                          (!searchEntryDateEnd || entryDateStr <= searchEntryDateEnd);
-        const inTrading = (!searchEntryDateStart || tradingDateStr >= searchEntryDateStart) &&
-                          (!searchEntryDateEnd || tradingDateStr <= searchEntryDateEnd);
-        if (!inNatural && !inTrading) return false;
+        if (!tradingDateStr) return false;
+        if (searchEntryDateStart && tradingDateStr < searchEntryDateStart) return false;
+        if (searchEntryDateEnd && tradingDateStr > searchEntryDateEnd) return false;
       }
       if (searchStatus) {
         const isCompleted = !!trade.exitprice;
@@ -967,6 +1010,13 @@ const TradesPage: React.FC = () => {
                 setQuickFilter('');
               }}
             />
+
+            <span
+              className="hidden lg:inline-flex items-center space-x-1 text-xs font-mono text-purple-600 dark:text-purple-400 bg-purple-50/80 dark:bg-purple-950/40 px-2.5 py-2 rounded-xl border border-purple-200/60 dark:border-purple-800/50 shrink-0"
+              title="所有时间过滤与查询均基于美盘闭市 06:00 交易日时间统计"
+            >
+              <span>交易日时间统计</span>
+            </span>
           </div>
 
           {/* Action Buttons: FIXED TO THE RIGHT (固定靠右) */}
@@ -1025,17 +1075,25 @@ const TradesPage: React.FC = () => {
       />
 
 
-      {viewingTrade && (
+      {viewingTrade && typeof document !== 'undefined' && createPortal(
         <>
           {/* Overlay */}
           <div
-            className="fixed inset-0 z-40 bg-black opacity-50"
+            className="fixed inset-0 z-40 bg-black/60 backdrop-blur-xs transition-opacity animate-in fade-in duration-200"
             onClick={() => setViewingTrade(null)}
+            onWheel={(e) => e.stopPropagation()}
+            onTouchMove={(e) => e.preventDefault()}
           />
           {/* Drawer */}
-          <div className="fixed top-0 right-0 z-50 h-full w-full md:w-1/2 bg-white dark:bg-gray-800 shadow-2xl">
-            <div className="flex flex-col h-full">
-              <div className="flex justify-between items-center p-4 border-b dark:border-gray-700">
+          <div 
+            className="fixed top-0 right-0 bottom-0 z-50 h-full w-full md:w-1/2 bg-white dark:bg-gray-800 shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-right duration-200"
+            onWheel={(e) => e.stopPropagation()}
+          >
+            <div className="flex flex-col h-full overflow-hidden">
+              <div 
+                className="flex justify-between items-center p-4 border-b dark:border-gray-700 shrink-0 select-none bg-white dark:bg-gray-800"
+                onTouchMove={(e) => e.preventDefault()}
+              >
                 <div className="flex items-center space-x-2.5">
                   <h3 className="text-xl font-semibold text-gray-900 dark:text-white">交易复盘详情</h3>
                   {(() => {
@@ -1052,11 +1110,15 @@ const TradesPage: React.FC = () => {
                     );
                   })()}
                 </div>
-                <button onClick={() => setViewingTrade(null)} className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">
+                <button 
+                  onClick={() => setViewingTrade(null)} 
+                  className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition"
+                  title="关闭详情抽屉"
+                >
                   <X size={24} />
                 </button>
               </div>
-              <div className="flex-1 overflow-y-auto p-6 space-y-4">
+              <div className="flex-1 overflow-y-auto overflow-x-hidden overscroll-contain p-6 space-y-4">
                 {/* TradingView Execution Plotter on K-Line */}
                 <div>
                   <h4 className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2 flex items-center justify-between">
@@ -1091,6 +1153,13 @@ const TradesPage: React.FC = () => {
                   <div><span className="text-sm text-gray-500 dark:text-gray-400">交易方向:</span> <span className={`text-sm font-medium ${viewingTrade.direction === 'long' ? 'text-green-600' : 'text-red-600'}`}>{viewingTrade.direction === 'long' ? '做多 (Long)' : '做空 (Short)'}</span></div>
                   <div><span className="text-sm text-gray-500 dark:text-gray-400">交易规模/手数:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{viewingTrade.size}</span></div>
                   <div className="flex items-center gap-2"><span className="text-sm text-gray-500 dark:text-gray-400">结算状态:</span> {(() => { const isCompleted = !!viewingTrade.exitprice; return <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${isCompleted ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'}`}>{isCompleted ? '已平仓结算' : '持仓中'}</span>; })()}</div>
+                  <div>
+                    <span className="text-sm text-gray-500 dark:text-gray-400">所属交易日:</span>{' '}
+                    <span className="text-sm font-semibold font-mono text-purple-600 dark:text-purple-400">
+                      {getTradeTradingDate(viewingTrade as any)}
+                      {isTradeOvernightSession(viewingTrade as any) && ' (跨夜美盘)'}
+                    </span>
+                  </div>
                   <div><span className="text-sm text-gray-500 dark:text-gray-400">入场价格:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{viewingTrade.entryprice}</span></div>
                   <div><span className="text-sm text-gray-500 dark:text-gray-400">出场价格:</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{viewingTrade.exitprice || '-'}</span></div>
                   <div><span className="text-sm text-gray-500 dark:text-gray-400">止损点位 (SL):</span> <span className="text-sm font-medium text-gray-900 dark:text-white">{viewingTrade.stop_loss || '-'}</span></div>
@@ -1160,18 +1229,24 @@ const TradesPage: React.FC = () => {
                   </div>
                 )}
               </div>
-              <div className="flex justify-end p-4 border-t dark:border-gray-700">
+              <div 
+                className="flex justify-end p-4 border-t dark:border-gray-700 shrink-0 bg-white dark:bg-gray-800"
+                onTouchMove={(e) => e.preventDefault()}
+              >
                 <Button variant="gradient" onClick={() => setViewingTrade(null)}>关闭</Button>
               </div>
             </div>
           </div>
-        </>
+        </>,
+        document.body
       )}
 
-      {lightboxImage && (
+      {lightboxImage && typeof document !== 'undefined' && createPortal(
         <div
           className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-4"
           onClick={() => setLightboxImage(null)}
+          onWheel={(e) => e.stopPropagation()}
+          onTouchMove={(e) => e.preventDefault()}
         >
           <button
             className="absolute top-4 right-4 text-white hover:text-gray-300 bg-gray-800/50 hover:bg-gray-800/70 rounded-full p-2 z-10"
@@ -1210,54 +1285,58 @@ const TradesPage: React.FC = () => {
             onClick={(e) => e.stopPropagation()}
             className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
           />
+        </div>,
+        document.body
+      )}
+
+      {(trades.length > 0 || sortField !== 'entry_time' || clearSuccessMsg) && (
+        <div className="flex items-center justify-between mb-2.5 px-1">
+          <div className="text-xs text-gray-400 dark:text-gray-500 font-mono tracking-tight flex items-center space-x-1.5 flex-wrap">
+            {sortField !== 'entry_time' && (
+              <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-sans font-medium bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300 border border-purple-200 dark:border-purple-800/60">
+                当前排序: {getSortFieldLabel(sortField)} ({sortOrder === 'desc' ? '降序 ↓' : '升序 ↑'})
+                <button
+                  type="button"
+                  onClick={() => { setSortField('entry_time'); setSortOrder('desc'); }}
+                  className="ml-1 text-purple-500 hover:text-purple-700 dark:hover:text-purple-200 font-bold cursor-pointer"
+                  title="恢复默认时间降序"
+                >
+                  ×
+                </button>
+              </span>
+            )}
+            {clearSuccessMsg && (
+              <span className="ml-2 text-xs text-emerald-600 dark:text-emerald-400 font-sans font-medium animate-in fade-in">
+                ✓ {clearSuccessMsg}
+              </span>
+            )}
+          </div>
+
+          {trades.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setShowClearModal(true)}
+              className="text-[11px] text-gray-400/80 dark:text-gray-500/80 hover:text-red-500 dark:hover:text-red-400 transition-colors flex items-center space-x-1 px-2 py-0.5 rounded hover:bg-red-50/50 dark:hover:bg-red-950/20 cursor-pointer ml-auto"
+              title="一键清空全部历史交易订单数据"
+            >
+              <Trash2 className="w-3 h-3 text-gray-400/70 hover:text-red-500" />
+              <span>清空全部订单</span>
+            </button>
+          )}
         </div>
       )}
 
-      <div className="flex items-center justify-between mb-2.5 px-1">
-        <div className="text-xs text-gray-400 dark:text-gray-500 font-mono tracking-tight flex items-center space-x-1.5 flex-wrap">
-          <span>显示</span>
-          <span className="font-semibold text-gray-700 dark:text-gray-300">{filteredTrades.length}</span>
-          <span className="text-gray-300 dark:text-gray-600">/</span>
-          <span>共</span>
-          <span className="font-semibold text-gray-700 dark:text-gray-300">{trades.length}</span>
-          <span>笔交易记录</span>
-          {sortField !== 'entry_time' && (
-            <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-sans font-medium bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300 border border-purple-200 dark:border-purple-800/60 ml-2">
-              当前排序: {getSortFieldLabel(sortField)} ({sortOrder === 'desc' ? '降序 ↓' : '升序 ↑'})
-              <button
-                type="button"
-                onClick={() => { setSortField('entry_time'); setSortOrder('desc'); }}
-                className="ml-1 text-purple-500 hover:text-purple-700 dark:hover:text-purple-200 font-bold cursor-pointer"
-                title="恢复默认时间降序"
-              >
-                ×
-              </button>
-            </span>
-          )}
-          {clearSuccessMsg && (
-            <span className="ml-3 text-xs text-emerald-600 dark:text-emerald-400 font-sans font-medium animate-in fade-in">
-              ✓ {clearSuccessMsg}
-            </span>
-          )}
-        </div>
-
-        {trades.length > 0 && (
-          <button
-            type="button"
-            onClick={() => setShowClearModal(true)}
-            className="text-[11px] text-gray-400/80 dark:text-gray-500/80 hover:text-red-500 dark:hover:text-red-400 transition-colors flex items-center space-x-1 px-2 py-0.5 rounded hover:bg-red-50/50 dark:hover:bg-red-950/20 cursor-pointer"
-            title="一键清空全部历史交易订单数据"
-          >
-            <Trash2 className="w-3 h-3 text-gray-400/70 hover:text-red-500" />
-            <span>清空全部订单</span>
-          </button>
-        )}
-      </div>
-
       {/* 清空历史订单二次确认弹窗 */}
-      {showClearModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-150">
-          <div className="bg-white dark:bg-[#0f1422] rounded-2xl max-w-sm w-full p-5 shadow-2xl border border-gray-200 dark:border-white/10 text-center">
+      {showClearModal && typeof document !== 'undefined' && createPortal(
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-150"
+          onWheel={(e) => e.stopPropagation()}
+          onTouchMove={(e) => e.preventDefault()}
+        >
+          <div 
+            className="bg-white dark:bg-[#0f1422] rounded-2xl max-w-sm w-full p-5 shadow-2xl border border-gray-200 dark:border-white/10 text-center"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="w-12 h-12 rounded-full bg-red-100 dark:bg-red-950/50 text-red-600 dark:text-red-400 mx-auto flex items-center justify-center mb-3">
               <AlertTriangle className="w-6 h-6" />
             </div>
@@ -1287,7 +1366,8 @@ const TradesPage: React.FC = () => {
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       <div className="bg-white dark:bg-[#0b0f19] border border-gray-200/80 dark:border-white/10 shadow-sm rounded-2xl overflow-hidden">
@@ -1371,7 +1451,19 @@ const TradesPage: React.FC = () => {
                     const isCompleted = !!trade.exitprice;
                     return (
                       <tr key={trade.id} className="bg-white dark:bg-[#0b0f19] hover:bg-purple-50/30 dark:hover:bg-white/[0.02] transition-colors whitespace-nowrap">
-                        <td className="px-3.5 py-3 text-xs font-mono text-gray-600 dark:text-gray-400">{formatLocalTime(trade.entry_time)}</td>
+                        <td className="px-3.5 py-3 text-xs font-mono text-gray-600 dark:text-gray-400">
+                          <div className="flex items-center space-x-1.5">
+                            <span>{formatLocalTime(trade.entry_time)}</span>
+                            {isTradeOvernightSession(trade as any) && (
+                              <span
+                                className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-purple-50 dark:bg-purple-950/60 text-purple-600 dark:text-purple-300 border border-purple-200 dark:border-purple-800/60 shrink-0"
+                                title={`美盘跨夜订单，归属交易日: ${getTradeTradingDate(trade as any)}`}
+                              >
+                                交易日 {getTradeTradingDate(trade as any).substring(5)}
+                              </span>
+                            )}
+                          </div>
+                        </td>
                         <td className="px-3 py-3 text-sm font-bold font-mono tracking-wide text-gray-900 dark:text-white whitespace-nowrap">{trade.symbol}</td>
                         <td className="px-3 py-3 text-xs">
                           <span className={`inline-flex items-center px-2 py-0.5 rounded font-mono font-bold text-[11px] ${
@@ -1538,24 +1630,26 @@ const TradesPage: React.FC = () => {
         </div>
 
         {/* 分页控制栏 (默认每页 50 条) */}
-        {filteredTrades.length > 0 && (
+        {trades.length > 0 && (
           <div className="px-4 py-3 bg-gray-50/70 dark:bg-[#070a13]/80 border-t border-gray-200/80 dark:border-white/10 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-gray-500 dark:text-gray-400">
             {/* 左侧：条数显示与每页大小切换 */}
             <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-              <div className="flex items-center space-x-1 font-mono">
-                <span>显示第</span>
-                <span className="font-semibold text-gray-800 dark:text-gray-200">
-                  {(currentPage - 1) * pageSize + 1}
-                </span>
-                <span>-</span>
-                <span className="font-semibold text-gray-800 dark:text-gray-200">
-                  {Math.min(currentPage * pageSize, filteredTrades.length)}
-                </span>
-                <span>条，共</span>
+              <div className="flex items-center space-x-1.5 font-mono tracking-tight">
+                <span>显示</span>
                 <span className="font-semibold text-purple-600 dark:text-purple-400">
                   {filteredTrades.length}
                 </span>
-                <span>条数据</span>
+                <span className="text-gray-300 dark:text-gray-600">/</span>
+                <span>共</span>
+                <span className="font-semibold text-gray-800 dark:text-gray-200">
+                  {trades.length}
+                </span>
+                <span>笔交易记录</span>
+                {filteredTrades.length > 0 && (
+                  <span className="text-gray-400 dark:text-gray-500 ml-1">
+                    (第 {(currentPage - 1) * pageSize + 1} - {Math.min(currentPage * pageSize, filteredTrades.length)} 条)
+                  </span>
+                )}
               </div>
 
               {/* 每页条数选择器 */}
@@ -1579,70 +1673,80 @@ const TradesPage: React.FC = () => {
             </div>
 
             {/* 右侧：页码导航与翻页操作 */}
-            <div className="flex items-center space-x-1">
-              <button
-                type="button"
-                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                disabled={currentPage <= 1}
-                className="p-1.5 rounded-lg border border-gray-200 dark:border-white/10 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/5 disabled:opacity-30 disabled:cursor-not-allowed transition flex items-center space-x-0.5"
-                title="上一页"
-              >
-                <ChevronLeft className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline text-xs">上一页</span>
-              </button>
+            {filteredTrades.length > 0 && (
+              <div className="flex items-center space-x-1">
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  disabled={currentPage <= 1}
+                  className="p-1.5 rounded-lg border border-gray-200 dark:border-white/10 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/5 disabled:opacity-30 disabled:cursor-not-allowed transition flex items-center space-x-0.5"
+                  title="上一页"
+                >
+                  <ChevronLeft className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline text-xs">上一页</span>
+                </button>
 
-              {/* 页码按钮 */}
-              <div className="flex items-center space-x-1 px-1">
-                {generatePageNumbers(currentPage, totalPages).map((p, idx) => {
-                  if (p === '...') {
+                {/* 页码按钮 */}
+                <div className="flex items-center space-x-1 px-1">
+                  {generatePageNumbers(currentPage, totalPages).map((p, idx) => {
+                    if (p === '...') {
+                      return (
+                        <span key={`ellipsis-${idx}`} className="px-1.5 py-0.5 text-gray-400 select-none">
+                          ...
+                        </span>
+                      );
+                    }
+                    const pageNum = Number(p);
+                    const isActive = pageNum === currentPage;
                     return (
-                      <span key={`ellipsis-${idx}`} className="px-1.5 py-0.5 text-gray-400 select-none">
-                        ...
-                      </span>
+                      <button
+                        key={pageNum}
+                        type="button"
+                        onClick={() => setCurrentPage(pageNum)}
+                        className={`min-w-[28px] h-7 px-2 text-xs font-mono font-medium rounded-lg transition-all ${
+                          isActive
+                            ? 'bg-purple-600 text-white font-bold shadow-sm'
+                            : 'border border-gray-200 dark:border-white/10 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/5'
+                        }`}
+                      >
+                        {pageNum}
+                      </button>
                     );
-                  }
-                  const pageNum = Number(p);
-                  const isActive = pageNum === currentPage;
-                  return (
-                    <button
-                      key={pageNum}
-                      type="button"
-                      onClick={() => setCurrentPage(pageNum)}
-                      className={`min-w-[28px] h-7 px-2 text-xs font-mono font-medium rounded-lg transition-all ${
-                        isActive
-                          ? 'bg-purple-600 text-white font-bold shadow-sm'
-                          : 'border border-gray-200 dark:border-white/10 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/5'
-                      }`}
-                    >
-                      {pageNum}
-                    </button>
-                  );
-                })}
-              </div>
+                  })}
+                </div>
 
-              <button
-                type="button"
-                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                disabled={currentPage >= totalPages}
-                className="p-1.5 rounded-lg border border-gray-200 dark:border-white/10 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/5 disabled:opacity-30 disabled:cursor-not-allowed transition flex items-center space-x-0.5"
-                title="下一页"
-              >
-                <span className="hidden sm:inline text-xs">下一页</span>
-                <ChevronRight className="w-3.5 h-3.5" />
-              </button>
-            </div>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={currentPage >= totalPages}
+                  className="p-1.5 rounded-lg border border-gray-200 dark:border-white/10 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/5 disabled:opacity-30 disabled:cursor-not-allowed transition flex items-center space-x-0.5"
+                  title="下一页"
+                >
+                  <span className="hidden sm:inline text-xs">下一页</span>
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
       {/* Trade Execution Chart Modal (TradingView 独立弹窗) */}
-      {chartModalTrade && (
+      {chartModalTrade && typeof document !== 'undefined' && createPortal(
         <>
           <div
             className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs transition-opacity"
             onClick={() => setChartModalTrade(null)}
+            onWheel={(e) => e.stopPropagation()}
+            onTouchMove={(e) => e.preventDefault()}
           />
-          <div className="fixed inset-4 sm:inset-10 lg:inset-20 z-50 flex flex-col bg-white dark:bg-[#0b0f19] rounded-2xl shadow-2xl border border-gray-200 dark:border-white/10 overflow-hidden">
-            <div className="flex items-center justify-between p-4 border-b border-gray-100 dark:border-white/10 bg-gray-50/50 dark:bg-white/[0.02] shrink-0">
+          <div 
+            className="fixed inset-4 sm:inset-10 lg:inset-20 z-50 flex flex-col bg-white dark:bg-[#0b0f19] rounded-2xl shadow-2xl border border-gray-200 dark:border-white/10 overflow-hidden"
+            onWheel={(e) => e.stopPropagation()}
+          >
+            <div 
+              className="flex items-center justify-between p-4 border-b border-gray-100 dark:border-white/10 bg-gray-50/50 dark:bg-white/[0.02] shrink-0"
+              onTouchMove={(e) => e.preventDefault()}
+            >
               <div className="flex items-center space-x-3">
                 <span className="p-2 rounded-xl bg-purple-100 dark:bg-purple-950/60 text-purple-600 dark:text-purple-400">
                   <BarChart2 className="w-5 h-5" />
@@ -1667,7 +1771,7 @@ const TradesPage: React.FC = () => {
                 <X size={20} />
               </button>
             </div>
-            <div className="flex-1 p-4 overflow-y-auto min-h-0">
+            <div className="flex-1 p-4 overflow-y-auto overscroll-contain min-h-0">
               <ErrorBoundary fallbackTitle="交易执行打点与行情走势图表加载异常">
                 <TradeExecutionChart
                   symbol={chartModalTrade.symbol}
@@ -1692,7 +1796,8 @@ const TradesPage: React.FC = () => {
               </ErrorBoundary>
             </div>
           </div>
-        </>
+        </>,
+        document.body
       )}
       {/* Quick Trade Discipline Rating Modal */}
       <TradeRatingModal

@@ -40,6 +40,9 @@ import {
   getTradeDirection,
   getTradeEntryTime,
   getTradeTradingDate,
+  isTradeOvernightSession,
+  getCurrentTradingDate,
+  getTradingWeekRange,
   getTradeExitTime,
   formatCurrency,
   formatDurationShort,
@@ -130,42 +133,32 @@ export default function DashboardPage() {
     }
   }, [chartTab]);
 
-  // Filter trades based on selected time range
+  // Filter trades based on selected time range (全部以交易日时间统计)
   const filteredTrades = useMemo(() => {
     if (timeRange === 'all') return trades;
-    const now = new Date();
+    const currentTradingDay = getCurrentTradingDate();
+    const currentYearStr = currentTradingDay.substring(0, 4);
+    const currentMonthPrefix = currentTradingDay.substring(0, 7);
+    const weekRange = getTradingWeekRange(currentTradingDay);
 
     return trades.filter((trade) => {
-      const rawDate = getTradeEntryTime(trade);
-      if (!rawDate) return false;
-      const tradeDate = new Date(rawDate.replace(' ', 'T').slice(0, 16));
-      if (isNaN(tradeDate.getTime())) return false;
+      const tradingDate = getTradeTradingDate(trade);
+      if (!tradingDate || tradingDate.length < 10) return false;
 
       if (timeRange === 'today') {
-        const pad = (n: number) => String(n).padStart(2, '0');
-        const localNowStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
-        const currentTradingDay = getTradeTradingDate({ entry_time: localNowStr } as any);
-        return getTradeTradingDate(trade) === currentTradingDay;
+        return tradingDate === currentTradingDay;
       }
 
       if (timeRange === 'week') {
-        const startOfWeek = new Date(now);
-        const day = startOfWeek.getDay();
-        const diff = startOfWeek.getDate() - day + (day === 0 ? -6 : 1);
-        startOfWeek.setDate(diff);
-        startOfWeek.setHours(0, 0, 0, 0);
-        return tradeDate >= startOfWeek;
+        return tradingDate >= weekRange.start && tradingDate <= weekRange.end;
       }
 
       if (timeRange === 'month') {
-        return (
-          tradeDate.getFullYear() === now.getFullYear() &&
-          tradeDate.getMonth() === now.getMonth()
-        );
+        return tradingDate.startsWith(currentMonthPrefix);
       }
 
       if (timeRange === 'year') {
-        return tradeDate.getFullYear() === now.getFullYear();
+        return tradingDate.startsWith(currentYearStr);
       }
 
       return true;
@@ -280,8 +273,8 @@ export default function DashboardPage() {
       const pnl = calculateTradePnL(trade);
       running += pnl;
       if (running > currentPeak) currentPeak = running;
-      const rawDate = getTradeEntryTime(trade);
-      const dateStr = rawDate ? rawDate.substring(5, 10) : `#${idx + 1}`;
+      const tradingDate = getTradeTradingDate(trade);
+      const dateStr = tradingDate ? tradingDate.substring(5, 10) : `#${idx + 1}`;
       points.push({
         date: dateStr,
         value: Math.round(running * 100) / 100,
@@ -534,7 +527,7 @@ export default function DashboardPage() {
           {/* 1. Sleek TradeZella-Style Navigation & Filter Toolbar (Timeframe Selector & Actions) */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6 pb-4 border-b border-gray-200/70 dark:border-white/5">
             {/* Left: Time Range Filter Pills */}
-            <div className="flex items-center overflow-x-auto no-scrollbar">
+            <div className="flex items-center space-x-2.5 overflow-x-auto no-scrollbar">
               <div className="h-[38px] inline-flex items-center bg-gray-100/80 dark:bg-[#070a13] rounded-xl p-1 border border-gray-200/80 dark:border-white/10 shadow-xs">
                 {[
                   { key: 'today', label: '今日' },
@@ -557,6 +550,14 @@ export default function DashboardPage() {
                   </button>
                 ))}
               </div>
+
+              <span
+                className="hidden sm:inline-flex items-center space-x-1 text-xs font-mono text-purple-600 dark:text-purple-400 bg-purple-50/80 dark:bg-purple-950/40 px-2.5 py-1.5 rounded-xl border border-purple-200/60 dark:border-purple-800/50 shrink-0"
+                title="全平台指标与时间过滤均以美盘闭市 06:00 为界按交易日时间统计"
+              >
+                <Clock className="w-3.5 h-3.5" />
+                <span>交易日统计</span>
+              </span>
             </div>
 
             {/* Right: Actions */}
@@ -1703,10 +1704,24 @@ export default function DashboardPage() {
                     const rr = calculateTradeRR(trade);
                     const rawDate = getTradeEntryTime(trade);
                     const dateDisplay = formatDateTime(rawDate);
+                    const tradingDate = getTradeTradingDate(trade);
+                    const isOvernight = isTradeOvernightSession(trade);
 
                     return (
                       <tr key={trade.id} className="hover:bg-purple-50/20 dark:hover:bg-white/[0.02] transition-colors">
-                        <td className="py-3 px-3 text-gray-500">{dateDisplay}</td>
+                        <td className="py-3 px-3 text-gray-500">
+                          <div className="flex items-center space-x-1.5">
+                            <span>{dateDisplay}</span>
+                            {isOvernight && (
+                              <span
+                                className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-purple-50 dark:bg-purple-950/60 text-purple-600 dark:text-purple-300 border border-purple-200 dark:border-purple-800/60 shrink-0"
+                                title={`美盘跨夜订单，归属交易日: ${tradingDate}`}
+                              >
+                                交易日 {tradingDate.substring(5)}
+                              </span>
+                            )}
+                          </div>
+                        </td>
                         <td className="py-3 px-3 font-bold text-gray-900 dark:text-white">{trade.symbol}</td>
                         <td className="py-3 px-3">
                           <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${

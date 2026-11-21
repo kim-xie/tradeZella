@@ -110,10 +110,15 @@ export default function TradeRatingModal({
       <div
         className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs transition-opacity duration-200"
         onClick={onClose}
+        onWheel={(e) => e.stopPropagation()}
+        onTouchMove={(e) => e.preventDefault()}
       />
 
       {/* Centered Modal */}
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 pointer-events-none">
+      <div 
+        className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 pointer-events-none"
+        onWheel={(e) => e.stopPropagation()}
+      >
         <div 
           onClick={(e) => e.stopPropagation()}
           className="pointer-events-auto relative w-full max-w-md bg-white dark:bg-[#0c101c] rounded-2xl shadow-2xl border border-gray-200/90 dark:border-white/10 overflow-hidden animate-in fade-in zoom-in-95 duration-200"

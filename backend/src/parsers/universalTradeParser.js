@@ -708,7 +708,7 @@ export function normalizeRowsToTrades(rows, detectedFormat = 'UNKNOWN', original
       exitPrice,
       entryTime,
       exitTime,
-      tradeDate: entryTime || new Date().toISOString(),
+      tradeDate: exitTime || entryTime || new Date().toISOString(),
       manualPnl,
       stopLoss,
       takeProfit,

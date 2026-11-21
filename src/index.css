@@ -38,6 +38,17 @@
   ::-webkit-scrollbar-thumb:hover {
     background: rgba(156, 163, 175, 0.45);
   }
+
+  /* 隐藏滚动条但保留滚动功能 (支持各端与各内核) */
+  .no-scrollbar {
+    -ms-overflow-style: none !important; /* IE and Edge */
+    scrollbar-width: none !important; /* Firefox */
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none !important; /* Chrome, Safari, Opera */
+    width: 0 !important;
+    height: 0 !important;
+  }
 }
 
 /* 科技感网格与微光效果 */
