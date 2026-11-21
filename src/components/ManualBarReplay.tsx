@@ -22,6 +22,7 @@ import { fetchCandles, CandleItem, createTrade, createBulkTrades, getAvailableCa
 import SymbolSearchSelect from './common/SymbolSearchSelect';
 import TradeExecutionChart from './TradeExecutionChart';
 import ErrorBoundary from './common/ErrorBoundary';
+import { useTheme } from './common/ThemeContext';
 
 interface ChartRectangle {
   id: string;
@@ -368,9 +369,9 @@ const ReplayEquityCurve: React.FC<{
 
   if (!data || data.length < 2) {
     return (
-      <div className="h-64 flex flex-col items-center justify-center bg-[#131722] rounded-xl border border-[#2a2e39]">
-        <BarChart2 className="w-8 h-8 text-gray-500 mb-2" />
-        <p className="text-xs font-semibold text-gray-300">暂无资金曲线数据</p>
+      <div className="h-64 flex flex-col items-center justify-center bg-gray-50 dark:bg-[#131722] rounded-xl border border-gray-200 dark:border-[#2a2e39]">
+        <BarChart2 className="w-8 h-8 text-gray-400 dark:text-gray-500 mb-2" />
+        <p className="text-xs font-semibold text-gray-700 dark:text-gray-300">暂无资金曲线数据</p>
         <p className="text-[11px] text-gray-500 mt-0.5">完成第 1 笔回测交易后将在此自动绘制策略资产净值与回撤曲线</p>
       </div>
     );
@@ -402,22 +403,22 @@ const ReplayEquityCurve: React.FC<{
   const strokeColor = isProfitable ? '#089981' : '#f23645';
 
   return (
-    <div className="w-full bg-[#1e222d] rounded-xl border border-[#2a2e39] p-4 text-gray-200">
+    <div className="w-full bg-gray-50 dark:bg-[#1e222d] rounded-xl border border-gray-200 dark:border-[#2a2e39] p-4 text-gray-800 dark:text-gray-200">
       <div className="flex flex-wrap justify-between items-center mb-3 px-1 text-xs">
         <div className="flex items-center space-x-3">
-          <span className="font-medium text-gray-400">
-            初始本金: <b className="font-mono text-white">${initialCapital.toLocaleString()}</b>
+          <span className="font-medium text-gray-600 dark:text-gray-400">
+            初始本金: <b className="font-mono text-gray-900 dark:text-white">${initialCapital.toLocaleString()}</b>
           </span>
-          <span className={`font-bold font-mono ${isProfitable ? 'text-emerald-400' : 'text-rose-400'}`}>
+          <span className={`font-bold font-mono ${isProfitable ? 'text-emerald-500 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'}`}>
             最终净值: ${finalCapital.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </span>
           <span className={`px-2 py-0.5 rounded text-[11px] font-bold ${
-            isProfitable ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+            isProfitable ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30' : 'bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/30'
           }`}>
             {isProfitable ? '+' : ''}{(((finalCapital - initialCapital) / initialCapital) * 100).toFixed(2)}%
           </span>
         </div>
-        <div className="text-[11px] text-gray-400 font-mono">
+        <div className="text-[11px] text-gray-500 dark:text-gray-400 font-mono">
           共 {data.length - 1} 笔已平仓交易
         </div>
       </div>
@@ -437,8 +438,8 @@ const ReplayEquityCurve: React.FC<{
             const val = maxVal - pct * range;
             return (
               <g key={idx}>
-                <line x1={padding.left} y1={y} x2={width - padding.right} y2={y} stroke="rgba(255, 255, 255, 0.06)" strokeDasharray="3 3" />
-                <text x={padding.left - 8} y={y + 3.5} textAnchor="end" className="text-[10px] fill-gray-500 font-mono">
+                <line x1={padding.left} y1={y} x2={width - padding.right} y2={y} stroke="currentColor" className="text-gray-200 dark:text-white/10" strokeDasharray="3 3" />
+                <text x={padding.left - 8} y={y + 3.5} textAnchor="end" className="text-[10px] fill-gray-400 font-mono">
                   ${Math.round(val).toLocaleString()}
                 </text>
               </g>
@@ -579,10 +580,18 @@ export default function ManualBarReplay({
   const [autoSizing, setAutoSizing] = useState<boolean>(true);
   const [showTvVisuals, setShowTvVisuals] = useState<boolean>(true);
 
+  // Theme support
+  const { theme } = useTheme();
+  const isDark = theme === 'dark';
+  const [tvViewportTick, setTvViewportTick] = useState<number>(0);
+
   // Manual Chart Drawing State (手动画线系统)
   type DrawingTool = 'pointer' | 'jump' | 'long' | 'short' | 'horizontal' | 'trendline' | 'rectangle';
   const [activeTool, setActiveTool] = useState<DrawingTool>('pointer');
   const [horizontalLines, setHorizontalLines] = useState<Array<{ id: string; price: number; label?: string }>>([]);
+  const horizontalLinesRef = useRef<Array<{ id: string; price: number; label?: string }>>([]);
+  horizontalLinesRef.current = horizontalLines;
+
   const [trendLines, setTrendLines] = useState<Array<{ id: string; x1: number; y1: number; price1: number; x2: number; y2: number; price2: number }>>([]);
   const [rectangles, setRectangles] = useState<ChartRectangle[]>([]);
   const [isDrawingRect, setIsDrawingRect] = useState<boolean>(false);
@@ -591,6 +600,8 @@ export default function ManualBarReplay({
 
   const [dragTarget, setDragTarget] = useState<{ type: 'tp' | 'sl' | 'entry' | 'horizontal'; lineId?: string; startY: number } | null>(null);
   const [hoverHandle, setHoverHandle] = useState<string | null>(null);
+  const hoverHandleRef = useRef<string | null>(null);
+  hoverHandleRef.current = hoverHandle;
   const [isDrawingTrend, setIsDrawingTrend] = useState<boolean>(false);
   const [trendStart, setTrendStart] = useState<{ x: number; y: number; price: number } | null>(null);
   const [trendCurrent, setTrendCurrent] = useState<{ x: number; y: number; price: number } | null>(null);
@@ -857,7 +868,6 @@ export default function ManualBarReplay({
 
   // 1. Initialize TradingView Charts for active windows
   useEffect(() => {
-    const isDark = typeof document !== 'undefined' && document.documentElement.classList.contains('dark');
     const resizeObservers: ResizeObserver[] = [];
 
     for (let winIdx = 0; winIdx < windowCount; winIdx++) {
@@ -871,14 +881,14 @@ export default function ManualBarReplay({
           width: container.clientWidth || 600,
           height: container.clientHeight || 450,
           layout: {
-            background: { type: ColorType.Solid, color: isDark ? '#0b0f19' : '#ffffff' },
+            background: { type: ColorType.Solid, color: isDark ? '#131722' : '#ffffff' },
             textColor: isDark ? '#94a3b8' : '#475569',
             fontSize: 11,
             fontFamily: 'JetBrains Mono, monospace, sans-serif',
           },
           grid: {
-            vertLines: { color: isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.05)' },
-            horzLines: { color: isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.05)' },
+            vertLines: { color: isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.06)' },
+            horzLines: { color: isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.06)' },
           },
           crosshair: {
             vertLine: {
@@ -893,12 +903,12 @@ export default function ManualBarReplay({
             },
           },
           timeScale: {
-            borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+            borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.12)',
             timeVisible: true,
             secondsVisible: false,
           },
           rightPriceScale: {
-            borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+            borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.12)',
             scaleMargins: {
               top: 0.12,
               bottom: 0.12,
@@ -918,9 +928,15 @@ export default function ManualBarReplay({
         tvSeries.current[winIdx] = series;
         tvMarkers.current[winIdx] = createSeriesMarkers(series, []);
 
-        if (winIdx === 0) {
-          chart.subscribeCrosshairMove((param) => {
-            if (!param.time || !param.seriesData.has(series)) return;
+        // Listen for visible logical range changes to sync overlay canvas drawings
+        try {
+          chart.timeScale().subscribeVisibleLogicalRangeChange(() => {
+            setTvViewportTick(t => (t + 1) % 100000);
+          });
+        } catch {}
+
+        chart.subscribeCrosshairMove((param) => {
+          if (winIdx === 0 && param.time && param.seriesData.has(series)) {
             const data = param.seriesData.get(series) as any;
             if (data && typeof data.open === 'number') {
               const change = data.close - data.open;
@@ -934,8 +950,28 @@ export default function ManualBarReplay({
                 changePercent,
               });
             }
-          });
-        }
+          }
+
+          // Check if hovering near existing horizontal lines or position box handles
+          if (param.point) {
+            const { y: mouseY } = param.point;
+            let foundHover: string | null = null;
+            for (const hl of horizontalLinesRef.current) {
+              try {
+                const ly = series.priceToCoordinate(hl.price);
+                if (ly !== null && isFinite(ly) && Math.abs(mouseY - ly) <= 12) {
+                  foundHover = 'h_' + hl.id;
+                  break;
+                }
+              } catch {}
+            }
+            if (foundHover) {
+              setHoverHandle(foundHover);
+            } else if (hoverHandleRef.current && hoverHandleRef.current.startsWith('h_')) {
+              setHoverHandle(null);
+            }
+          }
+        });
 
         if (typeof ResizeObserver !== 'undefined') {
           const ro = new ResizeObserver((entries) => {
@@ -968,7 +1004,38 @@ export default function ManualBarReplay({
     return () => {
       resizeObservers.forEach((ro) => ro.disconnect());
     };
-  }, [windowCount]);
+  }, [windowCount, isDark]);
+
+  // Dynamically update TradingView chart theme colors when theme changes
+  useEffect(() => {
+    tvCharts.current.forEach((chart) => {
+      if (!chart) return;
+      try {
+        chart.applyOptions({
+          layout: {
+            background: { type: ColorType.Solid, color: isDark ? '#131722' : '#ffffff' },
+            textColor: isDark ? '#94a3b8' : '#475569',
+          },
+          grid: {
+            vertLines: { color: isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.06)' },
+            horzLines: { color: isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.06)' },
+          },
+          crosshair: {
+            vertLine: { color: isDark ? '#a855f7' : '#9333ea' },
+            horzLine: { color: isDark ? '#a855f7' : '#9333ea' },
+          },
+          timeScale: {
+            borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.12)',
+          },
+          rightPriceScale: {
+            borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.12)',
+          },
+        });
+      } catch (err) {
+        console.warn('Failed to apply theme options to chart:', err);
+      }
+    });
+  }, [theme, isDark]);
 
   // 2. Feed K-Line database candles to TradingView series
   useEffect(() => {
@@ -1460,29 +1527,48 @@ export default function ManualBarReplay({
     const mouseX = e.clientX - rect.left;
     const mouseY = e.clientY - rect.top;
     const scale = scaleRefs.current[winIdx] || scaleRef.current;
-    if (!scale) return;
 
-    const clickedPrice = scale.yToPrice(mouseY);
+    // Use Lightweight Charts coordinate-to-price if available, else scale
+    const series = tvSeries.current[winIdx];
+    let clickedPrice = 0;
+    if (series) {
+      try {
+        const tvPrice = series.coordinateToPrice(mouseY);
+        if (tvPrice !== null && isFinite(tvPrice)) {
+          clickedPrice = tvPrice;
+        }
+      } catch {}
+    }
+    if (!clickedPrice && scale) {
+      clickedPrice = scale.yToPrice(mouseY);
+    }
+    if (!clickedPrice) {
+      clickedPrice = currentCandle ? currentCandle.close : 100;
+    }
 
     // 0. Tool: Jump to Bar / Cut-in Replay point (TradingView Scissors)
     if (activeTool === 'jump') {
       const winVisible = getWindowVisibleSlice(winIdx);
-      const displayCount = Math.min(65, winVisible.length);
-      const barSpacing = scale.chartW / displayCount;
-      const clickedCol = Math.floor((mouseX - scale.chartPadding.left) / barSpacing);
-      const sliceCandles = winVisible.slice(winVisible.length - displayCount);
-      if (clickedCol >= 0 && clickedCol < sliceCandles.length) {
-        const targetCandle = sliceCandles[clickedCol];
-        const targetTs = targetCandle.timestamp || parseTimestamp(targetCandle.time);
-        let targetIdx = allCandles.findIndex(c => c.time === targetCandle.time);
-        if (targetIdx < 0 && targetTs > 0) {
-          targetIdx = allCandles.findIndex(c => (c.timestamp || parseTimestamp(c.time)) >= targetTs);
-        }
-        if (targetIdx >= 0) {
-          setCurrentIndex(targetIdx);
-          setPosition(null);
-          setIsPlaying(false);
-          setActiveTool('pointer');
+      if (winVisible.length > 0) {
+        const displayCount = Math.min(65, winVisible.length);
+        const chartW = scale?.chartW || (rect.width - 74);
+        const paddingLeft = scale?.chartPadding?.left || 12;
+        const barSpacing = chartW / displayCount;
+        const clickedCol = Math.floor((mouseX - paddingLeft) / Math.max(1, barSpacing));
+        const sliceCandles = winVisible.slice(winVisible.length - displayCount);
+        if (clickedCol >= 0 && clickedCol < sliceCandles.length) {
+          const targetCandle = sliceCandles[clickedCol];
+          const targetTs = targetCandle.timestamp || parseTimestamp(targetCandle.time);
+          let targetIdx = allCandles.findIndex(c => c.time === targetCandle.time);
+          if (targetIdx < 0 && targetTs > 0) {
+            targetIdx = allCandles.findIndex(c => (c.timestamp || parseTimestamp(c.time)) >= targetTs);
+          }
+          if (targetIdx >= 0) {
+            setCurrentIndex(targetIdx);
+            setPosition(null);
+            setIsPlaying(false);
+            setActiveTool('pointer');
+          }
         }
       }
       return;
@@ -1506,7 +1592,7 @@ export default function ManualBarReplay({
     if (activeTool === 'long') {
       setOrderDirection('long');
       const entry = clickedPrice;
-      const typicalDist = (scale.maxPrice - scale.minPrice) * 0.12;
+      const typicalDist = (scale ? (scale.maxPrice - scale.minPrice) * 0.12 : entry * 0.005);
       const newSl = entry - typicalDist;
       const newTp = entry + typicalDist * riskRewardRatio;
       setSlPrice(formatPriceNumber(newSl, entry));
@@ -1519,7 +1605,7 @@ export default function ManualBarReplay({
     if (activeTool === 'short') {
       setOrderDirection('short');
       const entry = clickedPrice;
-      const typicalDist = (scale.maxPrice - scale.minPrice) * 0.12;
+      const typicalDist = (scale ? (scale.maxPrice - scale.minPrice) * 0.12 : entry * 0.005);
       const newSl = entry + typicalDist;
       const newTp = entry - typicalDist * riskRewardRatio;
       setSlPrice(formatPriceNumber(newSl, entry));
@@ -1545,7 +1631,7 @@ export default function ManualBarReplay({
     }
 
     // 5. Tool: Pointer mode - Check for handles on TP, SL, or Horizontal Lines
-    if (showTvVisuals && scale.tvVisuals) {
+    if (showTvVisuals && scale?.tvVisuals) {
       const { tpY, slY, entryY, boxLeft, boxRight } = scale.tvVisuals;
       if (mouseX >= boxLeft - 15 && mouseX <= boxRight + 40) {
         if (tpY !== null && Math.abs(mouseY - tpY) <= 14) {
@@ -1565,8 +1651,16 @@ export default function ManualBarReplay({
 
     // Check horizontal lines
     for (const hl of horizontalLines) {
-      const ly = scale.priceToY(hl.price);
-      if (Math.abs(mouseY - ly) <= 10) {
+      let ly: number | null = null;
+      if (series) {
+        try {
+          ly = series.priceToCoordinate(hl.price);
+        } catch {}
+      }
+      if (ly === null || !isFinite(ly)) {
+        ly = scale ? scale.priceToY(hl.price) : null;
+      }
+      if (ly !== null && Math.abs(mouseY - ly) <= 12) {
         setDragTarget({ type: 'horizontal', lineId: hl.id, startY: mouseY });
         return;
       }
@@ -1583,28 +1677,43 @@ export default function ManualBarReplay({
     const mouseX = e.clientX - rect.left;
     const mouseY = e.clientY - rect.top;
     const scale = scaleRefs.current[winIdx] || scaleRef.current;
-    if (!scale) return;
 
-    const currentPrice = scale.yToPrice(mouseY);
+    const series = tvSeries.current[winIdx];
+    let currentPrice = 0;
+    if (series) {
+      try {
+        const pr = series.coordinateToPrice(mouseY);
+        if (pr !== null && isFinite(pr)) currentPrice = pr;
+      } catch {}
+    }
+    if (!currentPrice && scale) {
+      currentPrice = scale.yToPrice(mouseY);
+    }
+    if (!currentPrice) {
+      currentPrice = currentCandle ? currentCandle.close : 100;
+    }
+
     setHoverPrice(currentPrice);
     setMousePos({ x: mouseX, y: mouseY });
 
     // Multi-window crosshair synchronization timestamp
-    const winVisible = getWindowVisibleSlice(winIdx);
-    const displayCount = Math.min(65, winVisible.length);
-    const barSpacing = scale.chartW / displayCount;
-    const col = Math.floor((mouseX - scale.chartPadding.left) / barSpacing);
-    const sliceCandles = winVisible.slice(winVisible.length - displayCount);
-    if (col >= 0 && col < sliceCandles.length) {
-      setSyncHoverTime(sliceCandles[col].time);
-    } else {
-      setSyncHoverTime(null);
+    if (scale) {
+      const winVisible = getWindowVisibleSlice(winIdx);
+      const displayCount = Math.min(65, winVisible.length);
+      const barSpacing = scale.chartW / Math.max(1, displayCount);
+      const col = Math.floor((mouseX - scale.chartPadding.left) / Math.max(1, barSpacing));
+      const sliceCandles = winVisible.slice(winVisible.length - displayCount);
+      if (col >= 0 && col < sliceCandles.length) {
+        setSyncHoverTime(sliceCandles[col].time);
+      } else {
+        setSyncHoverTime(null);
+      }
     }
 
     // If currently dragging TP, SL, or Horizontal Line
     if (dragTarget) {
       const currentEntry = position ? position.entryPrice : entryPrice;
-      const minStep = (scale.maxPrice - scale.minPrice) * 0.005;
+      const minStep = (scale ? (scale.maxPrice - scale.minPrice) : currentEntry) * 0.005;
 
       if (dragTarget.type === 'tp') {
         let newTp = currentPrice;
@@ -1651,7 +1760,7 @@ export default function ManualBarReplay({
     }
 
     // Hover detection for interactive feedback
-    if (showTvVisuals && scale.tvVisuals) {
+    if (showTvVisuals && scale?.tvVisuals) {
       const { tpY, slY, entryY, boxLeft, boxRight } = scale.tvVisuals;
       if (mouseX >= boxLeft - 15 && mouseX <= boxRight + 40) {
         if (tpY !== null && Math.abs(mouseY - tpY) <= 14) {
@@ -1670,8 +1779,16 @@ export default function ManualBarReplay({
     }
 
     for (const hl of horizontalLines) {
-      const ly = scale.priceToY(hl.price);
-      if (Math.abs(mouseY - ly) <= 10) {
+      let ly: number | null = null;
+      if (series) {
+        try {
+          ly = series.priceToCoordinate(hl.price);
+        } catch {}
+      }
+      if (ly === null || !isFinite(ly)) {
+        ly = scale ? scale.priceToY(hl.price) : null;
+      }
+      if (ly !== null && Math.abs(mouseY - ly) <= 12) {
         setHoverHandle('h_' + hl.id);
         return;
       }
@@ -1924,9 +2041,23 @@ export default function ManualBarReplay({
       // Draw TV Visuals Shaded Box
       let tvBoxState: any = undefined;
       if (showTvVisuals && activeOrPlannedEntry && activeOrPlannedSl) {
-        const entryY = priceToY(activeOrPlannedEntry);
-        const slY = priceToY(activeOrPlannedSl);
-        const tpY = (activeOrPlannedTp && activeOrPlannedTp > 0) ? priceToY(activeOrPlannedTp) : null;
+        const series = tvSeries.current[winIdx];
+        let entryY: number | null = null;
+        let slY: number | null = null;
+        let tpY: number | null = null;
+        if (series) {
+          try {
+            entryY = series.priceToCoordinate(activeOrPlannedEntry);
+            slY = series.priceToCoordinate(activeOrPlannedSl);
+            if (activeOrPlannedTp && activeOrPlannedTp > 0) {
+              tpY = series.priceToCoordinate(activeOrPlannedTp);
+            }
+          } catch {}
+        }
+        if (entryY === null || !isFinite(entryY)) entryY = priceToY(activeOrPlannedEntry);
+        if (slY === null || !isFinite(slY)) slY = priceToY(activeOrPlannedSl);
+        if (tpY === null && activeOrPlannedTp && activeOrPlannedTp > 0) tpY = priceToY(activeOrPlannedTp);
+
         let startIndex = Math.max(0, displayCount - 20);
         if (position) {
           const foundIdx = sliceCandles.findIndex(c => c.time === position.entryTime);
@@ -1939,9 +2070,9 @@ export default function ManualBarReplay({
 
         const lossTop = Math.min(entryY, slY);
         const lossHeight = Math.max(2, Math.abs(entryY - slY));
-        ctx.fillStyle = isDark ? 'rgba(239, 68, 68, 0.08)' : 'rgba(239, 68, 68, 0.05)';
+        ctx.fillStyle = isDark ? 'rgba(239, 68, 68, 0.10)' : 'rgba(239, 68, 68, 0.06)';
         ctx.fillRect(boxLeft, lossTop, boxW, lossHeight);
-        ctx.strokeStyle = isDark ? 'rgba(248, 113, 113, 0.35)' : 'rgba(220, 38, 38, 0.25)';
+        ctx.strokeStyle = isDark ? 'rgba(248, 113, 113, 0.45)' : 'rgba(220, 38, 38, 0.35)';
         ctx.lineWidth = 1;
         ctx.setLineDash?.([4, 2]);
         ctx.strokeRect(boxLeft, lossTop, boxW, lossHeight);
@@ -1950,9 +2081,9 @@ export default function ManualBarReplay({
         if (tpY !== null) {
           const profitTop = Math.min(entryY, tpY);
           const profitHeight = Math.max(2, Math.abs(entryY - tpY));
-          ctx.fillStyle = isDark ? 'rgba(16, 185, 129, 0.08)' : 'rgba(16, 185, 129, 0.05)';
+          ctx.fillStyle = isDark ? 'rgba(16, 185, 129, 0.10)' : 'rgba(16, 185, 129, 0.06)';
           ctx.fillRect(boxLeft, profitTop, boxW, profitHeight);
-          ctx.strokeStyle = isDark ? 'rgba(52, 211, 153, 0.35)' : 'rgba(5, 150, 105, 0.25)';
+          ctx.strokeStyle = isDark ? 'rgba(52, 211, 153, 0.45)' : 'rgba(5, 150, 105, 0.35)';
           ctx.lineWidth = 1;
           ctx.setLineDash?.([4, 2]);
           ctx.strokeRect(boxLeft, profitTop, boxW, profitHeight);
@@ -1962,13 +2093,22 @@ export default function ManualBarReplay({
 
       // Draw Horizontal Lines (Global across all windows)
       horizontalLines.forEach((hl) => {
-        const ly = priceToY(hl.price);
-        if (ly < chartPadding.top || ly > h - chartPadding.bottom) return;
+        const series = tvSeries.current[winIdx];
+        let ly: number | null = null;
+        if (series) {
+          try {
+            ly = series.priceToCoordinate(hl.price);
+          } catch {}
+        }
+        if (ly === null || !isFinite(ly)) {
+          ly = priceToY(hl.price);
+        }
+        if (ly < 0 || ly > h) return;
         const isHovered = activeWindowIndex === winIdx && (hoverHandle === 'h_' + hl.id || dragTarget?.lineId === hl.id);
 
         ctx.save?.();
-        ctx.strokeStyle = isHovered ? '#f59e0b' : (isDark ? 'rgba(245, 158, 11, 0.8)' : 'rgba(217, 119, 6, 0.8)');
-        ctx.lineWidth = isHovered ? 2 : 1.3;
+        ctx.strokeStyle = isHovered ? '#f59e0b' : (isDark ? 'rgba(245, 158, 11, 0.85)' : 'rgba(217, 119, 6, 0.85)');
+        ctx.lineWidth = isHovered ? 2.5 : 1.5;
         ctx.setLineDash?.([5, 3]);
         ctx.beginPath();
         ctx.moveTo(chartPadding.left, ly);
@@ -1977,9 +2117,9 @@ export default function ManualBarReplay({
         ctx.setLineDash?.([]);
 
         ctx.fillStyle = '#f59e0b';
-        ctx.fillRect(w - chartPadding.right, ly - 7, 62, 14);
+        ctx.fillRect(w - chartPadding.right, ly - 8, 62, 16);
         ctx.fillStyle = '#ffffff';
-        ctx.font = 'bold 8.5px monospace';
+        ctx.font = 'bold 9px monospace';
         ctx.textAlign = 'left';
         ctx.fillText(formatPriceNumber(hl.price, hl.price), w - chartPadding.right + 3, ly + 3);
         ctx.restore?.();
@@ -1987,18 +2127,28 @@ export default function ManualBarReplay({
 
       // Draw Rectangles (Global across all windows)
       rectangles.forEach((rect) => {
-        const topY = priceToY(rect.price1);
-        const bottomY = priceToY(rect.price2);
+        const series = tvSeries.current[winIdx];
+        let topY: number | null = null;
+        let bottomY: number | null = null;
+        if (series) {
+          try {
+            topY = series.priceToCoordinate(rect.price1);
+            bottomY = series.priceToCoordinate(rect.price2);
+          } catch {}
+        }
+        if (topY === null || !isFinite(topY)) topY = priceToY(rect.price1);
+        if (bottomY === null || !isFinite(bottomY)) bottomY = priceToY(rect.price2);
+
         const rectY = Math.min(topY, bottomY);
         const rectH = Math.max(2, Math.abs(topY - bottomY));
         const rectX = Math.max(chartPadding.left, Math.min(rect.x1, rect.x2));
         const rectW = Math.max(20, Math.abs(rect.x2 - rect.x1));
 
         ctx.save?.();
-        ctx.fillStyle = isDark ? 'rgba(168, 85, 247, 0.15)' : 'rgba(168, 85, 247, 0.12)';
+        ctx.fillStyle = isDark ? 'rgba(168, 85, 247, 0.18)' : 'rgba(168, 85, 247, 0.12)';
         ctx.fillRect(rectX, rectY, rectW, rectH);
         ctx.strokeStyle = '#a855f7';
-        ctx.lineWidth = 1.3;
+        ctx.lineWidth = 1.5;
         ctx.setLineDash?.([4, 2]);
         ctx.strokeRect(rectX, rectY, rectW, rectH);
         ctx.setLineDash?.([]);
@@ -2025,12 +2175,23 @@ export default function ManualBarReplay({
       // Draw Trendlines (on active window)
       if (activeWindowIndex === winIdx) {
         trendLines.forEach((tl) => {
+          const series = tvSeries.current[winIdx];
+          let y1 = tl.y1;
+          let y2 = tl.y2;
+          if (series) {
+            try {
+              const c1 = series.priceToCoordinate(tl.price1);
+              const c2 = series.priceToCoordinate(tl.price2);
+              if (c1 !== null && isFinite(c1)) y1 = c1;
+              if (c2 !== null && isFinite(c2)) y2 = c2;
+            } catch {}
+          }
           ctx.save?.();
           ctx.strokeStyle = '#0284c7';
           ctx.lineWidth = 2;
           ctx.beginPath();
-          ctx.moveTo(tl.x1, tl.y1);
-          ctx.lineTo(tl.x2, tl.y2);
+          ctx.moveTo(tl.x1, y1);
+          ctx.lineTo(tl.x2, y2);
           ctx.stroke();
           ctx.restore?.();
         });
@@ -2297,6 +2458,7 @@ export default function ManualBarReplay({
       }
     }
   }, [
+    theme, isDark, tvViewportTick,
     visibleCandles, windowCount, windowTimeframes, windowCandles, 
     position, currentCandle, showTvVisuals, orderDirection, 
     parsedSl, parsedTp, activeLots, floatingProfit, floatingPct, 
@@ -2501,19 +2663,19 @@ export default function ManualBarReplay({
       <div
         key={winIdx}
         onClick={() => setActiveWindowIndex(winIdx)}
-        className={`rounded-lg border transition-all overflow-hidden bg-[#131722] flex flex-col ${
+        className={`rounded-lg border transition-all overflow-hidden bg-white dark:bg-[#131722] flex flex-col ${
           isActive 
             ? 'border-[#2962ff] ring-1 ring-[#2962ff]/40 shadow-lg' 
-            : 'border-[#2a2e39] hover:border-[#363a45]'
+            : 'border-gray-200 dark:border-[#2a2e39] hover:border-gray-300 dark:hover:border-[#363a45]'
         }`}
       >
         {/* Window Sub-Header Bar (周期选择与当前窗口状态) */}
-        <div className="flex items-center justify-between px-3 py-1.5 bg-[#1e222d] border-b border-[#2a2e39] text-xs">
+        <div className="flex items-center justify-between px-3 py-1.5 bg-gray-50 dark:bg-[#1e222d] border-b border-gray-200 dark:border-[#2a2e39] text-xs">
           <div className="flex items-center space-x-2">
             <span className={`px-2 py-0.5 rounded text-[10px] font-bold tracking-wider ${
               isActive 
                 ? 'bg-[#2962ff] text-white shadow-xs' 
-                : 'bg-[#131722] text-gray-400 border border-[#2a2e39]'
+                : 'bg-gray-100 dark:bg-[#131722] text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-[#2a2e39]'
             }`}>
               {isPrimary ? '主控窗口' : `联动窗口 ${winIdx + 1}`}
             </span>
@@ -2523,7 +2685,7 @@ export default function ManualBarReplay({
               aria-label={isPrimary ? '窗口1周期' : `窗口${winIdx + 1}周期`}
               value={windowTimeframes[winIdx] || timeframe}
               onChange={(e) => handleWindowTimeframeChange(winIdx, e.target.value)}
-              className="text-xs px-2 py-0.5 border border-[#2a2e39] rounded bg-[#131722] text-gray-200 font-semibold cursor-pointer focus:outline-none focus:border-[#2962ff]"
+              className="text-xs px-2 py-0.5 border border-gray-200 dark:border-[#2a2e39] rounded bg-white dark:bg-[#131722] text-gray-800 dark:text-gray-200 font-semibold cursor-pointer focus:outline-none focus:border-[#2962ff]"
             >
               <option value="M1">1 分钟 (M1)</option>
               <option value="M5">5 分钟 (M5)</option>
@@ -2535,8 +2697,8 @@ export default function ManualBarReplay({
             </select>
 
             {winLastCandle && (
-              <span className="hidden sm:inline font-mono text-[11px] text-gray-400">
-                最新: <b className={isBarUp ? 'text-emerald-400' : 'text-rose-400'}>{winLastCandle.close}</b>
+              <span className="hidden sm:inline font-mono text-[11px] text-gray-500 dark:text-gray-400">
+                最新: <b className={isBarUp ? 'text-emerald-500 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'}>{winLastCandle.close}</b>
               </span>
             )}
           </div>
@@ -2557,7 +2719,7 @@ export default function ManualBarReplay({
                   e.stopPropagation();
                   setActiveWindowIndex(winIdx);
                 }}
-                className="text-[10px] text-gray-400 hover:text-[#2962ff] transition"
+                className="text-[10px] text-gray-500 hover:text-[#2962ff] transition"
               >
                 点击激活
               </button>
@@ -2566,7 +2728,7 @@ export default function ManualBarReplay({
         </div>
 
         {/* TradingView Chart Container + Drawing Canvas Overlay */}
-        <div className="relative flex-1 bg-[#131722] overflow-hidden">
+        <div className="relative flex-1 bg-white dark:bg-[#131722] overflow-hidden">
           {/* TradingView Lightweight Charts Container */}
           <div
             ref={(el) => {
@@ -2582,7 +2744,11 @@ export default function ManualBarReplay({
               canvasRefs.current[winIdx] = el;
               if (winIdx === 0) canvasRef.current = el;
             }}
-            className={`absolute inset-0 w-full h-full block select-none ${getCanvasCursorClass()}`}
+            className={`absolute inset-0 w-full h-full block select-none ${getCanvasCursorClass()} ${
+              activeTool !== 'pointer' || dragTarget || hoverHandle || !tvCharts.current[winIdx]
+                ? 'z-20 pointer-events-auto'
+                : 'z-10 pointer-events-none'
+            }`}
             onMouseDown={(e) => handleWindowMouseDown(e, winIdx)}
             onMouseMove={(e) => handleWindowMouseMove(e, winIdx)}
             onMouseUp={() => handleWindowMouseUp(winIdx)}
@@ -2633,14 +2799,14 @@ export default function ManualBarReplay({
   return (
     <div
       ref={containerRef}
-      className={`tradingview-workspace font-sans text-gray-200 bg-[#131722] rounded-xl border border-[#2a2e39] shadow-2xl flex flex-col overflow-hidden transition-all duration-200 ${
+      className={`tradingview-workspace font-sans text-gray-900 dark:text-gray-200 bg-white dark:bg-[#131722] rounded-xl border border-gray-200 dark:border-[#2a2e39] shadow-2xl flex flex-col overflow-hidden transition-all duration-200 ${
         isFullscreen
           ? 'fixed inset-0 z-50 rounded-none border-none h-screen w-screen overflow-y-auto'
           : 'w-full'
       }`}
     >
       {/* 1. TOP HEADER TOOLBAR (TradingView Pro Navigation) */}
-      <div className="bg-[#1e222d] border-b border-[#2a2e39] px-3 py-2 flex flex-wrap items-center justify-between gap-2.5 z-20 text-xs">
+      <div className="bg-gray-50 dark:bg-[#1e222d] border-b border-gray-200 dark:border-[#2a2e39] px-3 py-2 flex flex-wrap items-center justify-between gap-2.5 z-20 text-xs">
         {/* Left: Symbol & Timeframe & Indicators */}
         <div className="flex flex-wrap items-center gap-2">
           {/* Symbol Selector */}
@@ -2656,7 +2822,7 @@ export default function ManualBarReplay({
           </div>
 
           {/* Timeframe quick buttons + native select for tests */}
-          <div className="flex items-center space-x-0.5 bg-[#131722] p-0.5 rounded-lg border border-[#2a2e39]">
+          <div className="flex items-center space-x-0.5 bg-gray-100 dark:bg-[#131722] p-0.5 rounded-lg border border-gray-200 dark:border-[#2a2e39]">
             {['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1'].map((tf) => (
               <button
                 key={tf}
@@ -2665,7 +2831,7 @@ export default function ManualBarReplay({
                 className={`px-2 py-1 rounded text-xs font-semibold transition ${
                   timeframe === tf
                     ? 'bg-[#2962ff] text-white shadow-xs'
-                    : 'text-gray-400 hover:text-gray-200 hover:bg-[#2a2e39]'
+                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200 dark:text-gray-400 dark:hover:text-gray-200 dark:hover:bg-[#2a2e39]'
                 }`}
               >
                 {tf === 'M1' ? '1m' : tf === 'M5' ? '5m' : tf === 'M15' ? '15m' : tf === 'M30' ? '30m' : tf === 'H1' ? '1h' : tf === 'H4' ? '4h' : 'D'}
@@ -2698,7 +2864,7 @@ export default function ManualBarReplay({
               className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition ${
                 (showMa20 || showMa50 || showMa200 || showEma9 || showBollinger || showVolume || showRsi)
                   ? 'bg-[#2962ff]/20 text-[#2962ff] border border-[#2962ff]/40'
-                  : 'bg-[#131722] hover:bg-[#2a2e39] text-gray-300 border border-[#2a2e39]'
+                  : 'bg-white dark:bg-[#131722] hover:bg-gray-100 dark:hover:bg-[#2a2e39] text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-[#2a2e39]'
               }`}
               title="技术指标配置：MA移动均线、EMA、布林带、成交量柱、RSI等"
             >
@@ -2711,58 +2877,58 @@ export default function ManualBarReplay({
             </button>
 
             {showIndicatorMenu && (
-              <div className="absolute left-0 mt-1 w-56 bg-[#1e222d] rounded-xl shadow-2xl border border-[#2a2e39] p-2.5 z-50 text-xs space-y-1.5 text-gray-200">
-                <div className="font-semibold text-gray-400 text-[10px] uppercase px-1 pb-1 border-b border-[#2a2e39]">
+              <div className="absolute left-0 mt-1 w-56 bg-white dark:bg-[#1e222d] rounded-xl shadow-2xl border border-gray-200 dark:border-[#2a2e39] p-2.5 z-50 text-xs space-y-1.5 text-gray-800 dark:text-gray-200">
+                <div className="font-semibold text-gray-500 dark:text-gray-400 text-[10px] uppercase px-1 pb-1 border-b border-gray-200 dark:border-[#2a2e39]">
                   技术指标叠加 (TradingView Indicators)
                 </div>
-                <label className="flex items-center justify-between px-1.5 py-1 rounded hover:bg-[#2a2e39] cursor-pointer">
+                <label className="flex items-center justify-between px-1.5 py-1 rounded hover:bg-gray-100 dark:hover:bg-[#2a2e39] cursor-pointer">
                   <span className="flex items-center space-x-1.5">
                     <span className="w-2.5 h-2.5 rounded-full bg-amber-500" />
                     <span>MA(20) 均线</span>
                   </span>
-                  <input type="checkbox" checked={showMa20} onChange={(e) => setShowMa20(e.target.checked)} className="rounded text-[#2962ff] bg-[#131722] border-[#2a2e39]" />
+                  <input type="checkbox" checked={showMa20} onChange={(e) => setShowMa20(e.target.checked)} className="rounded text-[#2962ff] bg-white dark:bg-[#131722] border-gray-300 dark:border-[#2a2e39]" />
                 </label>
-                <label className="flex items-center justify-between px-1.5 py-1 rounded hover:bg-[#2a2e39] cursor-pointer">
+                <label className="flex items-center justify-between px-1.5 py-1 rounded hover:bg-gray-100 dark:hover:bg-[#2a2e39] cursor-pointer">
                   <span className="flex items-center space-x-1.5">
                     <span className="w-2.5 h-2.5 rounded-full bg-cyan-500" />
                     <span>MA(50) 均线</span>
                   </span>
-                  <input type="checkbox" checked={showMa50} onChange={(e) => setShowMa50(e.target.checked)} className="rounded text-[#2962ff] bg-[#131722] border-[#2a2e39]" />
+                  <input type="checkbox" checked={showMa50} onChange={(e) => setShowMa50(e.target.checked)} className="rounded text-[#2962ff] bg-white dark:bg-[#131722] border-gray-300 dark:border-[#2a2e39]" />
                 </label>
-                <label className="flex items-center justify-between px-1.5 py-1 rounded hover:bg-[#2a2e39] cursor-pointer">
+                <label className="flex items-center justify-between px-1.5 py-1 rounded hover:bg-gray-100 dark:hover:bg-[#2a2e39] cursor-pointer">
                   <span className="flex items-center space-x-1.5">
                     <span className="w-2.5 h-2.5 rounded-full bg-purple-500" />
                     <span>MA(200) 牛熊线</span>
                   </span>
-                  <input type="checkbox" checked={showMa200} onChange={(e) => setShowMa200(e.target.checked)} className="rounded text-[#2962ff] bg-[#131722] border-[#2a2e39]" />
+                  <input type="checkbox" checked={showMa200} onChange={(e) => setShowMa200(e.target.checked)} className="rounded text-[#2962ff] bg-white dark:bg-[#131722] border-gray-300 dark:border-[#2a2e39]" />
                 </label>
-                <label className="flex items-center justify-between px-1.5 py-1 rounded hover:bg-[#2a2e39] cursor-pointer">
+                <label className="flex items-center justify-between px-1.5 py-1 rounded hover:bg-gray-100 dark:hover:bg-[#2a2e39] cursor-pointer">
                   <span className="flex items-center space-x-1.5">
                     <span className="w-2.5 h-2.5 rounded-full bg-sky-400" />
                     <span>EMA(9) 快速均线</span>
                   </span>
-                  <input type="checkbox" checked={showEma9} onChange={(e) => setShowEma9(e.target.checked)} className="rounded text-[#2962ff] bg-[#131722] border-[#2a2e39]" />
+                  <input type="checkbox" checked={showEma9} onChange={(e) => setShowEma9(e.target.checked)} className="rounded text-[#2962ff] bg-white dark:bg-[#131722] border-gray-300 dark:border-[#2a2e39]" />
                 </label>
-                <label className="flex items-center justify-between px-1.5 py-1 rounded hover:bg-[#2a2e39] cursor-pointer">
+                <label className="flex items-center justify-between px-1.5 py-1 rounded hover:bg-gray-100 dark:hover:bg-[#2a2e39] cursor-pointer">
                   <span className="flex items-center space-x-1.5">
                     <span className="w-2.5 h-2.5 rounded-full bg-sky-500" />
                     <span>布林带 Bollinger Bands</span>
                   </span>
-                  <input type="checkbox" checked={showBollinger} onChange={(e) => setShowBollinger(e.target.checked)} className="rounded text-[#2962ff] bg-[#131722] border-[#2a2e39]" />
+                  <input type="checkbox" checked={showBollinger} onChange={(e) => setShowBollinger(e.target.checked)} className="rounded text-[#2962ff] bg-white dark:bg-[#131722] border-gray-300 dark:border-[#2a2e39]" />
                 </label>
-                <label className="flex items-center justify-between px-1.5 py-1 rounded hover:bg-[#2a2e39] cursor-pointer">
+                <label className="flex items-center justify-between px-1.5 py-1 rounded hover:bg-gray-100 dark:hover:bg-[#2a2e39] cursor-pointer">
                   <span className="flex items-center space-x-1.5">
                     <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
                     <span>成交量柱 (Volume)</span>
                   </span>
-                  <input type="checkbox" checked={showVolume} onChange={(e) => setShowVolume(e.target.checked)} className="rounded text-[#2962ff] bg-[#131722] border-[#2a2e39]" />
+                  <input type="checkbox" checked={showVolume} onChange={(e) => setShowVolume(e.target.checked)} className="rounded text-[#2962ff] bg-white dark:bg-[#131722] border-gray-300 dark:border-[#2a2e39]" />
                 </label>
-                <label className="flex items-center justify-between px-1.5 py-1 rounded hover:bg-[#2a2e39] cursor-pointer">
+                <label className="flex items-center justify-between px-1.5 py-1 rounded hover:bg-gray-100 dark:hover:bg-[#2a2e39] cursor-pointer">
                   <span className="flex items-center space-x-1.5">
                     <span className="w-2.5 h-2.5 rounded-full bg-purple-600" />
                     <span>RSI(14) 强弱指标</span>
                   </span>
-                  <input type="checkbox" checked={showRsi} onChange={(e) => setShowRsi(e.target.checked)} className="rounded text-[#2962ff] bg-[#131722] border-[#2a2e39]" />
+                  <input type="checkbox" checked={showRsi} onChange={(e) => setShowRsi(e.target.checked)} className="rounded text-[#2962ff] bg-white dark:bg-[#131722] border-gray-300 dark:border-[#2a2e39]" />
                 </label>
               </div>
             )}
@@ -2771,21 +2937,21 @@ export default function ManualBarReplay({
           <button
             onClick={loadCandleData}
             disabled={loading}
-            className="px-2.5 py-1.5 text-xs bg-[#131722] hover:bg-[#2a2e39] text-gray-300 border border-[#2a2e39] rounded-lg transition font-medium"
+            className="px-2.5 py-1.5 text-xs bg-white dark:bg-[#131722] hover:bg-gray-100 dark:hover:bg-[#2a2e39] text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-[#2a2e39] rounded-lg transition font-medium"
           >
             {loading ? '加载中...' : '重新加载'}
           </button>
         </div>
 
         {/* Center: TradingView Replay Player */}
-        <div className="flex items-center space-x-1.5 bg-[#131722] p-1 rounded-lg border border-[#2a2e39] shadow-inner">
+        <div className="flex items-center space-x-1.5 bg-gray-100 dark:bg-[#131722] p-1 rounded-lg border border-gray-200 dark:border-[#2a2e39] shadow-inner">
           <button
             onClick={() => setActiveTool(activeTool === 'jump' ? 'pointer' : 'jump')}
             title="选择切片复盘起点 (点击图表任意K线切入)"
             className={`p-1.5 rounded-md font-medium text-xs flex items-center space-x-1 transition ${
               activeTool === 'jump' 
                 ? 'bg-amber-500 text-white shadow-sm ring-1 ring-amber-300' 
-                : 'hover:bg-[#2a2e39] text-gray-300'
+                : 'hover:bg-gray-200 dark:hover:bg-[#2a2e39] text-gray-700 dark:text-gray-300'
             }`}
           >
             <Scissors className="w-4 h-4" />
@@ -2798,7 +2964,7 @@ export default function ManualBarReplay({
               setIsPlaying(false);
             }}
             title="重置到起点"
-            className="p-1.5 hover:bg-[#2a2e39] rounded-md text-gray-300 transition"
+            className="p-1.5 hover:bg-gray-200 dark:hover:bg-[#2a2e39] rounded-md text-gray-700 dark:text-gray-300 transition"
           >
             <RotateCcw className="w-4 h-4" />
           </button>
@@ -2816,7 +2982,7 @@ export default function ManualBarReplay({
           <button
             onClick={stepForward}
             title="前进一根 K 线 (快捷键: 空格或右方向键)"
-            className="px-2.5 py-1 bg-[#2a2e39] hover:bg-[#363a45] rounded-md text-xs font-semibold text-gray-200 flex items-center space-x-1 transition"
+            className="px-2.5 py-1 bg-gray-200 hover:bg-gray-300 dark:bg-[#2a2e39] dark:hover:bg-[#363a45] rounded-md text-xs font-semibold text-gray-800 dark:text-gray-200 flex items-center space-x-1 transition"
           >
             <span>前进一根</span>
             <SkipForward className="w-3.5 h-3.5" />
@@ -2825,7 +2991,7 @@ export default function ManualBarReplay({
           <select
             value={playSpeed}
             onChange={(e) => setPlaySpeed(parseInt(e.target.value))}
-            className="text-[11px] px-1.5 py-1 border border-[#2a2e39] rounded bg-[#131722] text-gray-300 focus:outline-none"
+            className="text-[11px] px-1.5 py-1 border border-gray-200 dark:border-[#2a2e39] rounded bg-white dark:bg-[#131722] text-gray-800 dark:text-gray-300 focus:outline-none"
           >
             <option value={2000}>0.5x 慢速</option>
             <option value={1000}>1x 正常</option>
@@ -2833,11 +2999,11 @@ export default function ManualBarReplay({
             <option value={200}>5x 极速</option>
           </select>
 
-          <div className="hidden xl:flex items-center space-x-2 pl-2 border-l border-[#2a2e39] text-[11px]">
+          <div className="hidden xl:flex items-center space-x-2 pl-2 border-l border-gray-200 dark:border-[#2a2e39] text-[11px]">
             <span className="font-semibold text-[#2962ff]">
               进度: {currentIndex + 1} / {allCandles.length} 根
             </span>
-            <span className="text-gray-400 font-mono">
+            <span className="text-gray-500 dark:text-gray-400 font-mono">
               当前时间: {currentCandle?.time || '-'}
             </span>
           </div>
@@ -2846,7 +3012,7 @@ export default function ManualBarReplay({
         {/* Right: Multi-window split, Order panel toggle, Strategy tester toggle, Fullscreen */}
         <div className="flex items-center space-x-1.5">
           {/* Multi-window split */}
-          <div className="flex items-center space-x-0.5 bg-[#131722] p-0.5 rounded-lg border border-[#2a2e39]">
+          <div className="flex items-center space-x-0.5 bg-gray-100 dark:bg-[#131722] p-0.5 rounded-lg border border-gray-200 dark:border-[#2a2e39]">
             {[1, 2, 3, 4].map(num => (
               <button
                 key={num}
@@ -2858,7 +3024,7 @@ export default function ManualBarReplay({
                 className={`px-2 py-1 rounded text-xs font-semibold transition ${
                   windowCount === num 
                     ? 'bg-[#2962ff] text-white shadow-xs' 
-                    : 'text-gray-400 hover:text-gray-200 hover:bg-[#2a2e39]'
+                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200 dark:text-gray-400 dark:hover:text-gray-200 dark:hover:bg-[#2a2e39]'
                 }`}
                 title={num === 1 ? '单图模式 (专注单周期复盘)' : `${num} 周期窗口分屏联动回测`}
               >
@@ -2874,7 +3040,7 @@ export default function ManualBarReplay({
             className={`px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center space-x-1 transition border ${
               isOrderPanelOpen 
                 ? 'bg-[#2962ff]/20 text-[#2962ff] border-[#2962ff]/40' 
-                : 'bg-[#131722] text-gray-300 border-[#2a2e39] hover:bg-[#2a2e39]'
+                : 'bg-white dark:bg-[#131722] text-gray-700 dark:text-gray-300 border-gray-200 dark:border-[#2a2e39] hover:bg-gray-100 dark:hover:bg-[#2a2e39]'
             }`}
             title="切换右侧订单与风控计算面板"
           >
@@ -2889,7 +3055,7 @@ export default function ManualBarReplay({
             className={`px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center space-x-1 transition border ${
               isBottomDockOpen 
                 ? 'bg-[#2962ff]/20 text-[#2962ff] border-[#2962ff]/40' 
-                : 'bg-[#131722] text-gray-300 border-[#2a2e39] hover:bg-[#2a2e39]'
+                : 'bg-white dark:bg-[#131722] text-gray-700 dark:text-gray-300 border-gray-200 dark:border-[#2a2e39] hover:bg-gray-100 dark:hover:bg-[#2a2e39]'
             }`}
             title="切换底部战略测试器面板"
           >
@@ -2901,7 +3067,7 @@ export default function ManualBarReplay({
           <button
             type="button"
             onClick={toggleFullscreen}
-            className="p-1.5 hover:bg-[#2a2e39] rounded-md text-gray-300 transition"
+            className="p-1.5 hover:bg-gray-100 dark:hover:bg-[#2a2e39] rounded-md text-gray-600 dark:text-gray-300 transition"
             title={isFullscreen ? '退出全屏 (Esc)' : '全屏操作 (F11)'}
           >
             {isFullscreen ? <Minimize2 className="w-4 h-4 text-[#2962ff]" /> : <Maximize2 className="w-4 h-4 text-[#2962ff]" />}
@@ -2912,7 +3078,7 @@ export default function ManualBarReplay({
       {/* 2. MAIN WORKSPACE ROW (Left Toolbar + Center Charts + Right Order Panel) */}
       <div className="flex flex-1 overflow-hidden relative min-h-[500px]">
         {/* 2.1 LEFT VERTICAL DRAWING TOOLBAR (TradingView Toolbelt) */}
-        <div className="w-12 bg-[#1e222d] border-r border-[#2a2e39] flex flex-col items-center py-2 space-y-1.5 shrink-0 z-10 select-none">
+        <div className="w-12 bg-gray-50 dark:bg-[#1e222d] border-r border-gray-200 dark:border-[#2a2e39] flex flex-col items-center py-2 space-y-1.5 shrink-0 z-10 select-none">
           {/* Accessibility marker for tests */}
           <span className="sr-only">手动画线工具:</span>
           {activeTool === 'pointer' && (
@@ -2926,7 +3092,7 @@ export default function ManualBarReplay({
             className={`p-2 rounded-lg transition relative group ${
               activeTool === 'pointer'
                 ? 'bg-[#2962ff] text-white shadow-sm ring-1 ring-[#2962ff]/40'
-                : 'text-gray-400 hover:text-white hover:bg-[#2a2e39]'
+                : 'text-gray-500 hover:text-gray-900 hover:bg-gray-200/80 dark:text-gray-400 dark:hover:text-white dark:hover:bg-[#2a2e39]'
             }`}
             title="指针模式：在图表上直接按住绿色止盈手柄或红色止损手柄上下拖动，实时修改价格"
           >
@@ -2941,7 +3107,7 @@ export default function ManualBarReplay({
             className={`p-2 rounded-lg transition relative group ${
               activeTool === 'jump'
                 ? 'bg-amber-500 text-white shadow-sm ring-1 ring-amber-300'
-                : 'text-gray-400 hover:text-white hover:bg-[#2a2e39]'
+                : 'text-gray-500 hover:text-gray-900 hover:bg-gray-200/80 dark:text-gray-400 dark:hover:text-white dark:hover:bg-[#2a2e39]'
             }`}
             title="切片起点：点击图表任意K线，跳转到该K线作为回测起点"
           >
@@ -2949,7 +3115,7 @@ export default function ManualBarReplay({
             <span className="sr-only">切片起点</span>
           </button>
 
-          <div className="w-6 h-px bg-[#2a2e39] my-1" />
+          <div className="w-6 h-px bg-gray-200 dark:bg-[#2a2e39] my-1" />
 
           {/* Long Position Tool */}
           <button
@@ -2961,7 +3127,7 @@ export default function ManualBarReplay({
             className={`p-2 rounded-lg transition relative group ${
               activeTool === 'long'
                 ? 'bg-[#089981] text-white shadow-sm ring-2 ring-emerald-300'
-                : 'text-emerald-400 hover:bg-[#2a2e39]'
+                : 'text-emerald-500 dark:text-emerald-400 hover:bg-gray-200/80 dark:hover:bg-[#2a2e39]'
             }`}
             title="点击图表任意K线或价格位置，放置做多画线标尺（支持拖动手柄调整止盈止损）"
           >
@@ -2979,7 +3145,7 @@ export default function ManualBarReplay({
             className={`p-2 rounded-lg transition relative group ${
               activeTool === 'short'
                 ? 'bg-[#f23645] text-white shadow-sm ring-2 ring-rose-300'
-                : 'text-rose-400 hover:bg-[#2a2e39]'
+                : 'text-rose-500 dark:text-rose-400 hover:bg-gray-200/80 dark:hover:bg-[#2a2e39]'
             }`}
             title="点击图表任意K线或价格位置，放置做空画线标尺（支持拖动手柄调整止盈止损）"
           >
@@ -2987,7 +3153,7 @@ export default function ManualBarReplay({
             <span className="sr-only">做空画线标尺</span>
           </button>
 
-          <div className="w-6 h-px bg-[#2a2e39] my-1" />
+          <div className="w-6 h-px bg-gray-200 dark:bg-[#2a2e39] my-1" />
 
           {/* Horizontal Line */}
           <button
@@ -2996,7 +3162,7 @@ export default function ManualBarReplay({
             className={`p-2 rounded-lg transition relative group ${
               activeTool === 'horizontal'
                 ? 'bg-amber-500 text-white shadow-sm ring-2 ring-amber-300'
-                : 'text-amber-400 hover:bg-[#2a2e39]'
+                : 'text-amber-500 dark:text-amber-400 hover:bg-gray-200/80 dark:hover:bg-[#2a2e39]'
             }`}
             title="点击图表任意价格位置，画出一条水平支撑/阻力线，支持拖动调整"
           >
@@ -3011,7 +3177,7 @@ export default function ManualBarReplay({
             className={`p-2 rounded-lg transition relative group ${
               activeTool === 'trendline'
                 ? 'bg-sky-500 text-white shadow-sm ring-2 ring-sky-300'
-                : 'text-sky-400 hover:bg-[#2a2e39]'
+                : 'text-sky-500 dark:text-sky-400 hover:bg-gray-200/80 dark:hover:bg-[#2a2e39]'
             }`}
             title="在图表上按住鼠标左键并拖动到终点，绘制倾斜趋势线"
           >
@@ -3026,7 +3192,7 @@ export default function ManualBarReplay({
             className={`p-2 rounded-lg transition relative group ${
               activeTool === 'rectangle'
                 ? 'bg-[#2962ff] text-white shadow-sm ring-2 ring-purple-300'
-                : 'text-purple-400 hover:bg-[#2a2e39]'
+                : 'text-purple-500 dark:text-purple-400 hover:bg-gray-200/80 dark:hover:bg-[#2a2e39]'
             }`}
             title="按住鼠标左键并拖动绘制供求区间矩形框，直观标记震荡/突破区间"
           >
@@ -3034,7 +3200,7 @@ export default function ManualBarReplay({
             <span className="sr-only">矩形区域</span>
           </button>
 
-          <div className="w-6 h-px bg-[#2a2e39] my-1" />
+          <div className="w-6 h-px bg-gray-200 dark:bg-[#2a2e39] my-1" />
 
           {/* Clear drawings */}
           {(horizontalLines.length > 0 || trendLines.length > 0 || rectangles.length > 0) && (
@@ -3045,7 +3211,7 @@ export default function ManualBarReplay({
                 setTrendLines([]);
                 setRectangles([]);
               }}
-              className="p-2 rounded-lg text-rose-400 hover:bg-rose-500/20 hover:text-rose-300 transition"
+              className="p-2 rounded-lg text-rose-500 hover:bg-rose-500/20 hover:text-rose-600 dark:text-rose-400 dark:hover:text-rose-300 transition"
               title="清除所有已画的水平支撑阻力线、趋势线和矩形区域"
             >
               <Trash2 className="w-4 h-4" />
@@ -3055,42 +3221,42 @@ export default function ManualBarReplay({
         </div>
 
         {/* 2.2 CENTER CHART VIEWPORT */}
-        <div className="flex-1 flex flex-col relative overflow-hidden bg-[#131722]">
+        <div className="flex-1 flex flex-col relative overflow-hidden bg-white dark:bg-[#131722]">
           {/* TradingView OHLC Status Bar */}
-          <div className="bg-[#1e222d]/90 backdrop-blur-sm border-b border-[#2a2e39] px-3 py-1.5 flex flex-wrap items-center justify-between text-xs font-mono select-none z-10">
+          <div className="bg-white/95 dark:bg-[#1e222d]/90 backdrop-blur-sm border-b border-gray-200 dark:border-[#2a2e39] px-3 py-1.5 flex flex-wrap items-center justify-between text-xs font-mono select-none z-10 text-gray-800 dark:text-gray-200">
             <div className="flex flex-wrap items-center gap-2.5">
-              <span className="font-bold text-[#d1d4dc] flex items-center space-x-1.5 font-sans">
-                <span className="text-white font-extrabold">{symbol}</span>
-                <span className="text-[10px] bg-[#2962ff]/20 text-[#2962ff] px-1.5 py-0.2 rounded border border-[#2962ff]/30 font-mono">{timeframe}</span>
+              <span className="font-bold text-gray-800 dark:text-[#d1d4dc] flex items-center space-x-1.5 font-sans">
+                <span className="text-gray-900 dark:text-white font-extrabold">{symbol}</span>
+                <span className="text-[10px] bg-[#2962ff]/10 dark:bg-[#2962ff]/20 text-[#2962ff] px-1.5 py-0.2 rounded border border-[#2962ff]/30 font-mono">{timeframe}</span>
                 <span className="text-gray-400 text-[11px]">TradeZen</span>
               </span>
               {displayCandle && (
                 <div className="flex items-center space-x-2 text-[11px]">
-                  <span className="text-gray-400">时间: <b className="text-gray-200">{displayCandle.time}</b></span>
-                  <span className="text-gray-400">O: <b className="text-gray-200">{displayCandle.open}</b></span>
-                  <span className="text-gray-400">H: <b className="text-emerald-400">{displayCandle.high}</b></span>
-                  <span className="text-gray-400">L: <b className="text-rose-400">{displayCandle.low}</b></span>
-                  <span className="text-gray-400">C: <b className={isUp ? 'text-emerald-400' : 'text-rose-400'}>{displayCandle.close}</b></span>
-                  <span className={`font-bold ${isUp ? 'text-emerald-400' : 'text-rose-400'}`}>
+                  <span className="text-gray-500 dark:text-gray-400">时间: <b className="text-gray-800 dark:text-gray-200">{displayCandle.time}</b></span>
+                  <span className="text-gray-500 dark:text-gray-400">O: <b className="text-gray-800 dark:text-gray-200">{displayCandle.open}</b></span>
+                  <span className="text-gray-500 dark:text-gray-400">H: <b className="text-emerald-500 dark:text-emerald-400">{displayCandle.high}</b></span>
+                  <span className="text-gray-500 dark:text-gray-400">L: <b className="text-rose-500 dark:text-rose-400">{displayCandle.low}</b></span>
+                  <span className="text-gray-500 dark:text-gray-400">C: <b className={isUp ? 'text-emerald-500 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'}>{displayCandle.close}</b></span>
+                  <span className={`font-bold ${isUp ? 'text-emerald-500 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'}`}>
                     {isUp ? '+' : ''}{candleChangePct}%
                   </span>
-                  <span className="text-gray-400 hidden md:inline">量: {displayCandle.volume}</span>
+                  <span className="text-gray-500 dark:text-gray-400 hidden md:inline">量: {displayCandle.volume}</span>
                 </div>
               )}
             </div>
 
-            <div className="text-[11px] text-gray-400 flex items-center space-x-2">
+            <div className="text-[11px] text-gray-500 dark:text-gray-400 flex items-center space-x-2">
               {hoveredCandle ? (
-                <span className="text-amber-300 font-sans">● 悬停预览K线</span>
+                <span className="text-amber-500 dark:text-amber-300 font-sans">● 悬停预览K线</span>
               ) : (
-                <span className="text-emerald-400 font-sans">● 当前最新复盘K线</span>
+                <span className="text-emerald-500 dark:text-emerald-400 font-sans">● 当前最新复盘K线</span>
               )}
             </div>
           </div>
 
           {/* Floating On-Chart Quick Order Execution */}
           {!position && showTvVisuals && currentCandle && (
-            <div className="absolute top-10 right-4 z-20 flex items-center space-x-2 bg-[#1e222d]/95 backdrop-blur-md p-1.5 rounded-lg border border-[#2a2e39] shadow-xl">
+            <div className="absolute top-10 right-4 z-20 flex items-center space-x-2 bg-white/95 dark:bg-[#1e222d]/95 backdrop-blur-md p-1.5 rounded-lg border border-gray-200 dark:border-[#2a2e39] shadow-xl">
               <button
                 type="button"
                 onClick={() => openOrder('short')}
@@ -3102,8 +3268,8 @@ export default function ManualBarReplay({
               </button>
 
               <div className="flex flex-col items-center px-1">
-                <span className="text-[9px] text-gray-400">手数</span>
-                <span className="text-xs font-mono font-bold text-white">{activeLots}</span>
+                <span className="text-[9px] text-gray-500 dark:text-gray-400">手数</span>
+                <span className="text-xs font-mono font-bold text-gray-900 dark:text-white">{activeLots}</span>
               </div>
 
               <button
@@ -3116,7 +3282,7 @@ export default function ManualBarReplay({
                 <span className="font-mono">{currentCandle.close}</span>
               </button>
 
-              <div className="h-6 w-px bg-[#2a2e39]" />
+              <div className="h-6 w-px bg-gray-200 dark:bg-[#2a2e39]" />
 
               <button
                 type="button"
@@ -3131,18 +3297,18 @@ export default function ManualBarReplay({
 
           {/* Active Position Floating Strip */}
           {position && currentCandle && (
-            <div className="bg-gradient-to-r from-[#1e222d] via-[#1a2333] to-[#1e222d] border-b border-[#2962ff]/40 px-4 py-2 flex flex-wrap items-center justify-between gap-3 text-xs shadow-md z-20">
+            <div className="bg-gradient-to-r from-gray-100 via-gray-50 to-gray-100 dark:from-[#1e222d] dark:via-[#1a2333] dark:to-[#1e222d] border-b border-[#2962ff]/40 px-4 py-2 flex flex-wrap items-center justify-between gap-3 text-xs shadow-md z-20">
               <div className="flex flex-wrap items-center gap-3">
                 <span className={`px-2.5 py-0.5 rounded text-xs font-bold text-white shadow-xs ${
                   position.direction === 'long' ? 'bg-[#089981]' : 'bg-[#f23645]'
                 }`}>
                   持仓中: {position.direction.toUpperCase()} ({position.size} 手)
                 </span>
-                <span className="text-gray-300">
-                  开仓价: <b className="font-mono text-white">{position.entryPrice}</b>
+                <span className="text-gray-600 dark:text-gray-300">
+                  开仓价: <b className="font-mono text-gray-900 dark:text-white">{position.entryPrice}</b>
                 </span>
-                <span className="text-gray-300">
-                  最新价: <b className="font-mono text-white">{currentCandle.close}</b>
+                <span className="text-gray-600 dark:text-gray-300">
+                  最新价: <b className="font-mono text-gray-900 dark:text-white">{currentCandle.close}</b>
                 </span>
                 <span className="font-bold">
                   浮动盈亏: <span className={`font-mono text-sm ml-1 ${floatingProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
@@ -3175,16 +3341,16 @@ export default function ManualBarReplay({
 
         {/* 2.3 RIGHT DOCK: TRADINGVIEW ORDER TICKET & RISK CALCULATOR */}
         {isOrderPanelOpen && (
-          <div className="w-80 sm:w-88 bg-[#1e222d] border-l border-[#2a2e39] flex flex-col shrink-0 overflow-y-auto max-h-[640px] text-xs p-3.5 space-y-3 z-10">
-            <div className="flex items-center justify-between pb-2 border-b border-[#2a2e39]">
-              <div className="flex items-center space-x-1.5 font-bold text-white">
+          <div className="w-80 sm:w-88 bg-gray-50 dark:bg-[#1e222d] border-l border-gray-200 dark:border-[#2a2e39] flex flex-col shrink-0 overflow-y-auto max-h-[640px] text-xs p-3.5 space-y-3 z-10 text-gray-800 dark:text-gray-200">
+            <div className="flex items-center justify-between pb-2 border-b border-gray-200 dark:border-[#2a2e39]">
+              <div className="flex items-center space-x-1.5 font-bold text-gray-900 dark:text-white">
                 <Sliders className="w-4 h-4 text-[#2962ff]" />
                 <span>订单配置与风控 (Order Ticket)</span>
               </div>
               <button
                 type="button"
                 onClick={() => setIsOrderPanelOpen(false)}
-                className="p-1 hover:bg-[#2a2e39] rounded text-gray-400 hover:text-white"
+                className="p-1 hover:bg-gray-200 dark:hover:bg-[#2a2e39] rounded text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white"
                 title="收起订单面板"
               >
                 <X className="w-3.5 h-3.5" />
@@ -3193,14 +3359,14 @@ export default function ManualBarReplay({
 
             {/* Long / Short Switcher */}
             <div className="flex items-center justify-between gap-2">
-              <div className="grid grid-cols-2 p-1 bg-[#131722] rounded-lg border border-[#2a2e39] flex-1 text-xs font-semibold">
+              <div className="grid grid-cols-2 p-1 bg-gray-100 dark:bg-[#131722] rounded-lg border border-gray-200 dark:border-[#2a2e39] flex-1 text-xs font-semibold">
                 <button
                   type="button"
                   onClick={() => handleSwitchDirection('long')}
                   className={`py-1.5 rounded-md flex items-center justify-center space-x-1 transition-all ${
                     orderDirection === 'long' 
                       ? 'bg-[#089981] text-white shadow-xs' 
-                      : 'text-gray-400 hover:text-white'
+                      : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white'
                   }`}
                 >
                   <TrendingUp className="w-3.5 h-3.5" />
@@ -3213,7 +3379,7 @@ export default function ManualBarReplay({
                   className={`py-1.5 rounded-md flex items-center justify-center space-x-1 transition-all ${
                     orderDirection === 'short' 
                       ? 'bg-[#f23645] text-white shadow-xs' 
-                      : 'text-gray-400 hover:text-white'
+                      : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white'
                   }`}
                 >
                   <TrendingDown className="w-3.5 h-3.5" />
@@ -3223,20 +3389,20 @@ export default function ManualBarReplay({
             </div>
 
             {/* Visual checkbox */}
-            <label className="flex items-center space-x-2 text-xs text-gray-400 cursor-pointer pt-0.5">
+            <label className="flex items-center space-x-2 text-xs text-gray-600 dark:text-gray-400 cursor-pointer pt-0.5">
               <input
                 type="checkbox"
                 checked={showTvVisuals}
                 onChange={(e) => setShowTvVisuals(e.target.checked)}
-                className="rounded border-[#2a2e39] text-[#2962ff] focus:ring-0 bg-[#131722]"
+                className="rounded border-gray-300 dark:border-[#2a2e39] text-[#2962ff] focus:ring-0 bg-white dark:bg-[#131722]"
               />
               <span>图表显示多空盈亏标尺</span>
             </label>
 
             {/* 1. Account Capital */}
-            <div className="space-y-1 bg-[#131722] p-2.5 rounded-lg border border-[#2a2e39]">
+            <div className="space-y-1 bg-white dark:bg-[#131722] p-2.5 rounded-lg border border-gray-200 dark:border-[#2a2e39]">
               <div className="flex justify-between items-center text-[11px]">
-                <span className="font-medium text-gray-300 flex items-center space-x-1">
+                <span className="font-medium text-gray-700 dark:text-gray-300 flex items-center space-x-1">
                   <DollarSign className="w-3.5 h-3.5 text-[#2962ff]" />
                   <span>账户资金 (Capital)</span>
                 </span>
@@ -3249,7 +3415,7 @@ export default function ManualBarReplay({
                   step="1000"
                   value={accountCapital}
                   onChange={(e) => setAccountCapital(Math.max(100, parseFloat(e.target.value) || 10000))}
-                  className="w-full px-2 py-1 text-xs font-mono font-bold bg-[#1e222d] border border-[#2a2e39] rounded text-white focus:outline-none focus:border-[#2962ff]"
+                  className="w-full px-2 py-1 text-xs font-mono font-bold bg-gray-50 dark:bg-[#1e222d] border border-gray-300 dark:border-[#2a2e39] rounded text-gray-900 dark:text-white focus:outline-none focus:border-[#2962ff]"
                 />
               </div>
               <div className="flex items-center space-x-1 pt-1">
@@ -3259,7 +3425,7 @@ export default function ManualBarReplay({
                     type="button"
                     onClick={() => setAccountCapital(amt)}
                     className={`px-1.5 py-0.5 rounded text-[10px] font-mono transition ${
-                      accountCapital === amt ? 'bg-[#2962ff] text-white font-bold' : 'bg-[#1e222d] text-gray-400 hover:text-white'
+                      accountCapital === amt ? 'bg-[#2962ff] text-white font-bold' : 'bg-gray-100 dark:bg-[#1e222d] text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
                     }`}
                   >
                     ${amt >= 1000 ? `${amt / 1000}k` : amt}
@@ -3269,13 +3435,13 @@ export default function ManualBarReplay({
             </div>
 
             {/* 2. Risk % */}
-            <div className="space-y-1 bg-[#131722] p-2.5 rounded-lg border border-[#2a2e39]">
+            <div className="space-y-1 bg-white dark:bg-[#131722] p-2.5 rounded-lg border border-gray-200 dark:border-[#2a2e39]">
               <div className="flex justify-between items-center text-[11px]">
-                <span className="font-medium text-amber-400 flex items-center space-x-1">
+                <span className="font-medium text-amber-500 dark:text-amber-400 flex items-center space-x-1">
                   <Shield className="w-3.5 h-3.5" />
                   <span>单笔风险比例 (Risk %)</span>
                 </span>
-                <span className="text-amber-400 font-mono font-bold">
+                <span className="text-amber-500 dark:text-amber-400 font-mono font-bold">
                   风险额: ${riskAmount.toFixed(2)}
                 </span>
               </div>
@@ -3287,9 +3453,9 @@ export default function ManualBarReplay({
                   max="10"
                   value={riskPercent}
                   onChange={(e) => setRiskPercent(Math.max(0.1, parseFloat(e.target.value) || 1))}
-                  className="w-full px-2 py-1 text-xs font-mono font-bold bg-[#1e222d] border border-[#2a2e39] rounded text-white focus:outline-none focus:border-[#2962ff]"
+                  className="w-full px-2 py-1 text-xs font-mono font-bold bg-gray-50 dark:bg-[#1e222d] border border-gray-300 dark:border-[#2a2e39] rounded text-gray-900 dark:text-white focus:outline-none focus:border-[#2962ff]"
                 />
-                <span className="text-gray-400 font-bold">%</span>
+                <span className="text-gray-500 dark:text-gray-400 font-bold">%</span>
               </div>
               <div className="flex items-center space-x-1 pt-1">
                 {[0.5, 1.0, 2.0, 3.0].map(pct => (
@@ -3298,7 +3464,7 @@ export default function ManualBarReplay({
                     type="button"
                     onClick={() => setRiskPercent(pct)}
                     className={`px-1.5 py-0.5 rounded text-[10px] font-mono transition ${
-                      riskPercent === pct ? 'bg-amber-600 text-white font-bold' : 'bg-[#1e222d] text-gray-400 hover:text-white'
+                      riskPercent === pct ? 'bg-amber-600 text-white font-bold' : 'bg-gray-100 dark:bg-[#1e222d] text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
                     }`}
                   >
                     {pct}%
@@ -3308,13 +3474,13 @@ export default function ManualBarReplay({
             </div>
 
             {/* 3. Stop Loss (SL) */}
-            <div className="space-y-1 bg-[#131722] p-2.5 rounded-lg border border-[#2a2e39]">
+            <div className="space-y-1 bg-white dark:bg-[#131722] p-2.5 rounded-lg border border-gray-200 dark:border-[#2a2e39]">
               <div className="flex justify-between items-center text-[11px]">
-                <span className="font-medium text-rose-400 flex items-center space-x-1">
+                <span className="font-medium text-rose-500 dark:text-rose-400 flex items-center space-x-1">
                   <Target className="w-3.5 h-3.5" />
                   <span>止损价格 (Stop Loss)</span>
                 </span>
-                <span className="text-gray-400 font-mono text-[10px]">
+                <span className="text-gray-500 dark:text-gray-400 font-mono text-[10px]">
                   {formatPips(slDistance, entryPrice)}
                 </span>
               </div>
@@ -3336,27 +3502,27 @@ export default function ManualBarReplay({
                   }
                 }}
                 placeholder="0.00"
-                className="w-full px-2 py-1 text-xs font-mono font-bold text-rose-400 bg-[#1e222d] border border-[#2a2e39] rounded focus:outline-none focus:border-rose-500"
+                className="w-full px-2 py-1 text-xs font-mono font-bold text-rose-500 dark:text-rose-400 bg-gray-50 dark:bg-[#1e222d] border border-gray-300 dark:border-[#2a2e39] rounded focus:outline-none focus:border-rose-500"
               />
               <div className="flex flex-wrap items-center gap-1 pt-0.5">
                 <button
                   type="button"
                   onClick={() => handleQuickSL('bar')}
-                  className="px-1.5 py-0.5 bg-[#1e222d] hover:bg-[#2a2e39] text-gray-300 text-[10px] rounded"
+                  className="px-1.5 py-0.5 bg-gray-100 hover:bg-gray-200 dark:bg-[#1e222d] dark:hover:bg-[#2a2e39] text-gray-700 dark:text-gray-300 text-[10px] rounded"
                 >
                   当前K极值
                 </button>
                 <button
                   type="button"
                   onClick={() => handleQuickSL('swing5')}
-                  className="px-1.5 py-0.5 bg-[#1e222d] hover:bg-[#2a2e39] text-gray-300 text-[10px] rounded"
+                  className="px-1.5 py-0.5 bg-gray-100 hover:bg-gray-200 dark:bg-[#1e222d] dark:hover:bg-[#2a2e39] text-gray-700 dark:text-gray-300 text-[10px] rounded"
                 >
                   前5根极值
                 </button>
                 <button
                   type="button"
                   onClick={() => handleQuickSL('pips20')}
-                  className="px-1.5 py-0.5 bg-[#1e222d] hover:bg-[#2a2e39] text-gray-300 text-[10px] rounded font-mono"
+                  className="px-1.5 py-0.5 bg-gray-100 hover:bg-gray-200 dark:bg-[#1e222d] dark:hover:bg-[#2a2e39] text-gray-700 dark:text-gray-300 text-[10px] rounded font-mono"
                 >
                   20点
                 </button>
@@ -3381,13 +3547,13 @@ export default function ManualBarReplay({
             </div>
 
             {/* 4. Take Profit (TP) */}
-            <div className="space-y-1 bg-[#131722] p-2.5 rounded-lg border border-[#2a2e39]">
+            <div className="space-y-1 bg-white dark:bg-[#131722] p-2.5 rounded-lg border border-gray-200 dark:border-[#2a2e39]">
               <div className="flex justify-between items-center text-[11px]">
-                <span className="font-medium text-emerald-400 flex items-center space-x-1">
+                <span className="font-medium text-emerald-500 dark:text-emerald-400 flex items-center space-x-1">
                   <Sparkles className="w-3.5 h-3.5" />
                   <span>止盈价格 (Take Profit)</span>
                 </span>
-                <span className="text-gray-400 font-mono text-[10px]">
+                <span className="text-gray-500 dark:text-gray-400 font-mono text-[10px]">
                   {formatPips(tpDistance, entryPrice)}
                 </span>
               </div>
@@ -3404,7 +3570,7 @@ export default function ManualBarReplay({
                   }
                 }}
                 placeholder="0.00"
-                className="w-full px-2 py-1 text-xs font-mono font-bold text-emerald-400 bg-[#1e222d] border border-[#2a2e39] rounded focus:outline-none focus:border-emerald-500"
+                className="w-full px-2 py-1 text-xs font-mono font-bold text-emerald-500 dark:text-emerald-400 bg-gray-50 dark:bg-[#1e222d] border border-gray-300 dark:border-[#2a2e39] rounded focus:outline-none focus:border-emerald-500"
               />
               <div className="flex items-center space-x-1 pt-0.5">
                 {[1.0, 1.5, 2.0, 3.0].map(rr => (
@@ -3413,7 +3579,7 @@ export default function ManualBarReplay({
                     type="button"
                     onClick={() => handleApplyRR(rr)}
                     className={`px-1.5 py-0.5 rounded text-[10px] font-mono transition ${
-                      Math.abs(riskRewardRatio - rr) < 0.05 ? 'bg-[#089981] text-white font-bold' : 'bg-[#1e222d] text-gray-400 hover:text-white'
+                      Math.abs(riskRewardRatio - rr) < 0.05 ? 'bg-[#089981] text-white font-bold' : 'bg-gray-100 dark:bg-[#1e222d] text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
                     }`}
                   >
                     1:{rr}
@@ -3440,16 +3606,16 @@ export default function ManualBarReplay({
             </div>
 
             {/* Metrics Summary Box */}
-            <div className="p-3 bg-[#131722] rounded-lg border border-[#2a2e39] space-y-2 text-xs">
+            <div className="p-3 bg-white dark:bg-[#131722] rounded-lg border border-gray-200 dark:border-[#2a2e39] space-y-2 text-xs">
               <div className="flex justify-between items-center">
-                <span className="text-gray-400">推荐开仓手数:</span>
+                <span className="text-gray-600 dark:text-gray-400">推荐开仓手数:</span>
                 <div className="flex items-center space-x-1.5">
                   <label className="text-[10px] text-[#2962ff] cursor-pointer flex items-center space-x-0.5">
                     <input
                       type="checkbox"
                       checked={autoSizing}
                       onChange={(e) => setAutoSizing(e.target.checked)}
-                      className="w-3 h-3 text-[#2962ff] rounded bg-[#1e222d]"
+                      className="w-3 h-3 text-[#2962ff] rounded bg-white dark:bg-[#1e222d] border-gray-300 dark:border-[#2a2e39]"
                     />
                     <span>自动控仓</span>
                   </label>
@@ -3459,28 +3625,28 @@ export default function ManualBarReplay({
                     disabled={autoSizing}
                     value={activeLots}
                     onChange={(e) => setLotSize(e.target.value)}
-                    className="w-16 px-1.5 py-0.5 text-xs font-mono font-bold bg-[#1e222d] border border-[#2a2e39] rounded text-white text-right"
+                    className="w-16 px-1.5 py-0.5 text-xs font-mono font-bold bg-gray-50 dark:bg-[#1e222d] border border-gray-300 dark:border-[#2a2e39] rounded text-gray-900 dark:text-white text-right"
                   />
                   <span className="text-[10px] text-gray-500">手</span>
                 </div>
               </div>
 
               <div className="flex justify-between items-center">
-                <span className="text-gray-400">预估止损亏损:</span>
-                <span className="font-mono font-bold text-rose-400">
+                <span className="text-gray-600 dark:text-gray-400">预估止损亏损:</span>
+                <span className="font-mono font-bold text-rose-500 dark:text-rose-400">
                   -${projectedLoss.toFixed(2)} (-{((projectedLoss / accountCapital) * 100).toFixed(1)}%)
                 </span>
               </div>
 
               <div className="flex justify-between items-center">
-                <span className="text-gray-400">预估止盈收益:</span>
-                <span className="font-mono font-bold text-emerald-400">
+                <span className="text-gray-600 dark:text-gray-400">预估止盈收益:</span>
+                <span className="font-mono font-bold text-emerald-500 dark:text-emerald-400">
                   +${projectedProfit.toFixed(2)} (+{((projectedProfit / accountCapital) * 100).toFixed(1)}%)
                 </span>
               </div>
 
-              <div className="flex justify-between items-center pt-1 border-t border-[#2a2e39]">
-                <span className="text-gray-400">设定盈亏比 (R:R):</span>
+              <div className="flex justify-between items-center pt-1 border-t border-gray-200 dark:border-[#2a2e39]">
+                <span className="text-gray-600 dark:text-gray-400">设定盈亏比 (R:R):</span>
                 <span className="font-mono font-bold text-[#2962ff]">
                   1 : {currentRR.toFixed(2)}
                 </span>
@@ -3531,9 +3697,9 @@ export default function ManualBarReplay({
       </div>
 
       {/* 3. TRADINGVIEW STRATEGY TESTER BOTTOM DOCK */}
-      <div className="border-t border-[#2a2e39] bg-[#1e222d] flex flex-col z-10">
+      <div className="border-t border-gray-200 dark:border-[#2a2e39] bg-gray-50 dark:bg-[#1e222d] flex flex-col z-10">
         {/* Dock Tab Bar (Height ~38px) */}
-        <div className="px-3 py-1.5 bg-[#1e222d] flex flex-wrap items-center justify-between gap-2 border-b border-[#2a2e39] text-xs">
+        <div className="px-3 py-1.5 bg-gray-50 dark:bg-[#1e222d] flex flex-wrap items-center justify-between gap-2 border-b border-gray-200 dark:border-[#2a2e39] text-xs">
           {/* Left Dock Tabs */}
           <div className="flex items-center space-x-3 font-bold">
             <button
@@ -3544,13 +3710,13 @@ export default function ManualBarReplay({
               }}
               className={`flex items-center space-x-1.5 pb-1 border-b-2 transition ${
                 bottomDockTab === 'strategy' && isBottomDockOpen
-                  ? 'border-[#2962ff] text-white'
-                  : 'border-transparent text-gray-400 hover:text-gray-200'
+                  ? 'border-[#2962ff] text-gray-900 dark:text-white'
+                  : 'border-transparent text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200'
               }`}
             >
               <BarChart2 className="w-3.5 h-3.5 text-[#2962ff]" />
               <span>回测结果统计与策略报告 (Strategy Tester)</span>
-              <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-[#131722] text-[#2962ff] font-mono border border-[#2a2e39]">
+              <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-gray-100 dark:bg-[#131722] text-[#2962ff] font-mono border border-gray-200 dark:border-[#2a2e39]">
                 {replayTrades.length} 笔
               </span>
             </button>
@@ -3563,11 +3729,11 @@ export default function ManualBarReplay({
               }}
               className={`flex items-center space-x-1.5 pb-1 border-b-2 transition ${
                 bottomDockTab === 'trading' && isBottomDockOpen
-                  ? 'border-[#2962ff] text-white'
-                  : 'border-transparent text-gray-400 hover:text-gray-200'
+                  ? 'border-[#2962ff] text-gray-900 dark:text-white'
+                  : 'border-transparent text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200'
               }`}
             >
-              <DollarSign className="w-3.5 h-3.5 text-amber-400" />
+              <DollarSign className="w-3.5 h-3.5 text-amber-500" />
               <span>模拟交易账户 (Paper Trading)</span>
               {position && (
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
@@ -3583,8 +3749,8 @@ export default function ManualBarReplay({
               disabled={replayTrades.length === 0}
               className={`px-2.5 py-1 rounded text-xs font-semibold flex items-center space-x-1 transition border ${
                 replayTrades.length === 0
-                  ? 'bg-[#131722] border-[#2a2e39] text-gray-500 cursor-not-allowed'
-                  : 'bg-[#131722] hover:bg-[#2a2e39] text-gray-200 border-[#2a2e39]'
+                  ? 'bg-gray-100 dark:bg-[#131722] border-gray-200 dark:border-[#2a2e39] text-gray-400 dark:text-gray-500 cursor-not-allowed'
+                  : 'bg-white dark:bg-[#131722] hover:bg-gray-100 dark:hover:bg-[#2a2e39] text-gray-700 dark:text-gray-200 border-gray-200 dark:border-[#2a2e39]'
               }`}
               title="导出当前回测的全部交易记录为 CSV 文件"
             >
@@ -3598,7 +3764,7 @@ export default function ManualBarReplay({
               disabled={saveLoading || replayTrades.length === 0}
               className={`px-2.5 py-1 rounded text-xs font-semibold flex items-center space-x-1 text-white transition ${
                 replayTrades.length === 0
-                  ? 'bg-gray-700 cursor-not-allowed'
+                  ? 'bg-gray-400 dark:bg-gray-700 cursor-not-allowed'
                   : 'bg-[#2962ff] hover:bg-[#1e54e4]'
               }`}
               title="将本次K线回测的所有交易记录归档保存至 TradeZen 交易日记"
@@ -3611,7 +3777,7 @@ export default function ManualBarReplay({
               <button
                 type="button"
                 onClick={handleResetBacktestSession}
-                className="px-2 py-1 rounded text-xs font-semibold text-rose-400 hover:bg-rose-500/20 border border-rose-500/30 transition flex items-center space-x-1"
+                className="px-2 py-1 rounded text-xs font-semibold text-rose-500 dark:text-rose-400 hover:bg-rose-500/20 border border-rose-500/30 transition flex items-center space-x-1"
                 title="清空本次回测成交流水"
               >
                 <Trash2 className="w-3 h-3" />
@@ -3623,7 +3789,7 @@ export default function ManualBarReplay({
             <button
               type="button"
               onClick={() => setIsBottomDockOpen(!isBottomDockOpen)}
-              className="p-1 hover:bg-[#2a2e39] rounded text-gray-400 hover:text-white transition"
+              className="p-1 hover:bg-gray-200 dark:hover:bg-[#2a2e39] rounded text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white transition"
               title={isBottomDockOpen ? '收起底栏' : '展开底栏'}
             >
               {isBottomDockOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronDown className="w-4 h-4 rotate-180" />}
@@ -3633,18 +3799,18 @@ export default function ManualBarReplay({
 
         {/* Dock Content Body */}
         {isBottomDockOpen && (
-          <div className="p-4 bg-[#131722] overflow-y-auto max-h-[460px]">
+          <div className="p-4 bg-white dark:bg-[#131722] overflow-y-auto max-h-[460px]">
             {bottomDockTab === 'strategy' ? (
               <div className="space-y-4">
                 {/* Sub-tabs inside Strategy Tester */}
-                <div className="border-b border-[#2a2e39] -mt-1 pb-2 flex space-x-6 text-xs font-bold">
+                <div className="border-b border-gray-200 dark:border-[#2a2e39] -mt-1 pb-2 flex space-x-6 text-xs font-bold">
                   <button
                     type="button"
                     onClick={() => setStatsTab('summary')}
                     className={`pb-2 border-b-2 flex items-center space-x-1.5 transition ${
                       statsTab === 'summary'
                         ? 'border-[#2962ff] text-[#2962ff]'
-                        : 'border-transparent text-gray-400 hover:text-gray-200'
+                        : 'border-transparent text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200'
                     }`}
                   >
                     <BarChart2 className="w-3.5 h-3.5" />
@@ -3656,7 +3822,7 @@ export default function ManualBarReplay({
                     className={`pb-2 border-b-2 flex items-center space-x-1.5 transition ${
                       statsTab === 'curve'
                         ? 'border-[#2962ff] text-[#2962ff]'
-                        : 'border-transparent text-gray-400 hover:text-gray-200'
+                        : 'border-transparent text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200'
                     }`}
                   >
                     <TrendingUp className="w-3.5 h-3.5" />
@@ -3668,7 +3834,7 @@ export default function ManualBarReplay({
                     className={`pb-2 border-b-2 flex items-center space-x-1.5 transition ${
                       statsTab === 'trades'
                         ? 'border-[#2962ff] text-[#2962ff]'
-                        : 'border-transparent text-gray-400 hover:text-gray-200'
+                        : 'border-transparent text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200'
                     }`}
                   >
                     <Layers className="w-3.5 h-3.5" />
@@ -3681,9 +3847,9 @@ export default function ManualBarReplay({
                   <div className="space-y-4">
                     {/* Primary 6 KPIs */}
                     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-                      <div className="bg-[#1e222d] p-3 rounded-xl border border-[#2a2e39]">
-                        <p className="text-[11px] text-gray-400 font-medium">当前/最终净值</p>
-                        <p className={`text-base sm:text-lg font-bold font-mono mt-1 ${currentEquity >= accountCapital ? 'text-emerald-400' : 'text-rose-400'}`}>
+                      <div className="bg-gray-50 dark:bg-[#1e222d] p-3 rounded-xl border border-gray-200 dark:border-[#2a2e39]">
+                        <p className="text-[11px] text-gray-500 dark:text-gray-400 font-medium">当前/最终净值</p>
+                        <p className={`text-base sm:text-lg font-bold font-mono mt-1 ${currentEquity >= accountCapital ? 'text-emerald-500 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'}`}>
                           ${currentEquity.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </p>
                         <span className="text-[10px] text-gray-500 font-mono">
@@ -3691,19 +3857,19 @@ export default function ManualBarReplay({
                         </span>
                       </div>
 
-                      <div className="bg-[#1e222d] p-3 rounded-xl border border-[#2a2e39]">
-                        <p className="text-[11px] text-gray-400 font-medium">累计净利润 (Net Profit)</p>
-                        <p className={`text-base sm:text-lg font-bold font-mono mt-1 ${totalNetProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                      <div className="bg-gray-50 dark:bg-[#1e222d] p-3 rounded-xl border border-gray-200 dark:border-[#2a2e39]">
+                        <p className="text-[11px] text-gray-500 dark:text-gray-400 font-medium">累计净利润 (Net Profit)</p>
+                        <p className={`text-base sm:text-lg font-bold font-mono mt-1 ${totalNetProfit >= 0 ? 'text-emerald-500 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'}`}>
                           {totalNetProfit >= 0 ? `+$${totalNetProfit.toFixed(2)}` : `-$${Math.abs(totalNetProfit).toFixed(2)}`}
                         </p>
-                        <span className={`text-[10px] font-bold ${totalNetProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                        <span className={`text-[10px] font-bold ${totalNetProfit >= 0 ? 'text-emerald-500 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'}`}>
                           {totalNetProfit >= 0 ? '+' : ''}{netProfitPercent}% 收益率
                         </span>
                       </div>
 
-                      <div className="bg-[#1e222d] p-3 rounded-xl border border-[#2a2e39]">
-                        <p className="text-[11px] text-gray-400 font-medium">胜率 (Win Rate)</p>
-                        <p className="text-base sm:text-lg font-bold font-mono mt-1 text-white">
+                      <div className="bg-gray-50 dark:bg-[#1e222d] p-3 rounded-xl border border-gray-200 dark:border-[#2a2e39]">
+                        <p className="text-[11px] text-gray-500 dark:text-gray-400 font-medium">胜率 (Win Rate)</p>
+                        <p className="text-base sm:text-lg font-bold font-mono mt-1 text-gray-900 dark:text-white">
                           {winRate}%
                         </p>
                         <span className="text-[10px] text-gray-500">
@@ -3711,8 +3877,8 @@ export default function ManualBarReplay({
                         </span>
                       </div>
 
-                      <div className="bg-[#1e222d] p-3 rounded-xl border border-[#2a2e39]">
-                        <p className="text-[11px] text-gray-400 font-medium">利润因子 (Profit Factor)</p>
+                      <div className="bg-gray-50 dark:bg-[#1e222d] p-3 rounded-xl border border-gray-200 dark:border-[#2a2e39]">
+                        <p className="text-[11px] text-gray-500 dark:text-gray-400 font-medium">利润因子 (Profit Factor)</p>
                         <p className="text-base sm:text-lg font-bold font-mono mt-1 text-[#2962ff]">
                           {profitFactor}
                         </p>
@@ -3721,9 +3887,9 @@ export default function ManualBarReplay({
                         </span>
                       </div>
 
-                      <div className="bg-[#1e222d] p-3 rounded-xl border border-[#2a2e39]">
-                        <p className="text-[11px] text-gray-400 font-medium">最大资金回撤 (Drawdown)</p>
-                        <p className="text-base sm:text-lg font-bold font-mono mt-1 text-rose-400">
+                      <div className="bg-gray-50 dark:bg-[#1e222d] p-3 rounded-xl border border-gray-200 dark:border-[#2a2e39]">
+                        <p className="text-[11px] text-gray-500 dark:text-gray-400 font-medium">最大资金回撤 (Drawdown)</p>
+                        <p className="text-base sm:text-lg font-bold font-mono mt-1 text-rose-500 dark:text-rose-400">
                           -${maxDrawdownAmount.toFixed(2)}
                         </p>
                         <span className="text-[10px] text-gray-500">
@@ -3731,9 +3897,9 @@ export default function ManualBarReplay({
                         </span>
                       </div>
 
-                      <div className="bg-[#1e222d] p-3 rounded-xl border border-[#2a2e39]">
-                        <p className="text-[11px] text-gray-400 font-medium">平均单笔盈亏 (Avg Trade)</p>
-                        <p className={`text-base sm:text-lg font-bold font-mono mt-1 ${parseFloat(avgTradeProfit) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                      <div className="bg-gray-50 dark:bg-[#1e222d] p-3 rounded-xl border border-gray-200 dark:border-[#2a2e39]">
+                        <p className="text-[11px] text-gray-500 dark:text-gray-400 font-medium">平均单笔盈亏 (Avg Trade)</p>
+                        <p className={`text-base sm:text-lg font-bold font-mono mt-1 ${parseFloat(avgTradeProfit) >= 0 ? 'text-emerald-500 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'}`}>
                           {parseFloat(avgTradeProfit) >= 0 ? `+$${avgTradeProfit}` : `-$${Math.abs(parseFloat(avgTradeProfit))}`}
                         </p>
                         <span className="text-[10px] text-gray-500 font-mono">
@@ -3744,28 +3910,28 @@ export default function ManualBarReplay({
 
                     {/* Secondary Metric Grid */}
                     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-                      <div className="bg-[#1e222d]/70 p-2.5 rounded-lg border border-[#2a2e39]">
-                        <p className="text-[10px] text-gray-400">平均盈亏比 (Avg R:R)</p>
+                      <div className="bg-gray-100/70 dark:bg-[#1e222d]/70 p-2.5 rounded-lg border border-gray-200 dark:border-[#2a2e39]">
+                        <p className="text-[10px] text-gray-500 dark:text-gray-400">平均盈亏比 (Avg R:R)</p>
                         <p className="text-sm font-bold font-mono text-[#2962ff]">1:{avgRR}</p>
                       </div>
-                      <div className="bg-[#1e222d]/70 p-2.5 rounded-lg border border-[#2a2e39]">
-                        <p className="text-[10px] text-gray-400">均胜 / 均亏 (Win/Loss)</p>
-                        <p className="text-sm font-bold font-mono text-gray-200">+${avgWin} / -${avgLoss}</p>
+                      <div className="bg-gray-100/70 dark:bg-[#1e222d]/70 p-2.5 rounded-lg border border-gray-200 dark:border-[#2a2e39]">
+                        <p className="text-[10px] text-gray-500 dark:text-gray-400">均胜 / 均亏 (Win/Loss)</p>
+                        <p className="text-sm font-bold font-mono text-gray-800 dark:text-gray-200">+${avgWin} / -${avgLoss}</p>
                       </div>
-                      <div className="bg-[#1e222d]/70 p-2.5 rounded-lg border border-[#2a2e39]">
-                        <p className="text-[10px] text-gray-400">最大单笔盈利 (Max Win)</p>
-                        <p className="text-sm font-bold font-mono text-emerald-400">+${maxWin}</p>
+                      <div className="bg-gray-100/70 dark:bg-[#1e222d]/70 p-2.5 rounded-lg border border-gray-200 dark:border-[#2a2e39]">
+                        <p className="text-[10px] text-gray-500 dark:text-gray-400">最大单笔盈利 (Max Win)</p>
+                        <p className="text-sm font-bold font-mono text-emerald-500 dark:text-emerald-400">+${maxWin}</p>
                       </div>
-                      <div className="bg-[#1e222d]/70 p-2.5 rounded-lg border border-[#2a2e39]">
-                        <p className="text-[10px] text-gray-400">最大单笔亏损 (Max Loss)</p>
-                        <p className="text-sm font-bold font-mono text-rose-400">-${maxLoss}</p>
+                      <div className="bg-gray-100/70 dark:bg-[#1e222d]/70 p-2.5 rounded-lg border border-gray-200 dark:border-[#2a2e39]">
+                        <p className="text-[10px] text-gray-500 dark:text-gray-400">最大单笔亏损 (Max Loss)</p>
+                        <p className="text-sm font-bold font-mono text-rose-500 dark:text-rose-400">-${maxLoss}</p>
                       </div>
-                      <div className="bg-[#1e222d]/70 p-2.5 rounded-lg border border-[#2a2e39]">
-                        <p className="text-[10px] text-gray-400">最长连胜 / 连亏</p>
-                        <p className="text-sm font-bold font-mono text-gray-200">{maxConsecutiveWins} 胜 / {maxConsecutiveLosses} 亏</p>
+                      <div className="bg-gray-100/70 dark:bg-[#1e222d]/70 p-2.5 rounded-lg border border-gray-200 dark:border-[#2a2e39]">
+                        <p className="text-[10px] text-gray-500 dark:text-gray-400">最长连胜 / 连亏</p>
+                        <p className="text-sm font-bold font-mono text-gray-800 dark:text-gray-200">{maxConsecutiveWins} 胜 / {maxConsecutiveLosses} 亏</p>
                       </div>
-                      <div className="bg-[#1e222d]/70 p-2.5 rounded-lg border border-[#2a2e39]">
-                        <p className="text-[10px] text-gray-400">夏普比率 (Sharpe Ratio)</p>
+                      <div className="bg-gray-100/70 dark:bg-[#1e222d]/70 p-2.5 rounded-lg border border-gray-200 dark:border-[#2a2e39]">
+                        <p className="text-[10px] text-gray-500 dark:text-gray-400">夏普比率 (Sharpe Ratio)</p>
                         <p className="text-sm font-bold font-mono text-[#2962ff]">{sharpeRatio}</p>
                       </div>
                     </div>
@@ -3773,7 +3939,7 @@ export default function ManualBarReplay({
                     {/* Equity curve mini preview */}
                     <div className="pt-2">
                       <div className="flex items-center justify-between mb-2">
-                        <h4 className="text-xs font-bold text-gray-300">资金曲线趋势速览</h4>
+                        <h4 className="text-xs font-bold text-gray-700 dark:text-gray-300">资金曲线趋势速览</h4>
                         <button
                           type="button"
                           onClick={() => setStatsTab('curve')}
@@ -3798,12 +3964,12 @@ export default function ManualBarReplay({
                 {/* Tab 3: Trades List */}
                 {statsTab === 'trades' && (
                   <div className="space-y-3">
-                    <div className="flex items-center space-x-1.5 bg-[#1e222d] p-1 rounded-lg border border-[#2a2e39] w-fit">
+                    <div className="flex items-center space-x-1.5 bg-gray-100 dark:bg-[#1e222d] p-1 rounded-lg border border-gray-200 dark:border-[#2a2e39] w-fit">
                       <button
                         type="button"
                         onClick={() => setTradeFilter('all')}
                         className={`px-3 py-1 rounded text-xs font-semibold transition ${
-                          tradeFilter === 'all' ? 'bg-[#2962ff] text-white' : 'text-gray-400 hover:text-white'
+                          tradeFilter === 'all' ? 'bg-[#2962ff] text-white' : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white'
                         }`}
                       >
                         全部交易 ({totalTradesCount})
@@ -3812,7 +3978,7 @@ export default function ManualBarReplay({
                         type="button"
                         onClick={() => setTradeFilter('win')}
                         className={`px-3 py-1 rounded text-xs font-semibold transition ${
-                          tradeFilter === 'win' ? 'bg-[#089981] text-white' : 'text-gray-400 hover:text-white'
+                          tradeFilter === 'win' ? 'bg-[#089981] text-white' : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white'
                         }`}
                       >
                         盈利单 ({winningTrades.length})
@@ -3821,7 +3987,7 @@ export default function ManualBarReplay({
                         type="button"
                         onClick={() => setTradeFilter('loss')}
                         className={`px-3 py-1 rounded text-xs font-semibold transition ${
-                          tradeFilter === 'loss' ? 'bg-[#f23645] text-white' : 'text-gray-400 hover:text-white'
+                          tradeFilter === 'loss' ? 'bg-[#f23645] text-white' : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white'
                         }`}
                       >
                         亏损单 ({losingTrades.length})
@@ -3829,16 +3995,16 @@ export default function ManualBarReplay({
                     </div>
 
                     {filteredTrades.length === 0 ? (
-                      <div className="text-center py-10 bg-[#1e222d] rounded-xl border border-[#2a2e39]">
-                        <Layers className="w-8 h-8 text-gray-500 mx-auto mb-2" />
-                        <p className="text-xs font-semibold text-gray-300">当前筛选暂无交易记录</p>
+                      <div className="text-center py-10 bg-gray-50 dark:bg-[#1e222d] rounded-xl border border-gray-200 dark:border-[#2a2e39]">
+                        <Layers className="w-8 h-8 text-gray-400 dark:text-gray-500 mx-auto mb-2" />
+                        <p className="text-xs font-semibold text-gray-700 dark:text-gray-300">当前筛选暂无交易记录</p>
                         <p className="text-[11px] text-gray-500 mt-0.5">在上方图表放置多空标尺并前进K线模拟交易</p>
                       </div>
                     ) : (
-                      <div className="border border-[#2a2e39] rounded-xl overflow-hidden bg-[#1e222d]">
+                      <div className="border border-gray-200 dark:border-[#2a2e39] rounded-xl overflow-hidden bg-white dark:bg-[#1e222d]">
                         <div className="overflow-x-auto max-h-96">
-                          <table className="min-w-full divide-y divide-[#2a2e39] text-xs">
-                            <thead className="bg-[#131722] text-gray-400 font-semibold sticky top-0 z-10">
+                          <table className="min-w-full divide-y divide-gray-200 dark:divide-[#2a2e39] text-xs">
+                            <thead className="bg-gray-100 dark:bg-[#131722] text-gray-600 dark:text-gray-400 font-semibold sticky top-0 z-10">
                               <tr>
                                 <th className="px-3.5 py-2.5 text-left">#</th>
                                 <th className="px-3.5 py-2.5 text-left">方向</th>
@@ -3856,44 +4022,44 @@ export default function ManualBarReplay({
                                 <th className="px-3.5 py-2.5 text-center">操作</th>
                               </tr>
                             </thead>
-                            <tbody className="divide-y divide-[#2a2e39] bg-[#1e222d] font-mono">
+                            <tbody className="divide-y divide-gray-200 dark:divide-[#2a2e39] bg-white dark:bg-[#1e222d] font-mono">
                               {filteredTrades.map((t) => (
                                 <tr 
                                   key={t.id}
                                   onClick={() => setReviewTrade(t)}
-                                  className="hover:bg-[#2a2e39]/50 cursor-pointer transition-colors"
+                                  className="hover:bg-gray-50 dark:hover:bg-[#2a2e39]/50 cursor-pointer transition-colors"
                                 >
                                   <td className="px-3.5 py-2 text-gray-500 font-sans">{t.id}</td>
                                   <td className="px-3.5 py-2">
                                     <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                                      t.direction === 'long' ? 'bg-[#089981]/20 text-emerald-400 border border-emerald-500/30' : 'bg-[#f23645]/20 text-rose-400 border border-rose-500/30'
+                                      t.direction === 'long' ? 'bg-[#089981]/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30' : 'bg-[#f23645]/20 text-rose-600 dark:text-rose-400 border border-rose-500/30'
                                     }`}>
                                       {t.direction === 'long' ? 'BUY 多' : 'SELL 空'}
                                     </span>
                                   </td>
-                                  <td className="px-3.5 py-2 font-bold font-sans text-white">{t.symbol}</td>
-                                  <td className="px-3.5 py-2 text-gray-400 text-[11px]">{t.entryTime}</td>
-                                  <td className="px-3.5 py-2 text-gray-400 text-[11px]">{t.exitTime}</td>
-                                  <td className="px-3.5 py-2 text-right text-gray-300">{t.size}</td>
-                                  <td className="px-3.5 py-2 text-right text-gray-300">{t.entryPrice}</td>
-                                  <td className="px-3.5 py-2 text-right text-gray-300">{t.exitPrice}</td>
-                                  <td className="px-3.5 py-2 text-right text-rose-400">{t.stopLoss || '-'}</td>
-                                  <td className="px-3.5 py-2 text-right text-emerald-400">{t.takeProfit || '-'}</td>
+                                  <td className="px-3.5 py-2 font-bold font-sans text-gray-900 dark:text-white">{t.symbol}</td>
+                                  <td className="px-3.5 py-2 text-gray-500 dark:text-gray-400 text-[11px]">{t.entryTime}</td>
+                                  <td className="px-3.5 py-2 text-gray-500 dark:text-gray-400 text-[11px]">{t.exitTime}</td>
+                                  <td className="px-3.5 py-2 text-right text-gray-700 dark:text-gray-300">{t.size}</td>
+                                  <td className="px-3.5 py-2 text-right text-gray-700 dark:text-gray-300">{t.entryPrice}</td>
+                                  <td className="px-3.5 py-2 text-right text-gray-700 dark:text-gray-300">{t.exitPrice}</td>
+                                  <td className="px-3.5 py-2 text-right text-rose-500 dark:text-rose-400">{t.stopLoss || '-'}</td>
+                                  <td className="px-3.5 py-2 text-right text-emerald-500 dark:text-emerald-400">{t.takeProfit || '-'}</td>
                                   <td className="px-3.5 py-2 text-center text-[#2962ff] font-sans">
                                     {t.rrRatio ? `1:${t.rrRatio.toFixed(1)}` : '-'}
                                   </td>
                                   <td className="px-3.5 py-2 font-sans">
                                     <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
                                       t.exitReason === 'Take Profit' 
-                                        ? 'bg-emerald-500/20 text-emerald-400' 
+                                        ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400' 
                                         : t.exitReason === 'Stop Loss'
-                                        ? 'bg-rose-500/20 text-rose-400'
-                                        : 'bg-[#131722] text-gray-400'
+                                        ? 'bg-rose-500/20 text-rose-600 dark:text-rose-400'
+                                        : 'bg-gray-100 dark:bg-[#131722] text-gray-600 dark:text-gray-400'
                                     }`}>
                                       {t.exitReason === 'Take Profit' ? '止盈触发' : (t.exitReason === 'Stop Loss' ? '止损触发' : '手动平仓')}
                                     </span>
                                   </td>
-                                  <td className={`px-3.5 py-2 text-right font-bold ${t.profit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                  <td className={`px-3.5 py-2 text-right font-bold ${t.profit >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
                                     {t.profit >= 0 ? `+$${t.profit.toFixed(2)}` : `-$${Math.abs(t.profit).toFixed(2)}`}
                                     <span className="text-[10px] ml-1 font-normal opacity-75">
                                       ({t.profit >= 0 ? '+' : ''}{t.pnlPercent}%)
@@ -3922,44 +4088,44 @@ export default function ManualBarReplay({
               /* Paper Trading Account View */
               <div className="space-y-4">
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  <div className="bg-[#1e222d] p-3 rounded-xl border border-[#2a2e39]">
-                    <p className="text-[11px] text-gray-400">账户本金 (Balance)</p>
-                    <p className="text-lg font-bold font-mono text-white mt-1">${accountCapital.toLocaleString()}</p>
+                  <div className="bg-gray-50 dark:bg-[#1e222d] p-3 rounded-xl border border-gray-200 dark:border-[#2a2e39]">
+                    <p className="text-[11px] text-gray-500 dark:text-gray-400">账户本金 (Balance)</p>
+                    <p className="text-lg font-bold font-mono text-gray-900 dark:text-white mt-1">${accountCapital.toLocaleString()}</p>
                   </div>
-                  <div className="bg-[#1e222d] p-3 rounded-xl border border-[#2a2e39]">
-                    <p className="text-[11px] text-gray-400">动态净值 (Equity)</p>
-                    <p className={`text-lg font-bold font-mono mt-1 ${currentEquity >= accountCapital ? 'text-emerald-400' : 'text-rose-400'}`}>
+                  <div className="bg-gray-50 dark:bg-[#1e222d] p-3 rounded-xl border border-gray-200 dark:border-[#2a2e39]">
+                    <p className="text-[11px] text-gray-500 dark:text-gray-400">动态净值 (Equity)</p>
+                    <p className={`text-lg font-bold font-mono mt-1 ${currentEquity >= accountCapital ? 'text-emerald-500 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'}`}>
                       ${currentEquity.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </p>
                   </div>
-                  <div className="bg-[#1e222d] p-3 rounded-xl border border-[#2a2e39]">
-                    <p className="text-[11px] text-gray-400">当前浮动盈亏 (Unrealized PnL)</p>
-                    <p className={`text-lg font-bold font-mono mt-1 ${floatingProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                  <div className="bg-gray-50 dark:bg-[#1e222d] p-3 rounded-xl border border-gray-200 dark:border-[#2a2e39]">
+                    <p className="text-[11px] text-gray-500 dark:text-gray-400">当前浮动盈亏 (Unrealized PnL)</p>
+                    <p className={`text-lg font-bold font-mono mt-1 ${floatingProfit >= 0 ? 'text-emerald-500 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'}`}>
                       {position ? (floatingProfit >= 0 ? `+$${floatingProfit}` : `-$${Math.abs(floatingProfit)}`) : '$0.00'}
                     </p>
                   </div>
-                  <div className="bg-[#1e222d] p-3 rounded-xl border border-[#2a2e39]">
-                    <p className="text-[11px] text-gray-400">已平仓净利润 (Realized PnL)</p>
-                    <p className={`text-lg font-bold font-mono mt-1 ${totalNetProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                  <div className="bg-gray-50 dark:bg-[#1e222d] p-3 rounded-xl border border-gray-200 dark:border-[#2a2e39]">
+                    <p className="text-[11px] text-gray-500 dark:text-gray-400">已平仓净利润 (Realized PnL)</p>
+                    <p className={`text-lg font-bold font-mono mt-1 ${totalNetProfit >= 0 ? 'text-emerald-500 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'}`}>
                       {totalNetProfit >= 0 ? `+$${totalNetProfit.toFixed(2)}` : `-$${Math.abs(totalNetProfit).toFixed(2)}`}
                     </p>
                   </div>
                 </div>
 
                 {position ? (
-                  <div className="bg-[#1e222d] p-4 rounded-xl border border-[#2a2e39] flex flex-wrap items-center justify-between gap-3">
+                  <div className="bg-gray-50 dark:bg-[#1e222d] p-4 rounded-xl border border-gray-200 dark:border-[#2a2e39] flex flex-wrap items-center justify-between gap-3">
                     <div className="flex items-center space-x-3">
                       <span className={`px-2.5 py-1 rounded text-xs font-bold text-white ${
                         position.direction === 'long' ? 'bg-[#089981]' : 'bg-[#f23645]'
                       }`}>
                         {position.direction.toUpperCase()} {position.size} 手
                       </span>
-                      <span className="font-bold text-white">{position.symbol}</span>
-                      <span className="text-gray-400 text-xs">开仓: <b className="text-gray-200">{position.entryPrice}</b></span>
-                      <span className="text-gray-400 text-xs">止损: <b className="text-rose-400">{position.stopLoss || '-'}</b></span>
-                      <span className="text-gray-400 text-xs">止盈: <b className="text-emerald-400">{position.takeProfit || '-'}</b></span>
+                      <span className="font-bold text-gray-900 dark:text-white">{position.symbol}</span>
+                      <span className="text-gray-500 dark:text-gray-400 text-xs">开仓: <b className="text-gray-800 dark:text-gray-200">{position.entryPrice}</b></span>
+                      <span className="text-gray-500 dark:text-gray-400 text-xs">止损: <b className="text-rose-500 dark:text-rose-400">{position.stopLoss || '-'}</b></span>
+                      <span className="text-gray-500 dark:text-gray-400 text-xs">止盈: <b className="text-emerald-500 dark:text-emerald-400">{position.takeProfit || '-'}</b></span>
                       <span className="text-xs font-bold font-mono">
-                        浮盈: <b className={floatingProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
+                        浮盈: <b className={floatingProfit >= 0 ? 'text-emerald-500 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'}>
                           {floatingProfit >= 0 ? `+$${floatingProfit}` : `-$${Math.abs(floatingProfit)}`} ({floatingPct}%)
                         </b>
                       </span>
@@ -3973,7 +4139,7 @@ export default function ManualBarReplay({
                     </button>
                   </div>
                 ) : (
-                  <div className="text-center py-8 bg-[#1e222d] rounded-xl border border-[#2a2e39] text-gray-400 text-xs">
+                  <div className="text-center py-8 bg-gray-50 dark:bg-[#1e222d] rounded-xl border border-gray-200 dark:border-[#2a2e39] text-gray-500 dark:text-gray-400 text-xs">
                     当前无活跃持仓。点击上方买卖按钮或使用多空标尺开立模拟头寸。
                   </div>
                 )}
@@ -3986,17 +4152,17 @@ export default function ManualBarReplay({
       {/* TraderSync 风格单笔交易逐根复盘模态窗 */}
       {reviewTrade && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs">
-          <div className="bg-[#131722] rounded-2xl w-full max-w-4xl border border-[#2a2e39] shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
-            <div className="flex items-center justify-between p-4 border-b border-[#2a2e39] bg-[#1e222d]">
+          <div className="bg-white dark:bg-[#131722] rounded-2xl w-full max-w-4xl border border-gray-200 dark:border-[#2a2e39] shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-[#2a2e39] bg-gray-50 dark:bg-[#1e222d]">
               <div className="flex items-center space-x-2">
                 <div className="p-1.5 bg-[#2962ff]/20 text-[#2962ff] rounded-lg">
                   <Sparkles className="w-4 h-4 text-[#2962ff]" />
                 </div>
                 <div>
-                  <h3 className="font-bold text-white text-sm sm:text-base">
+                  <h3 className="font-bold text-gray-900 dark:text-white text-sm sm:text-base">
                     TraderSync 风格单笔交易逐根动态复盘 #{reviewTrade.id} ({reviewTrade.symbol})
                   </h3>
-                  <p className="text-xs text-gray-400">
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
                     还原开仓前上下文，动态测算持仓期 MAE/MFE 极值与离场落袋效率
                   </p>
                 </div>
@@ -4004,7 +4170,7 @@ export default function ManualBarReplay({
               <button
                 type="button"
                 onClick={() => setReviewTrade(null)}
-                className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-[#2a2e39] transition"
+                className="p-1.5 rounded-lg text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-[#2a2e39] transition"
               >
                 <X className="w-5 h-5" />
               </button>

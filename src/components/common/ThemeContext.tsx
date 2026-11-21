@@ -45,7 +45,14 @@ const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 export const useTheme = () => {
   const context = useContext(ThemeContext);
   if (!context) {
-    throw new Error('useTheme must be used within a ThemeProvider');
+    const isDark = typeof document !== 'undefined' && document.documentElement.classList.contains('dark');
+    return {
+      theme: (isDark ? 'dark' : 'light') as Theme,
+      toggleTheme: () => {},
+      setTheme: () => {},
+      isAuto: false,
+      resetToAuto: () => {},
+    };
   }
   return context;
 };
