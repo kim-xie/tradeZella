@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { 
-  Play, Pause, SkipForward, RotateCcw, TrendingUp, TrendingDown, 
+  Play, Pause, SkipForward, RotateCcw, RotateCw, TrendingUp, TrendingDown, 
   DollarSign, CheckCircle2, AlertCircle, Save, Download, 
   Settings, Eye, BarChart2, ShieldAlert, Award,
   Calculator, Target, Shield, Percent, Sparkles, Sliders, Check,
@@ -2841,398 +2841,416 @@ export default function ManualBarReplay({
           : 'w-full'
       }`}
     >
-      {/* 1. TOP HEADER TOOLBAR (TradingView Pro Navigation) */}
-      <div className="bg-gray-50 dark:bg-[#1e222d] border-b border-gray-200 dark:border-[#2a2e39] px-3 py-2 flex flex-wrap items-center justify-between gap-2.5 z-20 text-xs">
-        {/* Left: Symbol & Timeframe & Indicators */}
-        <div className="flex flex-wrap items-center gap-2">
-          {/* Symbol Selector */}
-          <div className="w-44 sm:w-52">
-            <label className="sr-only">回测标的品种</label>
-            <SymbolSearchSelect
-              value={symbol}
-              onChange={(s) => setSymbol(s)}
-              symbols={internalSymbols.length > 0 ? internalSymbols : (internalPopular.length > 0 ? internalPopular : ['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', '纳斯达克100', 'BTCUSD'])}
-              popularSymbols={internalPopular}
-              placeholder="搜索复盘品种..."
-            />
-          </div>
 
-          {/* Accessible timeframe select for tests and screen readers */}
-          <label htmlFor="manual-replay-timeframe" className="sr-only">K线周期</label>
-          <select
-            id="manual-replay-timeframe"
-            aria-label="K线周期"
-            value={timeframe}
-            onChange={(e) => setTimeframe(e.target.value)}
-            className="sr-only"
-          >
-            <option value="M1">1 分钟 (M1)</option>
-            <option value="M5">5 分钟 (M5)</option>
-            <option value="M15">15 分钟 (M15)</option>
-            <option value="M30">30 分钟 (M30)</option>
-            <option value="H1">1 小时 (H1)</option>
-            <option value="H4">4 小时 (H4)</option>
-            <option value="D1">日线 (D1)</option>
-          </select>
-
-          {/* Indicators Menu Button */}
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => setShowIndicatorMenu(!showIndicatorMenu)}
-              className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition ${
-                (showMa20 || showMa50 || showMa200 || showEma9 || showBollinger || showVolume || showRsi)
-                  ? 'bg-[#2962ff]/20 text-[#2962ff] border border-[#2962ff]/40'
-                  : 'bg-white dark:bg-[#131722] hover:bg-gray-100 dark:hover:bg-[#2a2e39] text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-[#2a2e39]'
-              }`}
-              title="技术指标配置：MA移动均线、EMA、布林带、成交量柱、RSI等"
-            >
-              <Activity className="w-3.5 h-3.5 text-[#2962ff]" />
-              <span>指标</span>
-              <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-[#2962ff] text-white font-mono">
-                {[showMa20, showMa50, showMa200, showEma9, showBollinger, showVolume, showRsi].filter(Boolean).length}
-              </span>
-              <ChevronDown className="w-3 h-3 text-gray-400" />
-            </button>
-
-            {showIndicatorMenu && (
-              <div className="absolute left-0 mt-1 w-56 bg-white dark:bg-[#1e222d] rounded-xl shadow-2xl border border-gray-200 dark:border-[#2a2e39] p-2.5 z-50 text-xs space-y-1.5 text-gray-800 dark:text-gray-200">
-                <div className="font-semibold text-gray-500 dark:text-gray-400 text-[10px] uppercase px-1 pb-1 border-b border-gray-200 dark:border-[#2a2e39]">
-                  技术指标叠加 (TradingView Indicators)
-                </div>
-                <label className="flex items-center justify-between px-1.5 py-1 rounded hover:bg-gray-100 dark:hover:bg-[#2a2e39] cursor-pointer">
-                  <span className="flex items-center space-x-1.5">
-                    <span className="w-2.5 h-2.5 rounded-full bg-amber-500" />
-                    <span>MA(20) 均线</span>
-                  </span>
-                  <input type="checkbox" checked={showMa20} onChange={(e) => setShowMa20(e.target.checked)} className="rounded text-[#2962ff] bg-white dark:bg-[#131722] border-gray-300 dark:border-[#2a2e39]" />
-                </label>
-                <label className="flex items-center justify-between px-1.5 py-1 rounded hover:bg-gray-100 dark:hover:bg-[#2a2e39] cursor-pointer">
-                  <span className="flex items-center space-x-1.5">
-                    <span className="w-2.5 h-2.5 rounded-full bg-cyan-500" />
-                    <span>MA(50) 均线</span>
-                  </span>
-                  <input type="checkbox" checked={showMa50} onChange={(e) => setShowMa50(e.target.checked)} className="rounded text-[#2962ff] bg-white dark:bg-[#131722] border-gray-300 dark:border-[#2a2e39]" />
-                </label>
-                <label className="flex items-center justify-between px-1.5 py-1 rounded hover:bg-gray-100 dark:hover:bg-[#2a2e39] cursor-pointer">
-                  <span className="flex items-center space-x-1.5">
-                    <span className="w-2.5 h-2.5 rounded-full bg-purple-500" />
-                    <span>MA(200) 牛熊线</span>
-                  </span>
-                  <input type="checkbox" checked={showMa200} onChange={(e) => setShowMa200(e.target.checked)} className="rounded text-[#2962ff] bg-white dark:bg-[#131722] border-gray-300 dark:border-[#2a2e39]" />
-                </label>
-                <label className="flex items-center justify-between px-1.5 py-1 rounded hover:bg-gray-100 dark:hover:bg-[#2a2e39] cursor-pointer">
-                  <span className="flex items-center space-x-1.5">
-                    <span className="w-2.5 h-2.5 rounded-full bg-sky-400" />
-                    <span>EMA(9) 快速均线</span>
-                  </span>
-                  <input type="checkbox" checked={showEma9} onChange={(e) => setShowEma9(e.target.checked)} className="rounded text-[#2962ff] bg-white dark:bg-[#131722] border-gray-300 dark:border-[#2a2e39]" />
-                </label>
-                <label className="flex items-center justify-between px-1.5 py-1 rounded hover:bg-gray-100 dark:hover:bg-[#2a2e39] cursor-pointer">
-                  <span className="flex items-center space-x-1.5">
-                    <span className="w-2.5 h-2.5 rounded-full bg-sky-500" />
-                    <span>布林带 Bollinger Bands</span>
-                  </span>
-                  <input type="checkbox" checked={showBollinger} onChange={(e) => setShowBollinger(e.target.checked)} className="rounded text-[#2962ff] bg-white dark:bg-[#131722] border-gray-300 dark:border-[#2a2e39]" />
-                </label>
-                <label className="flex items-center justify-between px-1.5 py-1 rounded hover:bg-gray-100 dark:hover:bg-[#2a2e39] cursor-pointer">
-                  <span className="flex items-center space-x-1.5">
-                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
-                    <span>成交量柱 (Volume)</span>
-                  </span>
-                  <input type="checkbox" checked={showVolume} onChange={(e) => setShowVolume(e.target.checked)} className="rounded text-[#2962ff] bg-white dark:bg-[#131722] border-gray-300 dark:border-[#2a2e39]" />
-                </label>
-                <label className="flex items-center justify-between px-1.5 py-1 rounded hover:bg-gray-100 dark:hover:bg-[#2a2e39] cursor-pointer">
-                  <span className="flex items-center space-x-1.5">
-                    <span className="w-2.5 h-2.5 rounded-full bg-purple-600" />
-                    <span>RSI(14) 强弱指标</span>
-                  </span>
-                  <input type="checkbox" checked={showRsi} onChange={(e) => setShowRsi(e.target.checked)} className="rounded text-[#2962ff] bg-white dark:bg-[#131722] border-gray-300 dark:border-[#2a2e39]" />
-                </label>
-              </div>
-            )}
-          </div>
-
-          <button
-            onClick={loadCandleData}
-            disabled={loading}
-            className="px-2.5 py-1.5 text-xs bg-white dark:bg-[#131722] hover:bg-gray-100 dark:hover:bg-[#2a2e39] text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-[#2a2e39] rounded-lg transition font-medium"
-          >
-            {loading ? '加载中...' : '重新加载'}
-          </button>
-        </div>
-
-        {/* Center: Integrated Top Drawing & Position Sizing Tools (手动画线与多空分析工具栏 - 顶部集成) */}
-        <div className="flex items-center space-x-0.5 bg-gray-100 dark:bg-[#131722] p-1 rounded-lg border border-gray-200 dark:border-[#2a2e39] select-none">
-          <span className="sr-only">手动画线工具:</span>
-          {activeTool === 'pointer' && (
-            <span className="sr-only">(可按住鼠标上下拖拽手柄调价)</span>
-          )}
-
-          {/* Pointer */}
-          <button
-            type="button"
-            onClick={() => setActiveTool('pointer')}
-            className={`px-2 py-1 rounded-md text-xs font-semibold flex items-center space-x-1 transition ${
-              activeTool === 'pointer'
-                ? 'bg-[#2962ff] text-white shadow-xs'
-                : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200 dark:text-gray-400 dark:hover:text-white dark:hover:bg-[#2a2e39]'
-            }`}
-            title="指针模式：在图表上直接按住绿色止盈手柄或红色止损手柄上下拖动，实时修改价格"
-          >
-            <MousePointer className="w-3.5 h-3.5" />
-            <span className="hidden xl:inline text-[11px]">指针</span>
-            <span className="sr-only">指针 / 拖动手柄</span>
-          </button>
-
-          {/* Long Position Tool */}
-          <button
-            type="button"
-            onClick={() => {
-              setActiveTool('long');
-              handleSwitchDirection('long');
-            }}
-            className={`px-2 py-1 rounded-md text-xs font-semibold flex items-center space-x-1 transition ${
-              activeTool === 'long'
-                ? 'bg-[#089981] text-white shadow-xs'
-                : 'text-emerald-500 hover:bg-emerald-500/10 dark:hover:bg-[#2a2e39]'
-            }`}
-            title="点击图表任意K线或价格位置，放置做多画线标尺（支持拖动手柄调整止盈止损）"
-          >
-            <TrendingUp className="w-3.5 h-3.5" />
-            <span className="hidden xl:inline text-[11px]">做多标尺</span>
-            <span className="sr-only">做多画线标尺</span>
-          </button>
-
-          {/* Short Position Tool */}
-          <button
-            type="button"
-            onClick={() => {
-              setActiveTool('short');
-              handleSwitchDirection('short');
-            }}
-            className={`px-2 py-1 rounded-md text-xs font-semibold flex items-center space-x-1 transition ${
-              activeTool === 'short'
-                ? 'bg-[#f23645] text-white shadow-xs'
-                : 'text-rose-500 hover:bg-rose-500/10 dark:hover:bg-[#2a2e39]'
-            }`}
-            title="点击图表任意K线或价格位置，放置做空画线标尺（支持拖动手柄调整止盈止损）"
-          >
-            <TrendingDown className="w-3.5 h-3.5" />
-            <span className="hidden xl:inline text-[11px]">做空标尺</span>
-            <span className="sr-only">做空画线标尺</span>
-          </button>
-
-          <div className="h-4 w-px bg-gray-200 dark:bg-[#2a2e39] mx-0.5" />
-
-          {/* Horizontal Line */}
-          <button
-            type="button"
-            onClick={() => setActiveTool(activeTool === 'horizontal' ? 'pointer' : 'horizontal')}
-            className={`px-2 py-1 rounded-md text-xs font-semibold flex items-center space-x-1 transition ${
-              activeTool === 'horizontal'
-                ? 'bg-amber-500 text-white shadow-xs'
-                : 'text-amber-500 hover:bg-amber-500/10 dark:hover:bg-[#2a2e39]'
-            }`}
-            title="点击图表任意价格位置，画出一条水平支撑/阻力线，支持拖动调整"
-          >
-            <Minus className="w-3.5 h-3.5" />
-            <span className="hidden xl:inline text-[11px]">水平线</span>
-            <span className="sr-only">水平支撑阻力线</span>
-          </button>
-
-          {/* Trendline */}
-          <button
-            type="button"
-            onClick={() => setActiveTool(activeTool === 'trendline' ? 'pointer' : 'trendline')}
-            className={`px-2 py-1 rounded-md text-xs font-semibold flex items-center space-x-1 transition ${
-              activeTool === 'trendline'
-                ? 'bg-sky-500 text-white shadow-xs'
-                : 'text-sky-500 hover:bg-sky-500/10 dark:hover:bg-[#2a2e39]'
-            }`}
-            title="在图表上按住鼠标左键并拖动到终点，绘制倾斜趋势线"
-          >
-            <MoveDiagonal className="w-3.5 h-3.5" />
-            <span className="hidden xl:inline text-[11px]">趋势线</span>
-            <span className="sr-only">趋势线</span>
-          </button>
-
-          {/* Rectangle Zone */}
-          <button
-            type="button"
-            onClick={() => setActiveTool(activeTool === 'rectangle' ? 'pointer' : 'rectangle')}
-            className={`px-2 py-1 rounded-md text-xs font-semibold flex items-center space-x-1 transition ${
-              activeTool === 'rectangle'
-                ? 'bg-purple-600 text-white shadow-xs'
-                : 'text-purple-500 hover:bg-purple-500/10 dark:hover:bg-[#2a2e39]'
-            }`}
-            title="按住鼠标左键并拖动绘制供求区间矩形框，直观标记震荡/突破区间"
-          >
-            <Square className="w-3.5 h-3.5" />
-            <span className="hidden xl:inline text-[11px]">矩形</span>
-            <span className="sr-only">矩形区域</span>
-          </button>
-
-          {/* Scissors Jump */}
-          <button
-            type="button"
-            onClick={() => setActiveTool(activeTool === 'jump' ? 'pointer' : 'jump')}
-            className={`px-2 py-1 rounded-md text-xs font-semibold flex items-center space-x-1 transition ${
-              activeTool === 'jump'
-                ? 'bg-amber-500 text-white shadow-xs'
-                : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200 dark:text-gray-400 dark:hover:text-white dark:hover:bg-[#2a2e39]'
-            }`}
-            title="切片起点：点击图表任意K线，跳转到该K线作为回测起点"
-          >
-            <Scissors className="w-3.5 h-3.5" />
-            <span className="hidden xl:inline text-[11px]">剪刀</span>
-            <span className="sr-only">切片起点</span>
-          </button>
-
-          {/* Clear drawings */}
-          {(horizontalLines.length > 0 || trendLines.length > 0 || rectangles.length > 0) && (
-            <button
-              type="button"
-              onClick={() => {
-                setHorizontalLines([]);
-                setTrendLines([]);
-                setRectangles([]);
-              }}
-              className="p-1 rounded-md text-rose-500 hover:bg-rose-500/20 transition"
-              title="清除所有已画的水平支撑阻力线、趋势线和矩形区域"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-              <span className="sr-only">清空画线</span>
-            </button>
-          )}
-        </div>
-
-        {/* Right: Multi-window split, Order panel toggle, Strategy tester toggle, Fullscreen */}
-        <div className="flex items-center space-x-1.5">
-          {/* Multi-window split */}
-          <div className="flex items-center space-x-0.5 bg-gray-100 dark:bg-[#131722] p-0.5 rounded-lg border border-gray-200 dark:border-[#2a2e39]">
-            {[1, 2, 3, 4].map(num => (
-              <button
-                key={num}
-                type="button"
-                onClick={() => {
-                  setWindowCount(num);
-                  if (activeWindowIndex >= num) setActiveWindowIndex(0);
-                }}
-                className={`px-2 py-1 rounded text-xs font-semibold transition ${
-                  windowCount === num 
-                    ? 'bg-[#2962ff] text-white shadow-xs' 
-                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200 dark:text-gray-400 dark:hover:text-gray-200 dark:hover:bg-[#2a2e39]'
-                }`}
-                title={num === 1 ? '单图模式 (专注单周期复盘)' : `${num} 周期窗口分屏联动回测`}
-              >
-                {num === 1 ? '1 图' : num === 4 ? '4 宫格' : `${num} 联屏`}
-              </button>
-            ))}
-          </div>
-
-          {/* Toggle Order Panel */}
-          <button
-            type="button"
-            onClick={() => setIsOrderPanelOpen(!isOrderPanelOpen)}
-            className={`px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center space-x-1 transition border ${
-              isOrderPanelOpen 
-                ? 'bg-[#2962ff]/20 text-[#2962ff] border-[#2962ff]/40' 
-                : 'bg-white dark:bg-[#131722] text-gray-700 dark:text-gray-300 border-gray-200 dark:border-[#2a2e39] hover:bg-gray-100 dark:hover:bg-[#2a2e39]'
-            }`}
-            title="切换右侧订单与风控计算面板"
-          >
-            <Sliders className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">订单面板</span>
-          </button>
-
-          {/* Toggle Strategy Tester */}
-          <button
-            type="button"
-            onClick={() => setIsBottomDockOpen(!isBottomDockOpen)}
-            className={`px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center space-x-1 transition border ${
-              isBottomDockOpen 
-                ? 'bg-[#2962ff]/20 text-[#2962ff] border-[#2962ff]/40' 
-                : 'bg-white dark:bg-[#131722] text-gray-700 dark:text-gray-300 border-gray-200 dark:border-[#2a2e39] hover:bg-gray-100 dark:hover:bg-[#2a2e39]'
-            }`}
-            title="切换底部战略测试器面板"
-          >
-            <BarChart2 className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">战略测试器</span>
-          </button>
-
-          {/* Fullscreen */}
-          <button
-            type="button"
-            onClick={toggleFullscreen}
-            className="p-1.5 hover:bg-gray-100 dark:hover:bg-[#2a2e39] rounded-md text-gray-600 dark:text-gray-300 transition"
-            title={isFullscreen ? '退出全屏 (Esc)' : '全屏操作 (F11)'}
-          >
-            {isFullscreen ? <Minimize2 className="w-4 h-4 text-[#2962ff]" /> : <Maximize2 className="w-4 h-4 text-[#2962ff]" />}
-          </button>
-        </div>
-      </div>
 
       {/* 2. MAIN WORKSPACE ROW (Full Width Chart + Right Order Panel) */}
       <div className="flex flex-1 overflow-hidden relative min-h-[500px]">
         {/* 2.1 CENTER CHART VIEWPORT (Full Width) */}
         <div className="flex-1 flex flex-col relative overflow-hidden bg-white dark:bg-[#131722]">
-          {/* TradingView OHLC Status Bar with Integrated Quick Order Console */}
-          <div className="bg-white/95 dark:bg-[#1e222d]/90 backdrop-blur-sm border-b border-gray-200 dark:border-[#2a2e39] px-3 py-1.5 flex flex-wrap items-center justify-between text-xs font-mono select-none z-10 text-gray-800 dark:text-gray-200">
-            <div className="flex flex-wrap items-center gap-2.5">
-              <span className="font-bold text-gray-800 dark:text-[#d1d4dc] flex items-center space-x-1.5 font-sans">
-                <span className="text-gray-900 dark:text-white font-extrabold">{symbol}</span>
-                <span className="text-[10px] bg-[#2962ff]/10 dark:bg-[#2962ff]/20 text-[#2962ff] px-1.5 py-0.2 rounded border border-[#2962ff]/30 font-mono">{timeframe}</span>
-                <span className="text-gray-400 text-[11px]">TradeZen</span>
-              </span>
+          {/* TradingView Unified Pro Chart Header (品种、指标、画图、信息、下单一体化) */}
+          <div className="bg-white/95 dark:bg-[#1e222d]/90 backdrop-blur-sm border-b border-gray-200 dark:border-[#2a2e39] px-3 py-1.5 flex flex-wrap items-center justify-between gap-2 text-xs select-none z-20 text-gray-800 dark:text-gray-200">
+            {/* Left: Symbol Search, Timeframe, Indicators, Reload, Info */}
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Symbol Selector */}
+              <div className="w-36 sm:w-44">
+                <label className="sr-only">回测标的品种</label>
+                <SymbolSearchSelect
+                  value={symbol}
+                  onChange={(s) => setSymbol(s)}
+                  symbols={internalSymbols.length > 0 ? internalSymbols : (internalPopular.length > 0 ? internalPopular : ['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', '纳斯达克100', 'BTCUSD'])}
+                  popularSymbols={internalPopular}
+                  placeholder="搜索复盘品种..."
+                />
+              </div>
+
+              {/* Accessible timeframe select for tests and screen readers */}
+              <label htmlFor="manual-replay-timeframe" className="sr-only">K线周期</label>
+              <select
+                id="manual-replay-timeframe"
+                aria-label="K线周期"
+                value={timeframe}
+                onChange={(e) => {
+                  setTimeframe(e.target.value);
+                  handleWindowTimeframeChange(0, e.target.value);
+                }}
+                className="sr-only"
+              >
+                <option value="M1">1 分钟 (M1)</option>
+                <option value="M5">5 分钟 (M5)</option>
+                <option value="M15">15 分钟 (M15)</option>
+                <option value="M30">30 分钟 (M30)</option>
+                <option value="H1">1 小时 (H1)</option>
+                <option value="H4">4 小时 (H4)</option>
+                <option value="D1">日线 (D1)</option>
+              </select>
+
+              {/* Visible Timeframe Dropdown */}
+              <select
+                value={timeframe}
+                onChange={(e) => {
+                  setTimeframe(e.target.value);
+                  handleWindowTimeframeChange(0, e.target.value);
+                }}
+                className="text-xs px-2 py-1 border border-gray-200 dark:border-[#2a2e39] rounded-lg bg-white dark:bg-[#131722] text-gray-800 dark:text-gray-200 font-semibold cursor-pointer hover:bg-gray-100 dark:hover:bg-[#2a2e39] transition focus:outline-none focus:border-[#2962ff]"
+                title="切换K线周期"
+              >
+                <option value="M1">1m</option>
+                <option value="M5">5m</option>
+                <option value="M15">15m</option>
+                <option value="M30">30m</option>
+                <option value="H1">1h</option>
+                <option value="H4">4h</option>
+                <option value="D1">D</option>
+              </select>
+
+              {/* Indicators Menu Button */}
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setShowIndicatorMenu(!showIndicatorMenu)}
+                  className={`px-2 py-1 rounded-lg text-xs font-semibold flex items-center space-x-1 transition ${
+                    (showMa20 || showMa50 || showMa200 || showEma9 || showBollinger || showVolume || showRsi)
+                      ? 'bg-[#2962ff]/20 text-[#2962ff] border border-[#2962ff]/40'
+                      : 'bg-white dark:bg-[#131722] hover:bg-gray-100 dark:hover:bg-[#2a2e39] text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-[#2a2e39]'
+                  }`}
+                  title="技术指标配置：MA移动均线、EMA、布林带、成交量柱、RSI等"
+                >
+                  <Activity className="w-3.5 h-3.5 text-[#2962ff]" />
+                  <span>指标</span>
+                  <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-[#2962ff] text-white font-mono">
+                    {[showMa20, showMa50, showMa200, showEma9, showBollinger, showVolume, showRsi].filter(Boolean).length}
+                  </span>
+                  <ChevronDown className="w-3 h-3 text-gray-400" />
+                </button>
+
+                {showIndicatorMenu && (
+                  <div className="absolute left-0 mt-1 w-56 bg-white dark:bg-[#1e222d] rounded-xl shadow-2xl border border-gray-200 dark:border-[#2a2e39] p-2.5 z-50 text-xs space-y-1.5 text-gray-800 dark:text-gray-200">
+                    <div className="font-semibold text-gray-500 dark:text-gray-400 text-[10px] uppercase px-1 pb-1 border-b border-gray-200 dark:border-[#2a2e39]">
+                      技术指标叠加 (TradingView Indicators)
+                    </div>
+                    <label className="flex items-center justify-between px-1.5 py-1 rounded hover:bg-gray-100 dark:hover:bg-[#2a2e39] cursor-pointer">
+                      <span className="flex items-center space-x-1.5">
+                        <span className="w-2.5 h-2.5 rounded-full bg-amber-500" />
+                        <span>MA(20) 均线</span>
+                      </span>
+                      <input type="checkbox" checked={showMa20} onChange={(e) => setShowMa20(e.target.checked)} className="rounded text-[#2962ff] bg-white dark:bg-[#131722] border-gray-300 dark:border-[#2a2e39]" />
+                    </label>
+                    <label className="flex items-center justify-between px-1.5 py-1 rounded hover:bg-gray-100 dark:hover:bg-[#2a2e39] cursor-pointer">
+                      <span className="flex items-center space-x-1.5">
+                        <span className="w-2.5 h-2.5 rounded-full bg-cyan-500" />
+                        <span>MA(50) 均线</span>
+                      </span>
+                      <input type="checkbox" checked={showMa50} onChange={(e) => setShowMa50(e.target.checked)} className="rounded text-[#2962ff] bg-white dark:bg-[#131722] border-gray-300 dark:border-[#2a2e39]" />
+                    </label>
+                    <label className="flex items-center justify-between px-1.5 py-1 rounded hover:bg-gray-100 dark:hover:bg-[#2a2e39] cursor-pointer">
+                      <span className="flex items-center space-x-1.5">
+                        <span className="w-2.5 h-2.5 rounded-full bg-purple-500" />
+                        <span>MA(200) 牛熊线</span>
+                      </span>
+                      <input type="checkbox" checked={showMa200} onChange={(e) => setShowMa200(e.target.checked)} className="rounded text-[#2962ff] bg-white dark:bg-[#131722] border-gray-300 dark:border-[#2a2e39]" />
+                    </label>
+                    <label className="flex items-center justify-between px-1.5 py-1 rounded hover:bg-gray-100 dark:hover:bg-[#2a2e39] cursor-pointer">
+                      <span className="flex items-center space-x-1.5">
+                        <span className="w-2.5 h-2.5 rounded-full bg-sky-400" />
+                        <span>EMA(9) 快速均线</span>
+                      </span>
+                      <input type="checkbox" checked={showEma9} onChange={(e) => setShowEma9(e.target.checked)} className="rounded text-[#2962ff] bg-white dark:bg-[#131722] border-gray-300 dark:border-[#2a2e39]" />
+                    </label>
+                    <label className="flex items-center justify-between px-1.5 py-1 rounded hover:bg-gray-100 dark:hover:bg-[#2a2e39] cursor-pointer">
+                      <span className="flex items-center space-x-1.5">
+                        <span className="w-2.5 h-2.5 rounded-full bg-sky-500" />
+                        <span>布林带 Bollinger Bands</span>
+                      </span>
+                      <input type="checkbox" checked={showBollinger} onChange={(e) => setShowBollinger(e.target.checked)} className="rounded text-[#2962ff] bg-white dark:bg-[#131722] border-gray-300 dark:border-[#2a2e39]" />
+                    </label>
+                    <label className="flex items-center justify-between px-1.5 py-1 rounded hover:bg-gray-100 dark:hover:bg-[#2a2e39] cursor-pointer">
+                      <span className="flex items-center space-x-1.5">
+                        <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
+                        <span>成交量柱 (Volume)</span>
+                      </span>
+                      <input type="checkbox" checked={showVolume} onChange={(e) => setShowVolume(e.target.checked)} className="rounded text-[#2962ff] bg-white dark:bg-[#131722] border-gray-300 dark:border-[#2a2e39]" />
+                    </label>
+                    <label className="flex items-center justify-between px-1.5 py-1 rounded hover:bg-gray-100 dark:hover:bg-[#2a2e39] cursor-pointer">
+                      <span className="flex items-center space-x-1.5">
+                        <span className="w-2.5 h-2.5 rounded-full bg-purple-600" />
+                        <span>RSI(14) 强弱指标</span>
+                      </span>
+                      <input type="checkbox" checked={showRsi} onChange={(e) => setShowRsi(e.target.checked)} className="rounded text-[#2962ff] bg-white dark:bg-[#131722] border-gray-300 dark:border-[#2a2e39]" />
+                    </label>
+                  </div>
+                )}
+              </div>
+
+              {/* Reload Button */}
+              <button
+                type="button"
+                onClick={loadCandleData}
+                disabled={loading}
+                className="p-1 text-xs bg-white dark:bg-[#131722] hover:bg-gray-100 dark:hover:bg-[#2a2e39] text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-[#2a2e39] rounded-lg transition"
+                title="重新加载数据"
+              >
+                <RotateCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-[#2962ff]' : ''}`} />
+              </button>
+
+              <div className="h-4 w-px bg-gray-200 dark:bg-[#2a2e39] hidden sm:block" />
+
+              {/* Candle Time */}
               {displayCandle && (
-                <div className="flex items-center space-x-2 text-[11px]">
-                  <span className="text-gray-500 dark:text-gray-400">时间: <b className="text-gray-800 dark:text-gray-200">{displayCandle.time}</b></span>
-                </div>
+                <span className="text-[11px] font-mono text-gray-500 dark:text-gray-400 hidden lg:inline">
+                  时间: <b className="text-gray-800 dark:text-gray-200">{displayCandle.time}</b>
+                </span>
               )}
             </div>
 
-            {/* Right: Quick Order Execution Console integrated in top chart subheader */}
-            <div className="flex items-center space-x-2">
-              {!position && showTvVisuals && currentCandle && (
-                <div className="flex items-center space-x-1.5 font-sans">
-                  <button
-                    type="button"
-                    onClick={() => openOrder('short')}
-                    className="px-2.5 py-1 bg-[#f23645] hover:bg-rose-600 text-white rounded font-bold text-xs flex items-center space-x-1 leading-tight transition shadow-xs active:scale-95"
-                    title="按市价卖出做空"
-                  >
-                    <span className="text-[9px] uppercase tracking-wider opacity-85">SELL</span>
-                    <span className="font-mono">{currentCandle.close}</span>
-                  </button>
-
-                  <div className="flex items-center px-1.5 py-0.5 bg-gray-100 dark:bg-[#131722] rounded border border-gray-200 dark:border-[#2a2e39] text-xs">
-                    <span className="text-[10px] text-gray-500 dark:text-gray-400 mr-1">手数</span>
-                    <span className="font-mono font-bold text-gray-900 dark:text-white">{activeLots}</span>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => openOrder('long')}
-                    className="px-2.5 py-1 bg-[#089981] hover:bg-emerald-600 text-white rounded font-bold text-xs flex items-center space-x-1 leading-tight transition shadow-xs active:scale-95"
-                    title="按市价买入做多"
-                  >
-                    <span className="text-[9px] uppercase tracking-wider opacity-85">BUY</span>
-                    <span className="font-mono">{currentCandle.close}</span>
-                  </button>
-
-                  <div className="h-4 w-px bg-gray-200 dark:bg-[#2a2e39]" />
-
-                  <button
-                    type="button"
-                    onClick={() => openOrder(orderDirection)}
-                    className="px-3 py-1 bg-[#2962ff] hover:bg-[#1e54e4] text-white rounded text-xs font-bold transition shadow-xs flex items-center space-x-1 active:scale-95"
-                    title="以当前画线位置的止损价、止盈价和计算手数直接下单"
-                  >
-                    <span>以当前画线下单 ({orderDirection === 'long' ? 'BUY 做多' : 'SELL 做空'} {activeLots}手 | 1:{currentRR.toFixed(1)})</span>
-                  </button>
-                </div>
+            {/* Center: Integrated Top Drawing & Position Sizing Tools (手动画线与多空分析工具栏) */}
+            <div className="flex items-center space-x-0.5 bg-gray-100 dark:bg-[#131722] p-1 rounded-lg border border-gray-200 dark:border-[#2a2e39] select-none">
+              <span className="sr-only">手动画线工具:</span>
+              {activeTool === 'pointer' && (
+                <span className="sr-only">(可按住鼠标上下拖拽手柄调价)</span>
               )}
+
+              {/* Pointer */}
+              <button
+                type="button"
+                onClick={() => setActiveTool('pointer')}
+                className={`px-1.5 py-1 rounded-md text-xs font-semibold flex items-center space-x-1 transition ${
+                  activeTool === 'pointer'
+                    ? 'bg-[#2962ff] text-white shadow-xs'
+                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200 dark:text-gray-400 dark:hover:text-white dark:hover:bg-[#2a2e39]'
+                }`}
+                title="指针模式：在图表上直接按住绿色止盈手柄或红色止损手柄上下拖动，实时修改价格"
+              >
+                <MousePointer className="w-3.5 h-3.5" />
+                <span className="hidden xl:inline text-[11px]">指针</span>
+                <span className="sr-only">指针 / 拖动手柄</span>
+              </button>
+
+              {/* Long Position Tool */}
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTool('long');
+                  handleSwitchDirection('long');
+                }}
+                className={`px-1.5 py-1 rounded-md text-xs font-semibold flex items-center space-x-1 transition ${
+                  activeTool === 'long'
+                    ? 'bg-[#089981] text-white shadow-xs'
+                    : 'text-emerald-500 hover:bg-emerald-500/10 dark:hover:bg-[#2a2e39]'
+                }`}
+                title="点击图表任意K线或价格位置，放置做多画线标尺（支持拖动手柄调整止盈止损）"
+              >
+                <TrendingUp className="w-3.5 h-3.5" />
+                <span className="hidden xl:inline text-[11px]">做多标尺</span>
+                <span className="sr-only">做多画线标尺</span>
+              </button>
+
+              {/* Short Position Tool */}
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTool('short');
+                  handleSwitchDirection('short');
+                }}
+                className={`px-1.5 py-1 rounded-md text-xs font-semibold flex items-center space-x-1 transition ${
+                  activeTool === 'short'
+                    ? 'bg-[#f23645] text-white shadow-xs'
+                    : 'text-rose-500 hover:bg-rose-500/10 dark:hover:bg-[#2a2e39]'
+                }`}
+                title="点击图表任意K线或价格位置，放置做空画线标尺（支持拖动手柄调整止盈止损）"
+              >
+                <TrendingDown className="w-3.5 h-3.5" />
+                <span className="hidden xl:inline text-[11px]">做空标尺</span>
+                <span className="sr-only">做空画线标尺</span>
+              </button>
+
+              <div className="h-4 w-px bg-gray-200 dark:bg-[#2a2e39] mx-0.5" />
+
+              {/* Horizontal Line */}
+              <button
+                type="button"
+                onClick={() => setActiveTool(activeTool === 'horizontal' ? 'pointer' : 'horizontal')}
+                className={`px-1.5 py-1 rounded-md text-xs font-semibold flex items-center space-x-1 transition ${
+                  activeTool === 'horizontal'
+                    ? 'bg-amber-500 text-white shadow-xs'
+                    : 'text-amber-500 hover:bg-amber-500/10 dark:hover:bg-[#2a2e39]'
+                }`}
+                title="点击图表任意价格位置，画出一条水平支撑/阻力线，支持拖动调整"
+              >
+                <Minus className="w-3.5 h-3.5" />
+                <span className="hidden xl:inline text-[11px]">水平线</span>
+                <span className="sr-only">水平支撑阻力线</span>
+              </button>
+
+              {/* Trendline */}
+              <button
+                type="button"
+                onClick={() => setActiveTool(activeTool === 'trendline' ? 'pointer' : 'trendline')}
+                className={`px-1.5 py-1 rounded-md text-xs font-semibold flex items-center space-x-1 transition ${
+                  activeTool === 'trendline'
+                    ? 'bg-sky-500 text-white shadow-xs'
+                    : 'text-sky-500 hover:bg-sky-500/10 dark:hover:bg-[#2a2e39]'
+                }`}
+                title="在图表上按住鼠标左键并拖动到终点，绘制倾斜趋势线"
+              >
+                <MoveDiagonal className="w-3.5 h-3.5" />
+                <span className="hidden xl:inline text-[11px]">趋势线</span>
+                <span className="sr-only">趋势线</span>
+              </button>
+
+              {/* Rectangle Zone */}
+              <button
+                type="button"
+                onClick={() => setActiveTool(activeTool === 'rectangle' ? 'pointer' : 'rectangle')}
+                className={`px-1.5 py-1 rounded-md text-xs font-semibold flex items-center space-x-1 transition ${
+                  activeTool === 'rectangle'
+                    ? 'bg-purple-600 text-white shadow-xs'
+                    : 'text-purple-500 hover:bg-purple-500/10 dark:hover:bg-[#2a2e39]'
+                }`}
+                title="按住鼠标左键并拖动绘制供求区间矩形框，直观标记震荡/突破区间"
+              >
+                <Square className="w-3.5 h-3.5" />
+                <span className="hidden xl:inline text-[11px]">矩形</span>
+                <span className="sr-only">矩形区域</span>
+              </button>
+
+              {/* Scissors Jump */}
+              <button
+                type="button"
+                onClick={() => setActiveTool(activeTool === 'jump' ? 'pointer' : 'jump')}
+                className={`px-1.5 py-1 rounded-md text-xs font-semibold flex items-center space-x-1 transition ${
+                  activeTool === 'jump'
+                    ? 'bg-amber-500 text-white shadow-xs'
+                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200 dark:text-gray-400 dark:hover:text-white dark:hover:bg-[#2a2e39]'
+                }`}
+                title="选择切片复盘起点 (点击图表任意K线切入)"
+              >
+                <Scissors className="w-3.5 h-3.5" />
+                <span className="hidden xl:inline text-[11px]">剪刀</span>
+                <span className="sr-only">切片起点</span>
+              </button>
+
+              {/* Clear drawings */}
+              {(horizontalLines.length > 0 || trendLines.length > 0 || rectangles.length > 0) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setHorizontalLines([]);
+                    setTrendLines([]);
+                    setRectangles([]);
+                  }}
+                  className="p-1 rounded-md text-rose-500 hover:bg-rose-500/20 transition"
+                  title="清除所有已画的水平支撑阻力线、趋势线和矩形区域"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span className="sr-only">清空画线</span>
+                </button>
+              )}
+            </div>
+
+            {/* Quick Order Execution Console integrated in top chart subheader */}
+            {!position && showTvVisuals && currentCandle && (
+              <div className="flex items-center space-x-1.5 font-sans">
+                <button
+                  type="button"
+                  onClick={() => openOrder('short')}
+                  className="px-2 py-1 bg-[#f23645] hover:bg-rose-600 text-white rounded font-bold text-xs flex items-center space-x-1 leading-tight transition shadow-xs active:scale-95"
+                  title="按市价卖出做空"
+                >
+                  <span className="text-[9px] uppercase tracking-wider opacity-85">SELL</span>
+                  <span className="font-mono">{currentCandle.close}</span>
+                </button>
+
+                <div className="flex items-center px-1.5 py-0.5 bg-gray-100 dark:bg-[#131722] rounded border border-gray-200 dark:border-[#2a2e39] text-xs">
+                  <span className="text-[10px] text-gray-500 dark:text-gray-400 mr-1">手数</span>
+                  <span className="font-mono font-bold text-gray-900 dark:text-white">{activeLots}</span>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => openOrder('long')}
+                  className="px-2 py-1 bg-[#089981] hover:bg-emerald-600 text-white rounded font-bold text-xs flex items-center space-x-1 leading-tight transition shadow-xs active:scale-95"
+                  title="按市价买入做多"
+                >
+                  <span className="text-[9px] uppercase tracking-wider opacity-85">BUY</span>
+                  <span className="font-mono">{currentCandle.close}</span>
+                </button>
+
+                <div className="h-4 w-px bg-gray-200 dark:bg-[#2a2e39]" />
+
+                <button
+                  type="button"
+                  onClick={() => openOrder(orderDirection)}
+                  className="px-2.5 py-1 bg-[#2962ff] hover:bg-[#1e54e4] text-white rounded text-xs font-bold transition shadow-xs flex items-center space-x-1 active:scale-95"
+                  title="以当前画线位置的止损价、止盈价和计算手数直接下单"
+                >
+                  <span>以当前画线下单 ({orderDirection === 'long' ? 'BUY 做多' : 'SELL 做空'} {activeLots}手 | 1:{currentRR.toFixed(1)})</span>
+                </button>
+              </div>
+            )}
+
+            {/* Right: Multi-window split, Order panel toggle, Strategy tester toggle, Fullscreen */}
+            <div className="flex items-center space-x-1">
+              {/* Multi-window split */}
+              <div className="flex items-center space-x-0.5 bg-gray-100 dark:bg-[#131722] p-0.5 rounded-lg border border-gray-200 dark:border-[#2a2e39]">
+                {[1, 2, 3, 4].map(num => (
+                  <button
+                    key={num}
+                    type="button"
+                    onClick={() => {
+                      setWindowCount(num);
+                      if (activeWindowIndex >= num) setActiveWindowIndex(0);
+                    }}
+                    className={`px-1.5 py-0.5 rounded text-[11px] font-semibold transition ${
+                      windowCount === num 
+                        ? 'bg-[#2962ff] text-white shadow-xs' 
+                        : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200 dark:text-gray-400 dark:hover:text-gray-200 dark:hover:bg-[#2a2e39]'
+                    }`}
+                    title={num === 1 ? '单图模式 (专注单周期复盘)' : `${num} 周期窗口分屏联动回测`}
+                  >
+                    {num === 1 ? '1 图' : num === 4 ? '4 宫格' : `${num} 联屏`}
+                  </button>
+                ))}
+              </div>
+
+              {/* Toggle Order Panel */}
+              <button
+                type="button"
+                onClick={() => setIsOrderPanelOpen(!isOrderPanelOpen)}
+                className={`px-2 py-1 rounded-lg text-xs font-semibold flex items-center space-x-1 transition border ${
+                  isOrderPanelOpen 
+                    ? 'bg-[#2962ff]/20 text-[#2962ff] border-[#2962ff]/40' 
+                    : 'bg-white dark:bg-[#131722] text-gray-700 dark:text-gray-300 border-gray-200 dark:border-[#2a2e39] hover:bg-gray-100 dark:hover:bg-[#2a2e39]'
+                }`}
+                title="切换右侧订单与风控计算面板"
+              >
+                <Sliders className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">订单面板</span>
+              </button>
+
+              {/* Toggle Strategy Tester */}
+              <button
+                type="button"
+                onClick={() => setIsBottomDockOpen(!isBottomDockOpen)}
+                className={`px-2 py-1 rounded-lg text-xs font-semibold flex items-center space-x-1 transition border ${
+                  isBottomDockOpen 
+                    ? 'bg-[#2962ff]/20 text-[#2962ff] border-[#2962ff]/40' 
+                    : 'bg-white dark:bg-[#131722] text-gray-700 dark:text-gray-300 border-gray-200 dark:border-[#2a2e39] hover:bg-gray-100 dark:hover:bg-[#2a2e39]'
+                }`}
+                title="切换底部战略测试器面板"
+              >
+                <BarChart2 className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">战略测试器</span>
+              </button>
+
+              {/* Fullscreen */}
+              <button
+                type="button"
+                onClick={toggleFullscreen}
+                className="p-1 hover:bg-gray-100 dark:hover:bg-[#2a2e39] rounded-md text-gray-600 dark:text-gray-300 transition"
+                title={isFullscreen ? '退出全屏 (Esc)' : '全屏操作 (F11)'}
+              >
+                {isFullscreen ? <Minimize2 className="w-4 h-4 text-[#2962ff]" /> : <Maximize2 className="w-4 h-4 text-[#2962ff]" />}
+              </button>
             </div>
           </div>
 
@@ -3301,21 +3319,7 @@ export default function ManualBarReplay({
             replayBarPosition === 'bottom' 
               ? 'bottom-6 left-1/2 -translate-x-1/2' 
               : 'top-14 left-1/2 -translate-x-1/2'
-          } flex items-center space-x-2 bg-white/95 dark:bg-[#1e222d]/95 backdrop-blur-md px-3.5 py-2 rounded-2xl border border-gray-200/90 dark:border-[#2a2e39]/90 shadow-2xl select-none transition-all duration-200`}>
-            {/* Scissors Jump */}
-            <button
-              onClick={() => setActiveTool(activeTool === 'jump' ? 'pointer' : 'jump')}
-              title="选择切片复盘起点 (点击图表任意K线切入)"
-              className={`p-2 rounded-xl font-medium text-xs flex items-center space-x-1.5 transition ${
-                activeTool === 'jump' 
-                  ? 'bg-amber-500 text-white shadow-sm ring-2 ring-amber-300' 
-                  : 'hover:bg-gray-100 dark:hover:bg-[#2a2e39] text-gray-700 dark:text-gray-300'
-              }`}
-            >
-              <Scissors className="w-4 h-4 text-amber-500" />
-              <span className="hidden sm:inline text-xs font-semibold">剪刀选点</span>
-            </button>
-
+          } flex items-center space-x-2 bg-white/95 dark:bg-[#1e222d]/95 backdrop-blur-md px-3.5 py-2 rounded-2xl border border-gray-200/90 dark:border-[#2a2e39]/90 shadow-2xl select-none transition-all duration-200 whitespace-nowrap`}>
             {/* Reset */}
             <button
               onClick={() => {
@@ -3324,18 +3328,18 @@ export default function ManualBarReplay({
                 setIsPlaying(false);
               }}
               title="重置到起点"
-              className="p-2 hover:bg-gray-100 dark:hover:bg-[#2a2e39] rounded-xl text-gray-700 dark:text-gray-300 transition"
+              className="p-2 hover:bg-gray-100 dark:hover:bg-[#2a2e39] rounded-xl text-gray-700 dark:text-gray-300 transition shrink-0"
             >
               <RotateCcw className="w-4 h-4" />
             </button>
 
-            <div className="h-6 w-px bg-gray-200 dark:bg-[#2a2e39]" />
+            <div className="h-6 w-px bg-gray-200 dark:bg-[#2a2e39] shrink-0" />
 
             {/* Big Circular Play / Pause Button */}
             <button
               onClick={() => setIsPlaying(!isPlaying)}
               title={isPlaying ? '暂停' : '自动播放'}
-              className={`w-9 h-9 rounded-full font-bold text-xs flex items-center justify-center transition shadow-md active:scale-95 ${
+              className={`w-9 h-9 rounded-full font-bold text-xs flex items-center justify-center transition shadow-md active:scale-95 shrink-0 ${
                 isPlaying 
                   ? 'bg-amber-500 text-white hover:bg-amber-600 ring-4 ring-amber-300/40' 
                   : 'bg-[#2962ff] text-white hover:bg-[#1e54e4] ring-4 ring-[#2962ff]/30'
@@ -3348,18 +3352,18 @@ export default function ManualBarReplay({
             <button
               onClick={stepForward}
               title="前进一根 K 线 (快捷键: 空格或右方向键)"
-              className="px-3.5 py-1.5 bg-gray-100 hover:bg-gray-200 dark:bg-[#2a2e39] dark:hover:bg-[#363a45] rounded-xl text-xs font-bold text-gray-800 dark:text-gray-100 flex items-center space-x-1.5 transition active:scale-95 shadow-xs"
+              className="px-3.5 py-1.5 bg-gray-100 hover:bg-gray-200 dark:bg-[#2a2e39] dark:hover:bg-[#363a45] rounded-xl text-xs font-bold text-gray-800 dark:text-gray-100 flex items-center space-x-1.5 transition active:scale-95 shadow-xs whitespace-nowrap shrink-0"
             >
-              <span>前进一根</span>
-              <span className="text-[10px] font-mono px-1 py-0.2 bg-white/80 dark:bg-[#131722]/80 text-gray-500 dark:text-gray-400 rounded border border-gray-200 dark:border-[#363a45]">Space</span>
-              <SkipForward className="w-3.5 h-3.5 text-[#2962ff]" />
+              <span className="whitespace-nowrap">前进一根</span>
+              <span className="text-[10px] font-mono px-1 py-0.2 bg-white/80 dark:bg-[#131722]/80 text-gray-500 dark:text-gray-400 rounded border border-gray-200 dark:border-[#363a45] shrink-0">Space</span>
+              <SkipForward className="w-3.5 h-3.5 text-[#2962ff] shrink-0" />
             </button>
 
             {/* Speed Select */}
             <select
               value={playSpeed}
               onChange={(e) => setPlaySpeed(parseInt(e.target.value))}
-              className="text-xs font-semibold px-2 py-1.5 border border-gray-200 dark:border-[#2a2e39] rounded-xl bg-gray-50 dark:bg-[#131722] text-gray-800 dark:text-gray-200 focus:outline-none cursor-pointer"
+              className="text-xs font-semibold px-2 py-1.5 border border-gray-200 dark:border-[#2a2e39] rounded-xl bg-gray-50 dark:bg-[#131722] text-gray-800 dark:text-gray-200 focus:outline-none cursor-pointer whitespace-nowrap shrink-0"
             >
               <option value={2000}>0.5x 慢速</option>
               <option value={1000}>1.0x 正常</option>
@@ -3367,20 +3371,20 @@ export default function ManualBarReplay({
               <option value={200}>5.0x 极速</option>
             </select>
 
-            <div className="h-6 w-px bg-gray-200 dark:bg-[#2a2e39]" />
+            <div className="h-6 w-px bg-gray-200 dark:bg-[#2a2e39] shrink-0" />
 
             {/* Progress Badge */}
-            <div className="text-[11px] font-mono text-gray-600 dark:text-gray-300 flex items-center space-x-1.5 px-1.5">
+            <div className="text-[11px] font-mono text-gray-600 dark:text-gray-300 flex items-center space-x-1.5 px-1.5 whitespace-nowrap shrink-0">
               <span className="text-[#2962ff] font-bold">{currentIndex + 1}</span>
               <span className="text-gray-400">/</span>
-              <span>{allCandles.length} 根</span>
+              <span className="whitespace-nowrap">{allCandles.length} 根</span>
             </div>
 
             {/* Position switch toggle button */}
             <button
               type="button"
               onClick={() => setReplayBarPosition(prev => prev === 'bottom' ? 'top' : 'bottom')}
-              className="p-1.5 hover:bg-gray-100 dark:hover:bg-[#2a2e39] rounded-lg text-gray-400 hover:text-[#2962ff] transition"
+              className="p-1.5 hover:bg-gray-100 dark:hover:bg-[#2a2e39] rounded-lg text-gray-400 hover:text-[#2962ff] transition shrink-0"
               title={replayBarPosition === 'bottom' ? '切换浮岛到上方' : '切换浮岛到下方'}
             >
               {replayBarPosition === 'bottom' ? (
