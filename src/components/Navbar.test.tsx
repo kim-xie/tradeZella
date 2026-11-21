@@ -49,4 +49,9 @@ describe('Navbar', () => {
     fireEvent.click(themeBtn);
     expect(themeBtn).toBeInTheDocument();
   });
+
+  it('does NOT render MT5 直连 live badge', () => {
+    renderNavbar();
+    expect(screen.queryByText(/MT5 直连/)).not.toBeInTheDocument();
+  });
 });

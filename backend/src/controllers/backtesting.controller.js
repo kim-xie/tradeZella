@@ -17,14 +17,13 @@ export class BacktestingController {
 
       // 1. Check if database has synced candles from MQL EA or previous feeds
       const dbCandles = await CandleService.getCandles({ symbol, timeframe, count, start, end });
-      const minRequired = (start && end) ? 20 : 1;
-      if (dbCandles && dbCandles.length >= minRequired) {
+      if (dbCandles && dbCandles.length > 0) {
         return res.status(200).json({
           success: true,
           symbol,
           timeframe,
           contractSize: targetPrice && targetPrice > 100 ? 1.0 : 100000.0,
-          dataSource: 'MQL EA Cloud Sync',
+          dataSource: '同步K线',
           count: dbCandles.length,
           candles: dbCandles,
         });

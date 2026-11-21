@@ -4,21 +4,45 @@ import { convertToShanghaiTime } from '../parsers/universalTradeParser.js';
 export function getSymbolAliases(sym) {
   const raw = String(sym || '').trim();
   const upper = raw.toUpperCase();
-  const set = new Set([upper]);
+  const set = new Set([raw, upper]);
   
   // Chinese name and standard ticker mappings
-  if (/原油|USOIL|WTI|XTI/i.test(raw)) { set.add('USOIL'); set.add('WTI'); set.add('XTIUSD'); }
-  if (/布伦特|UKOIL|BRENT|XBR/i.test(raw)) { set.add('UKOIL'); set.add('BRENT'); set.add('XBRUSD'); }
-  if (/纳斯达克|NAS100|US100|USTEC|NDX/i.test(raw)) { set.add('NAS100'); set.add('US100'); set.add('USTEC'); }
-  if (/道琼斯|US30|DJ30|WS30/i.test(raw)) { set.add('US30'); set.add('DJ30'); }
-  if (/标普|US500|SPX|SP500/i.test(raw)) { set.add('US500'); set.add('SPX500'); }
-  if (/黄金|XAU|GOLD/i.test(raw)) { set.add('XAUUSD'); set.add('GOLD'); }
-  if (/白银|XAG|SILVER/i.test(raw)) { set.add('XAGUSD'); set.add('SILVER'); }
-  if (/比特币|BTC/i.test(raw)) { set.add('BTCUSD'); set.add('BTCUSDT'); }
-  if (/以太坊|ETH/i.test(raw)) { set.add('ETHUSD'); set.add('ETHUSDT'); }
-  if (/德指|DAX|GER40|GER30/i.test(raw)) { set.add('GER40'); set.add('DAX'); set.add('GER30'); }
-  if (/日经|JP225|N225/i.test(raw)) { set.add('JP225'); set.add('N225'); }
-  if (/恒生|HK50|HSI/i.test(raw)) { set.add('HK50'); set.add('HSI'); }
+  if (/原油|USOIL|WTI|XTI|CRUDE|OIL/i.test(raw)) {
+    ['USOIL', 'WTI', 'XTIUSD', 'USOUSD', 'CRUDE', 'OIL', '美国原油 - 现货.', '美国原油', '原油'].forEach(s => set.add(s));
+  }
+  if (/布伦特|UKOIL|BRENT|XBR/i.test(raw)) {
+    ['UKOIL', 'BRENT', 'XBRUSD', 'BRENTCRUDE', '英国原油 - 现货.', '英国原油', '布伦特原油'].forEach(s => set.add(s));
+  }
+  if (/纳斯达克|NAS100|US100|USTEC|NDX|NASDAQ/i.test(raw)) {
+    ['NAS100', 'US100', 'USTEC', 'NDX', 'NASDAQ', '纳斯达克100', '纳斯达克'].forEach(s => set.add(s));
+  }
+  if (/道琼斯|US30|DJ30|WS30|WALLSTREET/i.test(raw)) {
+    ['US30', 'DJ30', 'WS30', 'WALLSTREET', '道琼斯指数', '道琼斯'].forEach(s => set.add(s));
+  }
+  if (/标普|US500|SPX|SP500/i.test(raw)) {
+    ['US500', 'SPX500', 'SP500', 'SPX', '标普500', '标普'].forEach(s => set.add(s));
+  }
+  if (/黄金|XAU|GOLD/i.test(raw)) {
+    ['XAUUSD', 'GOLD', '现货黄金', '黄金'].forEach(s => set.add(s));
+  }
+  if (/白银|XAG|SILVER/i.test(raw)) {
+    ['XAGUSD', 'SILVER', '现货白银', '白银'].forEach(s => set.add(s));
+  }
+  if (/比特币|BTC/i.test(raw)) {
+    ['BTCUSD', 'BTCUSDT', 'BTC', '比特币'].forEach(s => set.add(s));
+  }
+  if (/以太坊|ETH/i.test(raw)) {
+    ['ETHUSD', 'ETHUSDT', 'ETH', '以太坊'].forEach(s => set.add(s));
+  }
+  if (/德指|DAX|GER40|GER30/i.test(raw)) {
+    ['GER40', 'DAX', 'GER30', 'DAX40', '德国40', '德指'].forEach(s => set.add(s));
+  }
+  if (/日经|JP225|N225/i.test(raw)) {
+    ['JP225', 'N225', '日经225', '日经'].forEach(s => set.add(s));
+  }
+  if (/恒生|HK50|HSI/i.test(raw)) {
+    ['HK50', 'HSI', '恒生指数', '恒生'].forEach(s => set.add(s));
+  }
 
   // Strip broker suffixes (.m, .raw, .ecn, .pro, _i, .cash, trailing dot)
   const stripped = upper.replace(/\.(CASH|RAW|ECN|PRO|M|STD|I)$/i, '').replace(/[_.-]$/, '');
@@ -28,6 +52,117 @@ export function getSymbolAliases(sym) {
 }
 
 export class CandleService {
+  /**
+   * Helper to query rows from market_candles
+   */
+  static async queryRows(client, aliases, cleanTf, limitNum, start = null, end = null) {
+    let queryStr;
+    let params;
+
+    if (start && end) {
+      queryStr = `
+        SELECT TO_CHAR(candle_time, 'YYYY-MM-DD HH24:MI') AS time,
+               timestamp,
+               round(open::numeric, 5)::float AS open,
+               round(high::numeric, 5)::float AS high,
+               round(low::numeric, 5)::float AS low,
+               round(close::numeric, 5)::float AS close,
+               volume
+        FROM market_candles
+        WHERE symbol = ANY($1) AND timeframe = $2 AND candle_time >= $3 AND candle_time <= $4
+        ORDER BY candle_time ASC
+        LIMIT $5
+      `;
+      params = [aliases, cleanTf, start, end, limitNum];
+    } else if (start) {
+      queryStr = `
+        SELECT TO_CHAR(candle_time, 'YYYY-MM-DD HH24:MI') AS time,
+               timestamp,
+               round(open::numeric, 5)::float AS open,
+               round(high::numeric, 5)::float AS high,
+               round(low::numeric, 5)::float AS low,
+               round(close::numeric, 5)::float AS close,
+               volume
+        FROM market_candles
+        WHERE symbol = ANY($1) AND timeframe = $2 AND candle_time >= $3
+        ORDER BY candle_time ASC
+        LIMIT $4
+      `;
+      params = [aliases, cleanTf, start, limitNum];
+    } else {
+      queryStr = `
+        SELECT * FROM (
+          SELECT TO_CHAR(candle_time, 'YYYY-MM-DD HH24:MI') AS time,
+                 timestamp,
+                 round(open::numeric, 5)::float AS open,
+                 round(high::numeric, 5)::float AS high,
+                 round(low::numeric, 5)::float AS low,
+                 round(close::numeric, 5)::float AS close,
+                 volume,
+                 candle_time
+          FROM market_candles
+          WHERE symbol = ANY($1) AND timeframe = $2
+          ORDER BY candle_time DESC
+          LIMIT $3
+        ) sub
+        ORDER BY candle_time ASC
+      `;
+      params = [aliases, cleanTf, limitNum];
+    }
+
+    const res = await client.query(queryStr, params);
+    return res.rows || [];
+  }
+
+  /**
+   * Mathematically aggregate base candles (e.g. M5) into higher timeframe candles (e.g. M15, H1, H4, D1)
+   */
+  static aggregateCandles(candles, targetMins) {
+    if (!Array.isArray(candles) || candles.length === 0) return [];
+    const stepSec = targetMins * 60;
+    const groups = new Map();
+
+    for (const c of candles) {
+      const ts = typeof c.timestamp === 'number' && !isNaN(c.timestamp)
+        ? c.timestamp
+        : Math.floor(new Date(c.time).getTime() / 1000);
+      
+      const bucketTs = Math.floor(ts / stepSec) * stepSec;
+      if (!groups.has(bucketTs)) {
+        groups.set(bucketTs, []);
+      }
+      groups.get(bucketTs).push({ ...c, ts });
+    }
+
+    const pad = (n) => String(n).padStart(2, '0');
+    const aggregated = [];
+
+    for (const [bucketTs, barList] of groups.entries()) {
+      barList.sort((a, b) => a.ts - b.ts);
+      const open = barList[0].open;
+      const close = barList[barList.length - 1].close;
+      const high = Math.max(...barList.map(b => b.high));
+      const low = Math.min(...barList.map(b => b.low));
+      const volume = barList.reduce((sum, b) => sum + (parseInt(b.volume) || 0), 0);
+
+      const d = new Date(bucketTs * 1000);
+      const timeStr = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+
+      aggregated.push({
+        time: timeStr,
+        timestamp: bucketTs,
+        open: parseFloat(open.toFixed(5)),
+        high: parseFloat(high.toFixed(5)),
+        low: parseFloat(low.toFixed(5)),
+        close: parseFloat(close.toFixed(5)),
+        volume,
+      });
+    }
+
+    aggregated.sort((a, b) => a.timestamp - b.timestamp);
+    return aggregated;
+  }
+
   /**
    * Bulk upsert candles into database.
    * Auto-converts broker timestamps to Shanghai Time (UTC+8) to match trade records.
@@ -95,7 +230,8 @@ export class CandleService {
 
   /**
    * Retrieve historical candles from database.
-   * Supports symbol alias lookup and exact start/end window retrieval.
+   * Supports symbol alias lookup, exact start/end window retrieval,
+   * and multi-timeframe aggregation from synchronized base candles.
    */
   static async getCandles({ symbol, timeframe, count = 300, start = null, end = null }) {
     const aliases = getSymbolAliases(symbol);
@@ -105,63 +241,41 @@ export class CandleService {
     let client;
     try {
       client = await pool.connect();
-      let queryStr;
-      let params;
 
-      if (start && end) {
-        queryStr = `
-          SELECT TO_CHAR(candle_time, 'YYYY-MM-DD HH24:MI') AS time,
-                 timestamp,
-                 round(open::numeric, 5)::float AS open,
-                 round(high::numeric, 5)::float AS high,
-                 round(low::numeric, 5)::float AS low,
-                 round(close::numeric, 5)::float AS close,
-                 volume
-          FROM market_candles
-          WHERE symbol = ANY($1) AND timeframe = $2 AND candle_time >= $3 AND candle_time <= $4
-          ORDER BY candle_time ASC
-          LIMIT $5
-        `;
-        params = [aliases, cleanTf, start, end, limitNum];
-      } else if (start) {
-        queryStr = `
-          SELECT TO_CHAR(candle_time, 'YYYY-MM-DD HH24:MI') AS time,
-                 timestamp,
-                 round(open::numeric, 5)::float AS open,
-                 round(high::numeric, 5)::float AS high,
-                 round(low::numeric, 5)::float AS low,
-                 round(close::numeric, 5)::float AS close,
-                 volume
-          FROM market_candles
-          WHERE symbol = ANY($1) AND timeframe = $2 AND candle_time >= $3
-          ORDER BY candle_time ASC
-          LIMIT $4
-        `;
-        params = [aliases, cleanTf, start, limitNum];
-      } else {
-        // Fetch the most recent N bars
-        queryStr = `
-          SELECT * FROM (
-            SELECT TO_CHAR(candle_time, 'YYYY-MM-DD HH24:MI') AS time,
-                   timestamp,
-                   round(open::numeric, 5)::float AS open,
-                   round(high::numeric, 5)::float AS high,
-                   round(low::numeric, 5)::float AS low,
-                   round(close::numeric, 5)::float AS close,
-                   volume,
-                   candle_time
-            FROM market_candles
-            WHERE symbol = ANY($1) AND timeframe = $2
-            ORDER BY candle_time DESC
-            LIMIT $3
-          ) sub
-          ORDER BY candle_time ASC
-        `;
-        params = [aliases, cleanTf, limitNum];
+      // 1. First attempt: Direct query for exact timeframe
+      let rows = await this.queryRows(client, aliases, cleanTf, limitNum, start, end);
+
+      // If start && end yielded 0 rows, try without strict date bounds in case of slight offset
+      if (rows.length === 0 && start && end) {
+        rows = await this.queryRows(client, aliases, cleanTf, limitNum, null, null);
       }
 
-      const res = await client.query(queryStr, params);
-      return res.rows;
+      if (rows.length > 0) {
+        return rows;
+      }
+
+      // 2. If exact timeframe has no synced candles, check if a base timeframe (M5 or M1) is available to aggregate
+      const tfMinutesMap = { 'M1': 1, 'M5': 5, 'M15': 15, 'M30': 30, 'H1': 60, 'H4': 240, 'D1': 1440 };
+      const targetMins = tfMinutesMap[cleanTf] || 5;
+
+      const baseCandidates = ['M5', 'M1', 'M15', 'H1'];
+      for (const baseTf of baseCandidates) {
+        if (baseTf === cleanTf) continue;
+        const baseMins = tfMinutesMap[baseTf] || 5;
+        if (targetMins > baseMins) {
+          const mult = Math.ceil(targetMins / baseMins);
+          const baseLimit = Math.min(limitNum * mult, 10000);
+          let baseRows = await this.queryRows(client, aliases, baseTf, baseLimit, start, end);
+          if (baseRows.length === 0 && start && end) {
+            baseRows = await this.queryRows(client, aliases, baseTf, baseLimit, null, null);
+          }
+          if (baseRows.length > 0) {
+            return this.aggregateCandles(baseRows, targetMins);
+          }
+        }
+      }
+
+      return [];
     } catch (err) {
       // If DB is unreachable or table doesn't exist yet, return empty array gracefully
       return [];
