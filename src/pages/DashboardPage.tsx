@@ -331,7 +331,17 @@ export default function DashboardPage() {
     const points: { date: string; value: number; pnl: number; peak: number }[] = [];
 
     let currentPeak = running;
-    points.push({ date: '起点', value: running, pnl: 0, peak: currentPeak });
+
+    let firstDateStr = '起点';
+    if (metrics.sortedCompleted.length > 0) {
+      const firstTrade = metrics.sortedCompleted[0];
+      const tDate = getTradeTradingDate(firstTrade) || getTradeEntryTime(firstTrade);
+      if (tDate && tDate.length >= 10) {
+        firstDateStr = tDate.substring(5, 10);
+      }
+    }
+
+    points.push({ date: firstDateStr, value: running, pnl: 0, peak: currentPeak });
 
     metrics.sortedCompleted.forEach((trade, idx) => {
       const pnl = calculateTradePnL(trade);
@@ -1154,7 +1164,7 @@ export default function DashboardPage() {
                 {(() => {
                   const svgW = Math.max(320, chartDimensions.width);
                   const svgH = Math.max(200, chartDimensions.height);
-                  const padLeft = 60;
+                  const padLeft = 55;
                   const padRight = 20;
                   const padTop = 25;
                   const padBottom = 30;
@@ -1221,12 +1231,18 @@ export default function DashboardPage() {
                                 strokeDasharray="3 3"
                               />
                               <text
-                                x={padLeft - 8}
+                                x={0}
                                 y={y + 3.5}
-                                textAnchor="end"
+                                textAnchor="start"
                                 className="fill-gray-400 dark:fill-gray-500 font-mono text-[10px]"
                               >
-                                {val >= 0 ? '+' : ''}${Math.round(val)}
+                                {equityMode === 'balance'
+                                  ? `$${Math.round(val).toLocaleString()}`
+                                  : Math.round(val) === 0
+                                  ? '$0'
+                                  : Math.round(val) > 0
+                                  ? `+$${Math.round(val)}`
+                                  : `-$${Math.abs(Math.round(val))}`}
                               </text>
                             </g>
                           );

@@ -129,6 +129,10 @@ describe('DashboardPage (TradeZella & TradeSync Style)', () => {
       expect(screen.getByText('净利润 (Net P&L)')).toBeInTheDocument();
     });
 
+    // Equity Curve: starting point shows actual date instead of '起点'
+    expect(screen.queryByText('起点')).not.toBeInTheDocument();
+    expect(screen.getAllByText(today.slice(5, 10)).length).toBeGreaterThan(0);
+
     // Switch to Daily P&L tab
     const dailyPnlTab = screen.getByText(/每日盈亏柱状/);
     fireEvent.click(dailyPnlTab);
@@ -232,6 +236,10 @@ describe('DashboardPage (TradeZella & TradeSync Style)', () => {
     await waitFor(() => {
       expect(screen.getByText('净利润 (Net P&L)')).toBeInTheDocument();
     });
+
+    // Equity Curve: starting point shows actual date instead of '起点'
+    expect(screen.queryByText('起点')).not.toBeInTheDocument();
+    expect(screen.getAllByText(today.slice(5, 10)).length).toBeGreaterThan(0);
 
     // Switch to Daily P&L tab
     const dailyPnlTab = screen.getByText(/每日盈亏柱状/);
