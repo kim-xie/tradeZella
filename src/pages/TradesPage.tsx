@@ -12,6 +12,7 @@ import TradeExecutionChart from '../components/TradeExecutionChart';
 import ErrorBoundary from '../components/common/ErrorBoundary';
 import TradeRatingModal from '../components/TradeRatingModal';
 import TradeRatingAnimationOverlay, { RatingAnimationData } from '../components/TradeRatingAnimationOverlay';
+import FinalTriggerModal from '../components/FinalTriggerModal';
 import { getUserTrades, updateTrade, clearAllTrades, SERVER_BASE_URL as API_BASE_URL } from '../services/api';
 import { useRealtimeTrades, RealtimeTradeEvent } from '../services/realtime';
 import {
@@ -132,9 +133,8 @@ const calculateTradePnL = (trade: Trade): { pnl: number; pnlPercent: number; rr:
 type ExitMethodType = 'takeProfit' | 'stopLoss' | 'manual';
 const SENTIMENT_EMOJI: Record<string, string> = { Nervous: '😰', Uneasy: '😟', Neutral: '😐', Composed: '😌', Zen: '🧘' };
 const calculateExitMethod = (trade: Trade): ExitMethodType | null => {
-  // 1. 优先使用终局触发标记 (例如 MT5 / 券商同步的 [tp] / [sl] 触发)
-  if (trade.final_trigger === 'takeProfit') return 'takeProfit';
-  if (trade.final_trigger === 'stopLoss') return 'stopLoss';
+  // 1. 若未平仓，则无平仓方式
+  if (trade.exitprice == null) return null;
 
   // 2. 兼容历史数据在 notes 中带有 MT5 SL/TP 触发标记的情况
   if (trade.notes) {
@@ -143,14 +143,11 @@ const calculateExitMethod = (trade: Trade): ExitMethodType | null => {
     if (lower.includes('[sl') || lower.includes('stop loss')) return 'stopLoss';
   }
 
-  // 3. 若未平仓，则无平仓方式
-  if (trade.exitprice == null) return null;
-
   const exit = trade.exitprice;
   const sl = trade.stop_loss;
   const tp = trade.take_profit;
 
-  // 4. 根据多空方向与止盈/止损价格推算
+  // 3. 根据多空方向与止盈/止损价格推算
   if (trade.direction === 'long') {
     if (tp != null && exit >= tp) return 'takeProfit';
     if (sl != null && exit <= sl) return 'stopLoss';
@@ -342,12 +339,12 @@ const TradesPage: React.FC = () => {
   const [chartModalTrade, setChartModalTrade] = useState<Trade | null>(null);
   const [ratingModalTrade, setRatingModalTrade] = useState<Trade | null>(null);
   const [ratingAnimationData, setRatingAnimationData] = useState<RatingAnimationData | null>(null);
+  const [finalTriggerModalTrade, setFinalTriggerModalTrade] = useState<Trade | null>(null);
 
   const [lightboxImage, setLightboxImage] = useState<{ urls: string[]; index: number } | null>(null);
   const [searchSymbol, setSearchSymbol] = useState('');
   const [searchEntryDateStart, setSearchEntryDateStart] = useState('');
   const [searchEntryDateEnd, setSearchEntryDateEnd] = useState('');
-  const [searchStatus, setSearchStatus] = useState('');
   const [searchDirection, setSearchDirection] = useState('');
   const [searchResult, setSearchResult] = useState('');
   const [searchExitMethod, setSearchExitMethod] = useState('');
@@ -365,7 +362,7 @@ const TradesPage: React.FC = () => {
   // Prevent background scrolling and hide root scrollbar while modals are open
   useEffect(() => {
     const isAnyModalOpen = Boolean(
-      chartModalTrade || lightboxImage || showClearModal || ratingModalTrade
+      chartModalTrade || lightboxImage || showClearModal || ratingModalTrade || finalTriggerModalTrade
     );
     if (!isAnyModalOpen || typeof document === 'undefined') return;
 
@@ -384,6 +381,7 @@ const TradesPage: React.FC = () => {
     Boolean(lightboxImage),
     Boolean(showClearModal),
     Boolean(ratingModalTrade),
+    Boolean(finalTriggerModalTrade),
   ]);
 
   // Support pressing Escape to close detail drawer
@@ -402,7 +400,7 @@ const TradesPage: React.FC = () => {
     // 1. 自动切换为“全部”视图，重置分页到第 1 页，确保导入的各历史时间段交易立即可见
     setSearchEntryDateStart('');
     setSearchEntryDateEnd('');
-    setQuickFilter('all');
+    setQuickFilter('');
     setCurrentPage(1);
 
     // 2. 重新调用交易明细接口获取最新数据
@@ -513,9 +511,25 @@ const TradesPage: React.FC = () => {
     }
   };
 
+  const handleSaveFinalTrigger = async (tradeId: number, trigger?: 'takeProfit' | 'stopLoss') => {
+    const activeToken = localStorage.getItem('token');
+    setFinalTriggerModalTrade(null);
+
+    // 立即响应式更新本地列表
+    setTrades((prev) =>
+      prev.map((t) => (t.id === tradeId ? { ...t, final_trigger: trigger } : t))
+    );
+
+    if (!activeToken) return;
+    try {
+      await updateTrade(activeToken, tradeId, { finalTrigger: trigger });
+    } catch (err) {
+      console.error('Failed to update trade final trigger:', err);
+    }
+  };
+
   const handleReset = () => {
     setSearchSymbol('');
-    setSearchStatus('');
     setSearchDirection('');
     setSearchResult('');
     setSearchExitMethod('');
@@ -631,15 +645,15 @@ const TradesPage: React.FC = () => {
         if (searchEntryDateStart && tradingDateStr < searchEntryDateStart) return false;
         if (searchEntryDateEnd && tradingDateStr > searchEntryDateEnd) return false;
       }
-      if (searchStatus) {
-        const isCompleted = !!trade.exitprice;
-        if (searchStatus === 'completed' && !isCompleted) return false;
-        if (searchStatus === 'in_progress' && isCompleted) return false;
-      }
       if (searchDirection && trade.direction !== searchDirection) return false;
       if (searchExitMethod) {
         const method = calculateExitMethod(trade);
-        if (!method || method !== searchExitMethod) return false;
+        const ft = trade.final_trigger || (trade as any).finalTrigger;
+        if (searchExitMethod === 'takeProfit' && method !== 'takeProfit') return false;
+        if (searchExitMethod === 'stopLoss' && method !== 'stopLoss') return false;
+        if (searchExitMethod === 'manual' && method !== 'manual') return false;
+        if (searchExitMethod === 'manual_tp' && (method !== 'manual' || ft !== 'takeProfit')) return false;
+        if (searchExitMethod === 'manual_sl' && (method !== 'manual' || ft !== 'stopLoss')) return false;
       }
       if (searchSource) {
         const src = getTradeSource(trade).type;
@@ -654,7 +668,7 @@ const TradesPage: React.FC = () => {
       }
       return true;
     });
-  }, [trades, searchSymbol, searchEntryDateStart, searchEntryDateEnd, searchStatus, searchDirection, searchExitMethod, searchSource, searchResult]);
+  }, [trades, searchSymbol, searchEntryDateStart, searchEntryDateEnd, searchDirection, searchExitMethod, searchSource, searchResult]);
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -681,6 +695,9 @@ const TradesPage: React.FC = () => {
     );
   };
 
+  // 是否选中了“全部”时间筛选（只有选择“全部”才显示“清空全部订单”按钮）
+  const isAllTimeFilter = (quickFilter === '' || quickFilter === 'all') && !searchEntryDateStart && !searchEntryDateEnd;
+
   const availableSymbols = useMemo(() => {
     const symbols = new Set<string>();
     trades.forEach((t) => { if (t.symbol) symbols.add(t.symbol); });
@@ -692,7 +709,7 @@ const TradesPage: React.FC = () => {
   // 当筛选条件、排序或每页条数发生变动时，自动回退到第 1 页
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchSymbol, searchEntryDateStart, searchEntryDateEnd, searchStatus, searchDirection, searchExitMethod, searchSource, searchResult, quickFilter, pageSize, sortField, sortOrder]);
+  }, [searchSymbol, searchEntryDateStart, searchEntryDateEnd, searchDirection, searchExitMethod, searchSource, searchResult, quickFilter, pageSize, sortField, sortOrder]);
 
   // 根据当前排序规则全量排序过滤后的交易订单
   const sortedTrades = useMemo(() => {
@@ -898,19 +915,6 @@ const TradesPage: React.FC = () => {
           </div>
           <div className="min-w-[130px]">
             <Select
-              value={searchStatus}
-              onChange={setSearchStatus}
-              placeholder="全部状态"
-              options={[
-                { value: '', label: '全部状态' },
-                { value: 'completed', label: '已平仓结算' },
-                { value: 'in_progress', label: '持仓中' },
-              ]}
-              className="w-full"
-            />
-          </div>
-          <div className="min-w-[130px]">
-            <Select
               value={searchResult}
               onChange={setSearchResult}
               placeholder="全部盈亏"
@@ -936,7 +940,7 @@ const TradesPage: React.FC = () => {
               className="w-full"
             />
           </div>
-          <div className="min-w-[140px]">
+          <div className="min-w-[150px]">
             <Select
               value={searchExitMethod}
               onChange={setSearchExitMethod}
@@ -945,7 +949,9 @@ const TradesPage: React.FC = () => {
                 { value: '', label: '全部平仓方式' },
                 { value: 'takeProfit', label: '止盈触发' },
                 { value: 'stopLoss', label: '止损触发' },
-                { value: 'manual', label: '手动平仓' },
+                { value: 'manual', label: '全部手动平仓' },
+                { value: 'manual_tp', label: '手动平仓 · 打止盈' },
+                { value: 'manual_sl', label: '手动平仓 · 打止损' },
               ]}
               className="w-full"
             />
@@ -986,7 +992,7 @@ const TradesPage: React.FC = () => {
                   setSearchEntryDateEnd('');
                 }}
                 className={`h-full text-sm px-3 rounded-lg font-medium transition-all flex items-center justify-center ${
-                  quickFilter === '' && !searchEntryDateStart && !searchEntryDateEnd
+                  isAllTimeFilter
                     ? 'bg-white dark:bg-purple-600 text-purple-700 dark:text-white font-semibold shadow-xs'
                     : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
                 }`}
@@ -1080,7 +1086,7 @@ const TradesPage: React.FC = () => {
         onClose={() => setViewingTrade(null)}
       />
 
-      {(trades.length > 0 || sortField !== 'entry_time' || clearSuccessMsg) && (
+      {((isAllTimeFilter && trades.length > 0) || sortField !== 'entry_time' || clearSuccessMsg) && (
         <div className="flex items-center justify-between mb-2.5 px-1">
           <div className="text-xs text-gray-400 dark:text-gray-500 font-mono tracking-tight flex items-center space-x-1.5 flex-wrap">
             {sortField !== 'entry_time' && (
@@ -1103,7 +1109,7 @@ const TradesPage: React.FC = () => {
             )}
           </div>
 
-          {trades.length > 0 && (
+          {isAllTimeFilter && trades.length > 0 && (
             <button
               type="button"
               onClick={() => setShowClearModal(true)}
@@ -1229,7 +1235,6 @@ const TradesPage: React.FC = () => {
                     {renderSortIcon('rating')}
                   </div>
                 </th>
-                <th className="px-3 py-3 whitespace-nowrap">状态</th>
                 <th className="px-3.5 py-3 whitespace-nowrap text-left">操作</th>
               </tr>
             </thead>
@@ -1272,15 +1277,38 @@ const TradesPage: React.FC = () => {
                           {(() => {
                             const method = calculateExitMethod(trade);
                             if (!method) return <span className="text-gray-400">-</span>;
-                            const styles: Record<ExitMethodType, string> = {
+                            const finalTrigger = trade.final_trigger || (trade as any).finalTrigger;
+
+                            if (method === 'manual') {
+                              return (
+                                <button
+                                  type="button"
+                                  onClick={() => setFinalTriggerModalTrade(trade)}
+                                  className="group inline-flex items-center gap-1.5 px-2 py-0.5 text-[11px] font-medium rounded-md bg-amber-50 hover:bg-amber-100/80 text-amber-800 dark:bg-amber-950/40 dark:hover:bg-amber-900/60 dark:text-amber-300 border border-amber-200 dark:border-amber-800/50 transition cursor-pointer"
+                                  title="点击快速标记或修改最终价格打止盈/打止损走势"
+                                >
+                                  <span>手动平仓</span>
+                                  {finalTrigger === 'takeProfit' && (
+                                    <span className="px-1 py-0.2 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
+                                      打止盈
+                                    </span>
+                                  )}
+                                  {finalTrigger === 'stopLoss' && (
+                                    <span className="px-1 py-0.2 rounded text-[10px] font-bold bg-rose-500/20 text-rose-700 dark:text-rose-300 border border-rose-500/30">
+                                      打止损
+                                    </span>
+                                  )}
+                                </button>
+                              );
+                            }
+
+                            const styles: Record<'takeProfit' | 'stopLoss', string> = {
                               takeProfit: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/50',
                               stopLoss: 'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300 border border-rose-200 dark:border-rose-800/50',
-                              manual: 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 border border-amber-200 dark:border-amber-800/50',
                             };
-                            const labels: Record<ExitMethodType, string> = {
+                            const labels: Record<'takeProfit' | 'stopLoss', string> = {
                               takeProfit: '止盈触发',
                               stopLoss: '止损触发',
-                              manual: '手动平仓',
                             };
                             return <span className={`inline-block px-2 py-0.5 text-[11px] font-medium rounded-md ${styles[method]}`}>{labels[method]}</span>;
                           })()}
@@ -1352,16 +1380,6 @@ const TradesPage: React.FC = () => {
                             </div>
                           </button>
                         </td>
-                        <td className="px-3 py-3 text-xs whitespace-nowrap">
-                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-medium ${
-                            isCompleted 
-                              ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60' 
-                              : 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 border border-amber-200 dark:border-amber-800/60'
-                          }`}>
-                            <span className={`w-1.5 h-1.5 rounded-full mr-1.5 ${isCompleted ? 'bg-emerald-500' : 'bg-amber-500 animate-pulse'}`} />
-                            {isCompleted ? '已平仓' : '持仓中'}
-                          </span>
-                        </td>
                         <td className="px-3.5 py-3 text-xs text-left">
                           <div className="flex items-center justify-start space-x-1.5">
                             <button
@@ -1395,7 +1413,7 @@ const TradesPage: React.FC = () => {
                 }
                 return (
                   <tr>
-                    <td colSpan={11} className="text-center py-12 text-gray-500 dark:text-gray-400">
+                    <td colSpan={10} className="text-center py-12 text-gray-500 dark:text-gray-400">
                       {loading ? '正在加载交易数据...' : (
                         <div className="flex flex-col items-center justify-center space-y-2.5">
                           <p className="text-sm font-semibold text-gray-700 dark:text-gray-200">暂无交易记录</p>
@@ -1602,6 +1620,14 @@ const TradesPage: React.FC = () => {
       <TradeRatingAnimationOverlay
         data={ratingAnimationData}
         onClose={() => setRatingAnimationData(null)}
+      />
+
+      {/* Quick Trade Final Trigger Modal */}
+      <FinalTriggerModal
+        isOpen={!!finalTriggerModalTrade}
+        trade={finalTriggerModalTrade}
+        onClose={() => setFinalTriggerModalTrade(null)}
+        onSelect={handleSaveFinalTrigger}
       />
     </div>
   );

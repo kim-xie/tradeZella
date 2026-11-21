@@ -1,4 +1,4 @@
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 import DashboardPage from './DashboardPage';
@@ -95,6 +95,14 @@ describe('DashboardPage (TradeZella & TradeSync Style)', () => {
 
     // Net PnL value: +50 - 20 = +$30.00
     expect(screen.getByText('+$30.00')).toBeInTheDocument();
+
+    // Refresh button is located in the left toolbar next to 交易日统计
+    const refreshBtn = screen.getByTitle('刷新数据');
+    expect(refreshBtn).toBeInTheDocument();
+    await act(async () => {
+      fireEvent.click(refreshBtn);
+    });
+    expect(api.getUserTrades).toHaveBeenCalled();
   });
 
   it('allows switching chart tabs between Equity Curve, Daily P&L and Sessions', async () => {

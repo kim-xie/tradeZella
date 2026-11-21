@@ -1104,35 +1104,33 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, o
                                     </div>
                                 )}
 
-                                {isEditMode && (
-                                    <div>
-                                        <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-2">
-                                            平仓触发方式 (选填)
-                                        </label>
-                                        <div className="flex flex-wrap gap-2.5">
-                                            {[
-                                                { value: 'takeProfit' as const, label: '止盈触发 (TP)' },
-                                                { value: 'stopLoss' as const, label: '止损触发 (SL)' },
-                                            ].map((option) => {
-                                                const selected = formData.finalTrigger === option.value;
-                                                const activeStyles = option.value === 'takeProfit'
-                                                    ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
-                                                    : 'bg-rose-600 text-white border-rose-600 shadow-xs';
-                                                return (
-                                                    <button
-                                                        key={option.value}
-                                                        type="button"
-                                                        onClick={() => setFormData({ ...formData, finalTrigger: selected ? undefined : option.value })}
-                                                        className={`px-4 py-2 text-xs font-medium rounded-xl border transition-all ${selected ? activeStyles : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:border-purple-400'}`}
-                                                    >
-                                                        {option.label}
-                                                    </button>
-                                                );
-                                            })}
-                                        </div>
-                                        <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">标记本单平仓是触发止盈线还是止损线离场（手动平仓可不填）</p>
+                                <div>
+                                    <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-2">
+                                        最终价格走势 (选填)
+                                    </label>
+                                    <div className="flex flex-wrap gap-2.5">
+                                        {[
+                                            { value: 'takeProfit' as const, label: '打止盈 (TP)' },
+                                            { value: 'stopLoss' as const, label: '打止损 (SL)' },
+                                        ].map((option) => {
+                                            const selected = formData.finalTrigger === option.value;
+                                            const activeStyles = option.value === 'takeProfit'
+                                                ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                                                : 'bg-rose-600 text-white border-rose-600 shadow-xs';
+                                            return (
+                                                <button
+                                                    key={option.value}
+                                                    type="button"
+                                                    onClick={() => setFormData({ ...formData, finalTrigger: selected ? undefined : option.value })}
+                                                    className={`px-4 py-2 text-xs font-medium rounded-xl border transition-all ${selected ? activeStyles : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:border-purple-400'}`}
+                                                >
+                                                    {option.label}
+                                                </button>
+                                            );
+                                        })}
                                     </div>
-                                )}
+                                    <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">手动平仓订单可标记后续行情最终价格是打止盈还是打止损离场</p>
+                                </div>
 
                                 <div>
                                     <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-2">

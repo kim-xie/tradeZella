@@ -261,12 +261,30 @@ describe('TradesPage', () => {
       expect(screen.getByText('BTCUSD')).toBeInTheDocument();
     });
 
+    // 默认选中“今日”时不显示“清空全部订单”按钮
+    expect(screen.queryByText('清空全部订单')).not.toBeInTheDocument();
+    expect(screen.queryByTitle('一键清空全部历史交易订单数据')).not.toBeInTheDocument();
+
+    // 点击切换为“全部”视图
+    const allFilterBtn = screen.getByRole('button', { name: '全部' });
+    fireEvent.click(allFilterBtn);
+
+    // 只有选择“全部”才显示“清空全部订单”按钮
     const clearBtn = screen.getByTitle('一键清空全部历史交易订单数据');
     expect(clearBtn).toBeInTheDocument();
     expect(screen.getByText('清空全部订单')).toBeInTheDocument();
 
-    // Click clear button opens confirmation modal
-    fireEvent.click(clearBtn);
+    // 切换为其他筛选条件（例如“今日”）时，按钮自动隐藏
+    const todayFilterBtn = screen.getByRole('button', { name: '今日' });
+    fireEvent.click(todayFilterBtn);
+    expect(screen.queryByText('清空全部订单')).not.toBeInTheDocument();
+
+    // 重新切回“全部”
+    fireEvent.click(allFilterBtn);
+    expect(screen.getByText('清空全部订单')).toBeInTheDocument();
+
+    // 点击清空按钮弹出确认弹窗
+    fireEvent.click(screen.getByTitle('一键清空全部历史交易订单数据'));
     expect(screen.getByText('确定要清空全部历史订单吗？')).toBeInTheDocument();
 
     // Click confirm
@@ -276,7 +294,7 @@ describe('TradesPage', () => {
     await waitFor(() => {
       expect(clearSpy).toHaveBeenCalled();
     });
-  });
+  }, 15000);
 
   it('supports pagination with default 50 items per page and page controls', async () => {
     const pad = (n: number) => String(n).padStart(2, '0');
@@ -772,5 +790,97 @@ describe('TradesPage', () => {
     // Background scrolling is restored
     expect(document.body.style.overflow).toBe('');
     expect(document.documentElement.style.overflow).toBe('');
+  });
+
+  it('removes status column header and status filter dropdown, and displays final price TP/SL trigger for manual trades', async () => {
+    const mockTrades = [
+      {
+        id: 101,
+        symbol: 'BTCUSDT',
+        direction: 'long',
+        size: 0.5,
+        entryprice: 50000,
+        exitprice: 50500,
+        stop_loss: 49000,
+        take_profit: 52000,
+        final_trigger: 'takeProfit',
+        entry_time: '2026-11-20T10:00:00',
+        exit_time: '2026-11-20T11:00:00',
+        createdat: '2026-11-20T10:00:00',
+      },
+      {
+        id: 102,
+        symbol: 'ETHUSDT',
+        direction: 'short',
+        size: 2,
+        entryprice: 3000,
+        exitprice: 3020,
+        stop_loss: 3100,
+        take_profit: 2800,
+        final_trigger: 'stopLoss',
+        entry_time: '2026-11-20T10:00:00',
+        exit_time: '2026-11-20T11:00:00',
+        createdat: '2026-11-20T10:00:00',
+      },
+      {
+        id: 103,
+        symbol: 'SOLUSDT',
+        direction: 'long',
+        size: 10,
+        entryprice: 150,
+        exitprice: 155,
+        stop_loss: 140,
+        take_profit: 170,
+        entry_time: '2026-11-20T10:00:00',
+        exit_time: '2026-11-20T11:00:00',
+        createdat: '2026-11-20T10:00:00',
+      },
+    ];
+    vi.spyOn(api, 'getUserTrades').mockResolvedValue(mockTrades as any);
+    vi.spyOn(api, 'updateTrade').mockResolvedValue({} as any);
+    localStorage.setItem('token', 'test-token');
+
+    render(
+      <MemoryRouter>
+        <TradesPage />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('全部')).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByRole('button', { name: '全部' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('BTCUSDT')).toBeInTheDocument();
+    });
+
+    // 1. Verify "状态" column header is NOT present
+    const tableHeaders = screen.getAllByRole('columnheader').map((th) => th.textContent);
+    expect(tableHeaders).not.toContain('状态');
+
+    // 2. Verify "全部状态" dropdown filter is NOT present
+    expect(screen.queryByPlaceholderText('全部状态')).not.toBeInTheDocument();
+    expect(screen.queryByText('已平仓结算')).not.toBeInTheDocument();
+
+    // 3. Verify manual close trades display final price triggers
+    // Trade 101: manual close + final_trigger = 'takeProfit' -> displays "打止盈"
+    expect(screen.getByText('打止盈')).toBeInTheDocument();
+
+    // Trade 102: manual close + final_trigger = 'stopLoss' -> displays "打止损"
+    expect(screen.getByText('打止损')).toBeInTheDocument();
+
+    // Trade 103: plain manual close
+    expect(screen.getAllByText('手动平仓').length).toBeGreaterThanOrEqual(3);
+
+    // 4. Clicking manual close badge opens FinalTriggerModal
+    const manualBtns = screen.getAllByTitle('点击快速标记或修改最终价格打止盈/打止损走势');
+    expect(manualBtns.length).toBe(3);
+    fireEvent.click(manualBtns[0]);
+
+    expect(screen.getByText('手动平仓 · 标记最终价格走势')).toBeInTheDocument();
+    expect(screen.getByText('最终价格打止盈')).toBeInTheDocument();
+    expect(screen.getByText('最终价格打止损')).toBeInTheDocument();
+    expect(screen.getByText(/仅手动平仓 \(清除标记\)/)).toBeInTheDocument();
   });
 });

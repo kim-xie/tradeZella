@@ -153,9 +153,6 @@ export const calculateTradePnL = (
 };
 
 export const calculateExitMethod = (trade: DetailTrade): ExitMethodType | null => {
-  if (trade.final_trigger === 'takeProfit') return 'takeProfit';
-  if (trade.final_trigger === 'stopLoss') return 'stopLoss';
-
   if (trade.notes) {
     const lower = trade.notes.toLowerCase();
     if (lower.includes('[tp') || lower.includes('take profit')) return 'takeProfit';
@@ -521,8 +518,28 @@ export const TradeDetailDrawer: React.FC<TradeDetailDrawerProps> = ({ trade, onC
               {exitMethod && (
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-gray-500 dark:text-gray-400">平仓方式:</span>
-                  <span className={`inline-block px-2 py-0.5 text-xs font-medium rounded-full ${exitStyles[exitMethod]}`}>
-                    {exitLabels[exitMethod]}
+                  <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 text-xs font-medium rounded-full ${exitStyles[exitMethod]}`}>
+                    {exitMethod === 'manual' ? (
+                      trade.final_trigger === 'takeProfit' ? (
+                        <>
+                          <span>手动平仓</span>
+                          <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-700 dark:text-emerald-300">
+                            打止盈
+                          </span>
+                        </>
+                      ) : trade.final_trigger === 'stopLoss' ? (
+                        <>
+                          <span>手动平仓</span>
+                          <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-rose-500/20 text-rose-700 dark:text-rose-300">
+                            打止损
+                          </span>
+                        </>
+                      ) : (
+                        <span>手动平仓</span>
+                      )
+                    ) : (
+                      <span>{exitLabels[exitMethod]}</span>
+                    )}
                   </span>
                 </div>
               )}

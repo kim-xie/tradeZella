@@ -622,6 +622,16 @@ export default function DashboardPage() {
                 <Clock className="w-3.5 h-3.5" />
                 <span>交易日统计</span>
               </span>
+
+              <button
+                type="button"
+                onClick={fetchDashboardData}
+                title="刷新数据"
+                disabled={loading}
+                className="h-[38px] w-[38px] flex items-center justify-center rounded-xl bg-white dark:bg-[#070a13] text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-white border border-gray-200/80 dark:border-white/10 hover:border-purple-300 dark:hover:border-purple-500/40 shadow-xs transition hover:bg-gray-50 dark:hover:bg-white/5 disabled:opacity-50 shrink-0"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-purple-600' : ''}`} />
+              </button>
             </div>
 
             {/* Right: Actions */}
@@ -633,16 +643,6 @@ export default function DashboardPage() {
                 <Calendar className="w-3.5 h-3.5 text-purple-500" />
                 <span>日历看板</span>
               </Link>
-
-              <button
-                type="button"
-                onClick={fetchDashboardData}
-                title="刷新数据"
-                disabled={loading}
-                className="h-[38px] w-[38px] flex items-center justify-center rounded-xl bg-white dark:bg-[#070a13] text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-white border border-gray-200/80 dark:border-white/10 hover:border-purple-300 dark:hover:border-purple-500/40 shadow-xs transition hover:bg-gray-50 dark:hover:bg-white/5 disabled:opacity-50"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-purple-600' : ''}`} />
-              </button>
 
               <Link
                 to="/trades"
@@ -1083,7 +1083,7 @@ export default function DashboardPage() {
                         equityMode === 'balance' ? 'bg-white dark:bg-purple-600 text-purple-700 dark:text-white shadow-xs font-bold' : 'text-gray-500'
                       }`}
                     >
-                      资金总值 ($10k起)
+                      资金总值
                     </button>
                   </div>
                 </div>
