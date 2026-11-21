@@ -3630,7 +3630,7 @@ export default function ManualBarReplay({
               <div className="flex items-center justify-between pb-1.5 border-b border-gray-200 dark:border-[#2a2e39]">
                 <div className="flex items-center space-x-1.5 font-bold text-gray-900 dark:text-white">
                   <Sliders className="w-4 h-4 text-[#2962ff]" />
-                  <span>订单配置与风控 (Order Ticket)</span>
+                  <span>订单配置与风控</span>
                 </div>
                 <button
                   type="button"
@@ -3655,7 +3655,7 @@ export default function ManualBarReplay({
                     }`}
                   >
                     <TrendingUp className="w-3.5 h-3.5" />
-                    <span>看涨做多 (Long Tool)</span>
+                    <span>看涨做多</span>
                   </button>
 
                   <button
@@ -3668,7 +3668,7 @@ export default function ManualBarReplay({
                     }`}
                   >
                     <TrendingDown className="w-3.5 h-3.5" />
-                    <span>看跌做空 (Short Tool)</span>
+                    <span>看跌做空</span>
                   </button>
                 </div>
               </div>
@@ -3691,7 +3691,7 @@ export default function ManualBarReplay({
                   <div className="flex justify-between items-center text-[11px]">
                     <span className="font-medium text-gray-700 dark:text-gray-300 flex items-center space-x-1">
                       <DollarSign className="w-3 h-3 text-[#2962ff]" />
-                      <span className="truncate">账户资金 (Capital)</span>
+                      <span className="truncate">账户资金</span>
                     </span>
                   </div>
                   <div className="flex items-center space-x-1">
@@ -3725,7 +3725,7 @@ export default function ManualBarReplay({
                   <div className="flex justify-between items-center text-[11px]">
                     <span className="font-medium text-amber-500 dark:text-amber-400 flex items-center space-x-1">
                       <Shield className="w-3 h-3" />
-                      <span className="truncate">单笔风险比例 (Risk %)</span>
+                      <span className="truncate">单笔风险比例</span>
                     </span>
                     <span className="text-amber-500 dark:text-amber-400 font-mono font-bold text-[10px]">
                       ${riskAmount.toFixed(0)}
@@ -3765,7 +3765,7 @@ export default function ManualBarReplay({
                 <div className="flex justify-between items-center text-[11px]">
                   <span className="font-medium text-rose-500 dark:text-rose-400 flex items-center space-x-1">
                     <Target className="w-3.5 h-3.5" />
-                    <span>止损价格 (Stop Loss)</span>
+                    <span>止损价格</span>
                   </span>
                   <span className="text-gray-500 dark:text-gray-400 font-mono text-[10px]">
                     {formatPips(slDistance, entryPrice)}
@@ -3842,7 +3842,7 @@ export default function ManualBarReplay({
                 <div className="flex justify-between items-center text-[11px]">
                   <span className="font-medium text-emerald-500 dark:text-emerald-400 flex items-center space-x-1">
                     <Sparkles className="w-3.5 h-3.5" />
-                    <span>止盈价格 (Take Profit)</span>
+                    <span>止盈价格</span>
                   </span>
                   <span className="text-gray-500 dark:text-gray-400 font-mono text-[10px]">
                     {formatPips(tpDistance, entryPrice)}

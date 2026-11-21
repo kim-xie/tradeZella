@@ -109,13 +109,13 @@ describe('ManualBarReplay - TradingView Position Sizing & Order Placement', () =
     render(<ManualBarReplay initialSymbol="EURUSD" />);
 
     await waitFor(() => {
-      expect(screen.getByText(/看涨做多 \(Long Tool\)/i)).toBeInTheDocument();
-      expect(screen.getByText(/看跌做空 \(Short Tool\)/i)).toBeInTheDocument();
+      expect(screen.getByText('看涨做多')).toBeInTheDocument();
+      expect(screen.getByText('看跌做空')).toBeInTheDocument();
     });
 
     // Check presence of Account Capital and Risk % inputs
-    expect(screen.getByText(/账户资金 \(Capital\)/i)).toBeInTheDocument();
-    expect(screen.getByText(/单笔风险比例 \(Risk %\)/i)).toBeInTheDocument();
+    expect(screen.getByText('账户资金')).toBeInTheDocument();
+    expect(screen.getByText('单笔风险比例')).toBeInTheDocument();
     expect(screen.getByText(/推荐开仓手数:/i)).toBeInTheDocument();
     expect(screen.getByText(/预估止损亏损:/i)).toBeInTheDocument();
     expect(screen.getByText(/预估止盈收益:/i)).toBeInTheDocument();
@@ -125,18 +125,18 @@ describe('ManualBarReplay - TradingView Position Sizing & Order Placement', () =
     render(<ManualBarReplay initialSymbol="EURUSD" />);
 
     await waitFor(() => {
-      expect(screen.getByText(/看跌做空 \(Short Tool\)/i)).toBeInTheDocument();
+      expect(screen.getByText('看跌做空')).toBeInTheDocument();
     });
 
     // Click Short Tool
-    const shortBtn = screen.getByText(/看跌做空 \(Short Tool\)/i);
+    const shortBtn = screen.getByText('看跌做空');
     fireEvent.click(shortBtn);
 
     // Order execution button should now show SELL
     expect(screen.getByRole('button', { name: /看跌做空下单 \(SELL/i })).toBeInTheDocument();
 
     // Click Long Tool back
-    const longBtn = screen.getByText(/看涨做多 \(Long Tool\)/i);
+    const longBtn = screen.getByText('看涨做多');
     fireEvent.click(longBtn);
 
     expect(screen.getByRole('button', { name: /看涨做多下单 \(BUY/i })).toBeInTheDocument();

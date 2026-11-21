@@ -132,10 +132,10 @@ describe('BacktestingPage - Dedicated TradingView K-Line Backtest & Strategy Tes
     });
 
     // Check TradingView order console
-    expect(screen.getByText(/看涨做多 \(Long Tool\)/i)).toBeInTheDocument();
-    expect(screen.getByText(/看跌做空 \(Short Tool\)/i)).toBeInTheDocument();
-    expect(screen.getByText(/账户资金 \(Capital\)/i)).toBeInTheDocument();
-    expect(screen.getByText(/单笔风险比例 \(Risk %\)/i)).toBeInTheDocument();
+    expect(screen.getByText('看涨做多')).toBeInTheDocument();
+    expect(screen.getByText('看跌做空')).toBeInTheDocument();
+    expect(screen.getByText('账户资金')).toBeInTheDocument();
+    expect(screen.getByText('单笔风险比例')).toBeInTheDocument();
   });
 
   it('renders Backtest Result Statistics (Strategy Tester) with Performance Summary, Equity Curve, and Trade List', async () => {
