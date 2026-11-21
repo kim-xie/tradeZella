@@ -376,99 +376,114 @@ export class TradeService {
         return result;
       }
 
-      // 执行批量插入
-      const values = [];
-      const queryParams = [];
-      let paramIndex = 1;
-      const nowUtc = localNowISO();
+      // 分批分块执行批量插入（每批 200 笔，200 * 24 = 4800 个参数，远低于 PostgreSQL 65,535 参数协议上限，杜绝 bind message parameter overflow）
+      const BATCH_SIZE = 200;
+      const allInsertedRows = [];
 
-      for (const trade of tradesToInsert) {
-        const {
-          userId,
-          ticket,
-          symbol,
-          direction,
-          size,
-          entryPrice,
-          exitPrice,
-          notes,
-          tradeDate,
-          tags,
-          sentiment,
-          screenshots,
-          entryTime,
-          exitTime,
-          stopLoss,
-          takeProfit,
-          entryConditions,
-          rating,
-          manualPnl,
-          leverage,
-          session,
-          finalTrigger,
-        } = trade;
+      await client.query('BEGIN');
+      try {
+        for (let i = 0; i < tradesToInsert.length; i += BATCH_SIZE) {
+          const batch = tradesToInsert.slice(i, i + BATCH_SIZE);
+          const values = [];
+          const queryParams = [];
+          let paramIndex = 1;
+          const nowUtc = localNowISO();
 
-        const toNull = (v) => (v === '' || v === undefined ? null : v);
-        const leverageVal = (!leverage || leverage < 1) ? 1 : leverage;
+          for (const trade of batch) {
+            const {
+              userId,
+              ticket,
+              symbol,
+              direction,
+              size,
+              entryPrice,
+              exitPrice,
+              notes,
+              tradeDate,
+              tags,
+              sentiment,
+              screenshots,
+              entryTime,
+              exitTime,
+              stopLoss,
+              takeProfit,
+              entryConditions,
+              rating,
+              manualPnl,
+              leverage,
+              session,
+              finalTrigger,
+            } = trade;
 
-        const rowParams = [];
-        for (let i = 0; i < 24; i++) {
-          rowParams.push('$' + paramIndex++);
+            const toNull = (v) => (v === '' || v === undefined ? null : v);
+            const leverageVal = (!leverage || leverage < 1) ? 1 : leverage;
+
+            const rowParams = [];
+            for (let p = 0; p < 24; p++) {
+              rowParams.push('$' + paramIndex++);
+            }
+            queryParams.push('(' + rowParams.join(', ') + ')');
+
+            values.push(
+              userId,
+              toNull(ticket),
+              symbol,
+              direction,
+              size,
+              entryPrice,
+              toNull(exitPrice),
+              toNull(notes),
+              toNull(tradeDate || exitTime || entryTime),
+              toNull(tags),
+              toNull(sentiment),
+              toNull(screenshots),
+              toNull(entryTime),
+              toNull(exitTime),
+              toNull(stopLoss),
+              toNull(takeProfit),
+              toNull(entryConditions),
+              toNull(rating),
+              toNull(manualPnl),
+              leverageVal,
+              toNull(session),
+              toNull(finalTrigger),
+              nowUtc,
+              nowUtc
+            );
+          }
+
+          const query = `
+            INSERT INTO trades (
+              userId, ticket, symbol, direction, size, entryPrice, exitPrice, notes,
+              trade_date, tags, sentiment, screenshots, entry_time, exit_time,
+              stop_loss, take_profit, entry_conditions, rating, manual_pnl,
+              leverage, session, final_trigger, createdAt, updatedAt
+            )
+            VALUES ${queryParams.join(', ')}
+            ON CONFLICT (userid, ticket) WHERE ticket IS NOT NULL DO NOTHING
+            RETURNING *`;
+
+          const result = await client.query(query, values);
+          if (result.rows && result.rows.length > 0) {
+            allInsertedRows.push(...result.rows);
+          }
         }
-        queryParams.push('(' + rowParams.join(', ') + ')');
-
-        values.push(
-          userId,
-          toNull(ticket),
-          symbol,
-          direction,
-          size,
-          entryPrice,
-          toNull(exitPrice),
-          toNull(notes),
-          toNull(tradeDate || entryTime),
-          toNull(tags),
-          toNull(sentiment),
-          toNull(screenshots),
-          toNull(entryTime),
-          toNull(exitTime),
-          toNull(stopLoss),
-          toNull(takeProfit),
-          toNull(entryConditions),
-          toNull(rating),
-          toNull(manualPnl),
-          leverageVal,
-          toNull(session),
-          toNull(finalTrigger),
-          nowUtc,
-          nowUtc
-        );
+        await client.query('COMMIT');
+      } catch (batchErr) {
+        await client.query('ROLLBACK');
+        throw batchErr;
       }
 
-      const query = `
-        INSERT INTO trades (
-          userId, ticket, symbol, direction, size, entryPrice, exitPrice, notes,
-          trade_date, tags, sentiment, screenshots, entry_time, exit_time,
-          stop_loss, take_profit, entry_conditions, rating, manual_pnl,
-          leverage, session, final_trigger, createdAt, updatedAt
-        )
-        VALUES ${queryParams.join(', ')}
-        ON CONFLICT (userid, ticket) WHERE ticket IS NOT NULL DO NOTHING
-        RETURNING *`;
-
-      const result = await client.query(query, values);
-      const insertedRows = result.rows || [];
-
       // 计算真实插入与跳过的数量
-      const actualInsertedCount = insertedRows.length;
+      const actualInsertedCount = allInsertedRows.length;
       const conflictSkipped = tradesToInsert.length - actualInsertedCount;
       const totalSkipped = skippedCount + conflictSkipped;
 
-      insertedRows.skippedCount = totalSkipped;
-      insertedRows.insertedCount = actualInsertedCount;
-      insertedRows.totalReceived = trades.length;
+      allInsertedRows.skippedCount = totalSkipped;
+      allInsertedRows.insertedCount = actualInsertedCount;
+      allInsertedRows.totalReceived = trades.length;
 
-      return insertedRows;
+      return allInsertedRows;
     } catch (error) {
       console.error('Error creating bulk trades with deduplication:', error);
       throw error;
