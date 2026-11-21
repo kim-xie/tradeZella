@@ -2984,30 +2984,149 @@ export default function ManualBarReplay({
           </button>
         </div>
 
-        {/* Center: Replay status banner & floating island position toggle */}
-        <div className="hidden lg:flex items-center space-x-2 bg-gray-100 dark:bg-[#131722] px-3 py-1.5 rounded-lg border border-gray-200 dark:border-[#2a2e39] text-xs select-none">
-          <span className="flex h-2 w-2 relative">
-            <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${isPlaying ? 'bg-amber-400' : 'bg-emerald-400'}`} />
-            <span className={`relative inline-flex rounded-full h-2 w-2 ${isPlaying ? 'bg-amber-500' : 'bg-emerald-500'}`} />
-          </span>
-          <span className="font-semibold text-gray-700 dark:text-gray-300">
-            {isPlaying ? '自动回放中...' : 'K线逐根复盘'}
-          </span>
-          <span className="text-gray-400 dark:text-gray-600">|</span>
-          <span className="font-mono text-[#2962ff] font-bold">
-            {currentIndex + 1} / {allCandles.length} 根
-          </span>
-          <span className="text-gray-500 dark:text-gray-400 font-mono hidden xl:inline">
-            ({currentCandle?.time || '-'})
-          </span>
+        {/* Center: Integrated Top Drawing & Position Sizing Tools (手动画线与多空分析工具栏 - 顶部集成) */}
+        <div className="flex items-center space-x-0.5 bg-gray-100 dark:bg-[#131722] p-1 rounded-lg border border-gray-200 dark:border-[#2a2e39] select-none">
+          <span className="sr-only">手动画线工具:</span>
+          {activeTool === 'pointer' && (
+            <span className="sr-only">(可按住鼠标上下拖拽手柄调价)</span>
+          )}
+
+          {/* Pointer */}
           <button
             type="button"
-            onClick={() => setReplayBarPosition(prev => prev === 'bottom' ? 'top' : 'bottom')}
-            className="ml-1 text-[11px] px-2 py-0.5 rounded-md bg-white dark:bg-[#1e222d] border border-gray-200 dark:border-[#2a2e39] hover:text-[#2962ff] text-gray-500 dark:text-gray-400 transition"
-            title="切换回放控制浮岛位置 (底部居中 / 顶部悬浮)"
+            onClick={() => setActiveTool('pointer')}
+            className={`px-2 py-1 rounded-md text-xs font-semibold flex items-center space-x-1 transition ${
+              activeTool === 'pointer'
+                ? 'bg-[#2962ff] text-white shadow-xs'
+                : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200 dark:text-gray-400 dark:hover:text-white dark:hover:bg-[#2a2e39]'
+            }`}
+            title="指针模式：在图表上直接按住绿色止盈手柄或红色止损手柄上下拖动，实时修改价格"
           >
-            {replayBarPosition === 'bottom' ? '浮岛: 底部' : '浮岛: 顶部'}
+            <MousePointer className="w-3.5 h-3.5" />
+            <span className="hidden xl:inline text-[11px]">指针</span>
+            <span className="sr-only">指针 / 拖动手柄</span>
           </button>
+
+          {/* Long Position Tool */}
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTool('long');
+              handleSwitchDirection('long');
+            }}
+            className={`px-2 py-1 rounded-md text-xs font-semibold flex items-center space-x-1 transition ${
+              activeTool === 'long'
+                ? 'bg-[#089981] text-white shadow-xs'
+                : 'text-emerald-500 hover:bg-emerald-500/10 dark:hover:bg-[#2a2e39]'
+            }`}
+            title="点击图表任意K线或价格位置，放置做多画线标尺（支持拖动手柄调整止盈止损）"
+          >
+            <TrendingUp className="w-3.5 h-3.5" />
+            <span className="hidden xl:inline text-[11px]">做多标尺</span>
+            <span className="sr-only">做多画线标尺</span>
+          </button>
+
+          {/* Short Position Tool */}
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTool('short');
+              handleSwitchDirection('short');
+            }}
+            className={`px-2 py-1 rounded-md text-xs font-semibold flex items-center space-x-1 transition ${
+              activeTool === 'short'
+                ? 'bg-[#f23645] text-white shadow-xs'
+                : 'text-rose-500 hover:bg-rose-500/10 dark:hover:bg-[#2a2e39]'
+            }`}
+            title="点击图表任意K线或价格位置，放置做空画线标尺（支持拖动手柄调整止盈止损）"
+          >
+            <TrendingDown className="w-3.5 h-3.5" />
+            <span className="hidden xl:inline text-[11px]">做空标尺</span>
+            <span className="sr-only">做空画线标尺</span>
+          </button>
+
+          <div className="h-4 w-px bg-gray-200 dark:bg-[#2a2e39] mx-0.5" />
+
+          {/* Horizontal Line */}
+          <button
+            type="button"
+            onClick={() => setActiveTool(activeTool === 'horizontal' ? 'pointer' : 'horizontal')}
+            className={`px-2 py-1 rounded-md text-xs font-semibold flex items-center space-x-1 transition ${
+              activeTool === 'horizontal'
+                ? 'bg-amber-500 text-white shadow-xs'
+                : 'text-amber-500 hover:bg-amber-500/10 dark:hover:bg-[#2a2e39]'
+            }`}
+            title="点击图表任意价格位置，画出一条水平支撑/阻力线，支持拖动调整"
+          >
+            <Minus className="w-3.5 h-3.5" />
+            <span className="hidden xl:inline text-[11px]">水平线</span>
+            <span className="sr-only">水平支撑阻力线</span>
+          </button>
+
+          {/* Trendline */}
+          <button
+            type="button"
+            onClick={() => setActiveTool(activeTool === 'trendline' ? 'pointer' : 'trendline')}
+            className={`px-2 py-1 rounded-md text-xs font-semibold flex items-center space-x-1 transition ${
+              activeTool === 'trendline'
+                ? 'bg-sky-500 text-white shadow-xs'
+                : 'text-sky-500 hover:bg-sky-500/10 dark:hover:bg-[#2a2e39]'
+            }`}
+            title="在图表上按住鼠标左键并拖动到终点，绘制倾斜趋势线"
+          >
+            <MoveDiagonal className="w-3.5 h-3.5" />
+            <span className="hidden xl:inline text-[11px]">趋势线</span>
+            <span className="sr-only">趋势线</span>
+          </button>
+
+          {/* Rectangle Zone */}
+          <button
+            type="button"
+            onClick={() => setActiveTool(activeTool === 'rectangle' ? 'pointer' : 'rectangle')}
+            className={`px-2 py-1 rounded-md text-xs font-semibold flex items-center space-x-1 transition ${
+              activeTool === 'rectangle'
+                ? 'bg-purple-600 text-white shadow-xs'
+                : 'text-purple-500 hover:bg-purple-500/10 dark:hover:bg-[#2a2e39]'
+            }`}
+            title="按住鼠标左键并拖动绘制供求区间矩形框，直观标记震荡/突破区间"
+          >
+            <Square className="w-3.5 h-3.5" />
+            <span className="hidden xl:inline text-[11px]">矩形</span>
+            <span className="sr-only">矩形区域</span>
+          </button>
+
+          {/* Scissors Jump */}
+          <button
+            type="button"
+            onClick={() => setActiveTool(activeTool === 'jump' ? 'pointer' : 'jump')}
+            className={`px-2 py-1 rounded-md text-xs font-semibold flex items-center space-x-1 transition ${
+              activeTool === 'jump'
+                ? 'bg-amber-500 text-white shadow-xs'
+                : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200 dark:text-gray-400 dark:hover:text-white dark:hover:bg-[#2a2e39]'
+            }`}
+            title="切片起点：点击图表任意K线，跳转到该K线作为回测起点"
+          >
+            <Scissors className="w-3.5 h-3.5" />
+            <span className="hidden xl:inline text-[11px]">剪刀</span>
+            <span className="sr-only">切片起点</span>
+          </button>
+
+          {/* Clear drawings */}
+          {(horizontalLines.length > 0 || trendLines.length > 0 || rectangles.length > 0) && (
+            <button
+              type="button"
+              onClick={() => {
+                setHorizontalLines([]);
+                setTrendLines([]);
+                setRectangles([]);
+              }}
+              className="p-1 rounded-md text-rose-500 hover:bg-rose-500/20 transition"
+              title="清除所有已画的水平支撑阻力线、趋势线和矩形区域"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span className="sr-only">清空画线</span>
+            </button>
+          )}
         </div>
 
         {/* Right: Multi-window split, Order panel toggle, Strategy tester toggle, Fullscreen */}
@@ -3076,154 +3195,11 @@ export default function ManualBarReplay({
         </div>
       </div>
 
-      {/* 2. MAIN WORKSPACE ROW (Left Toolbar + Center Charts + Right Order Panel) */}
+      {/* 2. MAIN WORKSPACE ROW (Full Width Chart + Right Order Panel) */}
       <div className="flex flex-1 overflow-hidden relative min-h-[500px]">
-        {/* 2.1 LEFT VERTICAL DRAWING TOOLBAR (TradingView Toolbelt) */}
-        <div className="w-12 bg-gray-50 dark:bg-[#1e222d] border-r border-gray-200 dark:border-[#2a2e39] flex flex-col items-center py-2 space-y-1.5 shrink-0 z-10 select-none">
-          {/* Accessibility marker for tests */}
-          <span className="sr-only">手动画线工具:</span>
-          {activeTool === 'pointer' && (
-            <span className="sr-only">(可按住鼠标上下拖拽手柄调价)</span>
-          )}
-
-          {/* Pointer */}
-          <button
-            type="button"
-            onClick={() => setActiveTool('pointer')}
-            className={`p-2 rounded-lg transition relative group ${
-              activeTool === 'pointer'
-                ? 'bg-[#2962ff] text-white shadow-sm ring-1 ring-[#2962ff]/40'
-                : 'text-gray-500 hover:text-gray-900 hover:bg-gray-200/80 dark:text-gray-400 dark:hover:text-white dark:hover:bg-[#2a2e39]'
-            }`}
-            title="指针模式：在图表上直接按住绿色止盈手柄或红色止损手柄上下拖动，实时修改价格"
-          >
-            <MousePointer className="w-4 h-4" />
-            <span className="sr-only">指针 / 拖动手柄</span>
-          </button>
-
-          {/* Jump / Scissors */}
-          <button
-            type="button"
-            onClick={() => setActiveTool(activeTool === 'jump' ? 'pointer' : 'jump')}
-            className={`p-2 rounded-lg transition relative group ${
-              activeTool === 'jump'
-                ? 'bg-amber-500 text-white shadow-sm ring-1 ring-amber-300'
-                : 'text-gray-500 hover:text-gray-900 hover:bg-gray-200/80 dark:text-gray-400 dark:hover:text-white dark:hover:bg-[#2a2e39]'
-            }`}
-            title="切片起点：点击图表任意K线，跳转到该K线作为回测起点"
-          >
-            <Scissors className="w-4 h-4" />
-            <span className="sr-only">切片起点</span>
-          </button>
-
-          <div className="w-6 h-px bg-gray-200 dark:bg-[#2a2e39] my-1" />
-
-          {/* Long Position Tool */}
-          <button
-            type="button"
-            onClick={() => {
-              setActiveTool('long');
-              handleSwitchDirection('long');
-            }}
-            className={`p-2 rounded-lg transition relative group ${
-              activeTool === 'long'
-                ? 'bg-[#089981] text-white shadow-sm ring-2 ring-emerald-300'
-                : 'text-emerald-500 dark:text-emerald-400 hover:bg-gray-200/80 dark:hover:bg-[#2a2e39]'
-            }`}
-            title="点击图表任意K线或价格位置，放置做多画线标尺（支持拖动手柄调整止盈止损）"
-          >
-            <TrendingUp className="w-4 h-4" />
-            <span className="sr-only">做多画线标尺</span>
-          </button>
-
-          {/* Short Position Tool */}
-          <button
-            type="button"
-            onClick={() => {
-              setActiveTool('short');
-              handleSwitchDirection('short');
-            }}
-            className={`p-2 rounded-lg transition relative group ${
-              activeTool === 'short'
-                ? 'bg-[#f23645] text-white shadow-sm ring-2 ring-rose-300'
-                : 'text-rose-500 dark:text-rose-400 hover:bg-gray-200/80 dark:hover:bg-[#2a2e39]'
-            }`}
-            title="点击图表任意K线或价格位置，放置做空画线标尺（支持拖动手柄调整止盈止损）"
-          >
-            <TrendingDown className="w-4 h-4" />
-            <span className="sr-only">做空画线标尺</span>
-          </button>
-
-          <div className="w-6 h-px bg-gray-200 dark:bg-[#2a2e39] my-1" />
-
-          {/* Horizontal Line */}
-          <button
-            type="button"
-            onClick={() => setActiveTool(activeTool === 'horizontal' ? 'pointer' : 'horizontal')}
-            className={`p-2 rounded-lg transition relative group ${
-              activeTool === 'horizontal'
-                ? 'bg-amber-500 text-white shadow-sm ring-2 ring-amber-300'
-                : 'text-amber-500 dark:text-amber-400 hover:bg-gray-200/80 dark:hover:bg-[#2a2e39]'
-            }`}
-            title="点击图表任意价格位置，画出一条水平支撑/阻力线，支持拖动调整"
-          >
-            <Minus className="w-4 h-4" />
-            <span className="sr-only">水平支撑阻力线</span>
-          </button>
-
-          {/* Trendline */}
-          <button
-            type="button"
-            onClick={() => setActiveTool(activeTool === 'trendline' ? 'pointer' : 'trendline')}
-            className={`p-2 rounded-lg transition relative group ${
-              activeTool === 'trendline'
-                ? 'bg-sky-500 text-white shadow-sm ring-2 ring-sky-300'
-                : 'text-sky-500 dark:text-sky-400 hover:bg-gray-200/80 dark:hover:bg-[#2a2e39]'
-            }`}
-            title="在图表上按住鼠标左键并拖动到终点，绘制倾斜趋势线"
-          >
-            <MoveDiagonal className="w-4 h-4" />
-            <span className="sr-only">趋势线</span>
-          </button>
-
-          {/* Rectangle Zone */}
-          <button
-            type="button"
-            onClick={() => setActiveTool(activeTool === 'rectangle' ? 'pointer' : 'rectangle')}
-            className={`p-2 rounded-lg transition relative group ${
-              activeTool === 'rectangle'
-                ? 'bg-[#2962ff] text-white shadow-sm ring-2 ring-purple-300'
-                : 'text-purple-500 dark:text-purple-400 hover:bg-gray-200/80 dark:hover:bg-[#2a2e39]'
-            }`}
-            title="按住鼠标左键并拖动绘制供求区间矩形框，直观标记震荡/突破区间"
-          >
-            <Square className="w-4 h-4" />
-            <span className="sr-only">矩形区域</span>
-          </button>
-
-          <div className="w-6 h-px bg-gray-200 dark:bg-[#2a2e39] my-1" />
-
-          {/* Clear drawings */}
-          {(horizontalLines.length > 0 || trendLines.length > 0 || rectangles.length > 0) && (
-            <button
-              type="button"
-              onClick={() => {
-                setHorizontalLines([]);
-                setTrendLines([]);
-                setRectangles([]);
-              }}
-              className="p-2 rounded-lg text-rose-500 hover:bg-rose-500/20 hover:text-rose-600 dark:text-rose-400 dark:hover:text-rose-300 transition"
-              title="清除所有已画的水平支撑阻力线、趋势线和矩形区域"
-            >
-              <Trash2 className="w-4 h-4" />
-              <span className="sr-only">清空画线</span>
-            </button>
-          )}
-        </div>
-
-        {/* 2.2 CENTER CHART VIEWPORT */}
+        {/* 2.1 CENTER CHART VIEWPORT (Full Width) */}
         <div className="flex-1 flex flex-col relative overflow-hidden bg-white dark:bg-[#131722]">
-          {/* TradingView OHLC Status Bar */}
+          {/* TradingView OHLC Status Bar with Integrated Quick Order Console */}
           <div className="bg-white/95 dark:bg-[#1e222d]/90 backdrop-blur-sm border-b border-gray-200 dark:border-[#2a2e39] px-3 py-1.5 flex flex-wrap items-center justify-between text-xs font-mono select-none z-10 text-gray-800 dark:text-gray-200">
             <div className="flex flex-wrap items-center gap-2.5">
               <span className="font-bold text-gray-800 dark:text-[#d1d4dc] flex items-center space-x-1.5 font-sans">
@@ -3246,55 +3222,51 @@ export default function ManualBarReplay({
               )}
             </div>
 
-            <div className="text-[11px] text-gray-500 dark:text-gray-400 flex items-center space-x-2">
-              {hoveredCandle ? (
-                <span className="text-amber-500 dark:text-amber-300 font-sans">● 悬停预览K线</span>
-              ) : (
-                <span className="text-emerald-500 dark:text-emerald-400 font-sans">● 当前最新复盘K线</span>
+            {/* Right: Quick Order Execution Console integrated in top chart subheader */}
+            <div className="flex items-center space-x-2">
+              {!position && showTvVisuals && currentCandle && (
+                <div className="flex items-center space-x-1.5 font-sans">
+                  <button
+                    type="button"
+                    onClick={() => openOrder('short')}
+                    className="px-2.5 py-1 bg-[#f23645] hover:bg-rose-600 text-white rounded font-bold text-xs flex items-center space-x-1 leading-tight transition shadow-xs active:scale-95"
+                    title="按市价卖出做空"
+                  >
+                    <span className="text-[9px] uppercase tracking-wider opacity-85">SELL</span>
+                    <span className="font-mono">{currentCandle.close}</span>
+                  </button>
+
+                  <div className="flex items-center px-1.5 py-0.5 bg-gray-100 dark:bg-[#131722] rounded border border-gray-200 dark:border-[#2a2e39] text-xs">
+                    <span className="text-[10px] text-gray-500 dark:text-gray-400 mr-1">手数</span>
+                    <span className="font-mono font-bold text-gray-900 dark:text-white">{activeLots}</span>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => openOrder('long')}
+                    className="px-2.5 py-1 bg-[#089981] hover:bg-emerald-600 text-white rounded font-bold text-xs flex items-center space-x-1 leading-tight transition shadow-xs active:scale-95"
+                    title="按市价买入做多"
+                  >
+                    <span className="text-[9px] uppercase tracking-wider opacity-85">BUY</span>
+                    <span className="font-mono">{currentCandle.close}</span>
+                  </button>
+
+                  <div className="h-4 w-px bg-gray-200 dark:bg-[#2a2e39]" />
+
+                  <button
+                    type="button"
+                    onClick={() => openOrder(orderDirection)}
+                    className="px-3 py-1 bg-[#2962ff] hover:bg-[#1e54e4] text-white rounded text-xs font-bold transition shadow-xs flex items-center space-x-1 active:scale-95"
+                    title="以当前画线位置的止损价、止盈价和计算手数直接下单"
+                  >
+                    <span>以当前画线下单 ({orderDirection === 'long' ? 'BUY 做多' : 'SELL 做空'} {activeLots}手 | 1:{currentRR.toFixed(1)})</span>
+                  </button>
+                </div>
               )}
             </div>
           </div>
 
-          {/* Floating On-Chart Quick Order Execution */}
-          {!position && showTvVisuals && currentCandle && (
-            <div className="absolute top-10 right-4 z-20 flex items-center space-x-2 bg-white/95 dark:bg-[#1e222d]/95 backdrop-blur-md p-1.5 rounded-lg border border-gray-200 dark:border-[#2a2e39] shadow-xl">
-              <button
-                type="button"
-                onClick={() => openOrder('short')}
-                className="px-2.5 py-1 bg-[#f23645] hover:bg-rose-600 text-white rounded font-bold text-xs flex flex-col items-center leading-tight transition"
-                title="按市价卖出做空"
-              >
-                <span className="text-[9px] uppercase tracking-wider opacity-80">SELL</span>
-                <span className="font-mono">{currentCandle.close}</span>
-              </button>
 
-              <div className="flex flex-col items-center px-1">
-                <span className="text-[9px] text-gray-500 dark:text-gray-400">手数</span>
-                <span className="text-xs font-mono font-bold text-gray-900 dark:text-white">{activeLots}</span>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => openOrder('long')}
-                className="px-2.5 py-1 bg-[#089981] hover:bg-emerald-600 text-white rounded font-bold text-xs flex flex-col items-center leading-tight transition"
-                title="按市价买入做多"
-              >
-                <span className="text-[9px] uppercase tracking-wider opacity-80">BUY</span>
-                <span className="font-mono">{currentCandle.close}</span>
-              </button>
-
-              <div className="h-6 w-px bg-gray-200 dark:bg-[#2a2e39]" />
-
-              <button
-                type="button"
-                onClick={() => openOrder(orderDirection)}
-                className="px-3 py-1.5 bg-[#2962ff] hover:bg-[#1e54e4] text-white rounded-md text-xs font-bold transition shadow-xs flex items-center space-x-1"
-                title="以当前画线位置的止损价、止盈价和计算手数直接下单"
-              >
-                <span>以当前画线下单 ({orderDirection === 'long' ? 'BUY 做多' : 'SELL 做空'} {activeLots}手 | 1:{currentRR.toFixed(1)})</span>
-              </button>
-            </div>
-          )}
 
           {/* Active Position Floating Strip */}
           {position && currentCandle && (
