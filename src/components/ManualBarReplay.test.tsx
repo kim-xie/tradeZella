@@ -186,9 +186,6 @@ describe('ManualBarReplay - TradingView Position Sizing & Order Placement', () =
     expect(screen.getByRole('button', { name: /水平支撑阻力线/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /趋势线/i })).toBeInTheDocument();
 
-    // Check floating order execution button on chart
-    expect(screen.getByRole('button', { name: /以当前画线下单/i })).toBeInTheDocument();
-
     // Switch to Horizontal Line Tool
     const hLineBtn = screen.getByRole('button', { name: /水平支撑阻力线/i });
     fireEvent.click(hLineBtn);

@@ -108,7 +108,7 @@ describe('BacktestingPage - Dedicated TradingView K-Line Backtest & Strategy Tes
     render(<BacktestingPage />);
 
     await waitFor(() => {
-      expect(screen.getByTitle(/选择切片复盘起点/i)).toBeInTheDocument();
+      expect(screen.getByTitle(/前进一根 K 线/i)).toBeInTheDocument();
     });
 
     // 1. Redundant Page Title & MT5 Banner are removed for clean immersive charting
@@ -127,7 +127,6 @@ describe('BacktestingPage - Dedicated TradingView K-Line Backtest & Strategy Tes
 
     // Check Replay player controls
     await waitFor(() => {
-      expect(screen.getByTitle(/选择切片复盘起点/i)).toBeInTheDocument();
       expect(screen.getByTitle(/前进一根 K 线/i)).toBeInTheDocument();
       expect(screen.getByTitle(/重置到起点/i)).toBeInTheDocument();
     });

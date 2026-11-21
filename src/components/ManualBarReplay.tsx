@@ -583,6 +583,11 @@ export default function ManualBarReplay({
   const [replayBarPosition, setReplayBarPosition] = useState<'bottom' | 'top'>('bottom');
   const userCustomizedSlTp = useRef<boolean>(false);
 
+  // TradingView Position Ruler Coordinates
+  const [plannedEntryPrice, setPlannedEntryPrice] = useState<number | null>(null);
+  const [rulerStartBarTime, setRulerStartBarTime] = useState<string | null>(null);
+  const [rulerBarSpan, setRulerBarSpan] = useState<number>(25);
+
   // Theme support
   const { theme } = useTheme();
   const isDark = theme === 'dark';
@@ -601,7 +606,17 @@ export default function ManualBarReplay({
   const [rectStart, setRectStart] = useState<{ x: number; y: number; price: number } | null>(null);
   const [rectCurrent, setRectCurrent] = useState<{ x: number; y: number; price: number } | null>(null);
 
-  const [dragTarget, setDragTarget] = useState<{ type: 'tp' | 'sl' | 'entry' | 'horizontal'; lineId?: string; startY: number } | null>(null);
+  const [dragTarget, setDragTarget] = useState<{
+    type: 'tp' | 'sl' | 'entry' | 'width' | 'horizontal';
+    lineId?: string;
+    startY: number;
+    startX?: number;
+    startPrice?: number;
+    startSpan?: number;
+    startSl?: number;
+    startTp?: number;
+    startEntry?: number;
+  } | null>(null);
   const [hoverHandle, setHoverHandle] = useState<string | null>(null);
   const hoverHandleRef = useRef<string | null>(null);
   hoverHandleRef.current = hoverHandle;
@@ -712,6 +727,10 @@ export default function ManualBarReplay({
       boxLeft: number;
       boxRight: number;
       boxW: number;
+      boxCenterX?: number;
+      topY?: number;
+      bottomY?: number;
+      handleWidthY?: number;
     };
   } | null>(null);
 
@@ -957,22 +976,41 @@ export default function ManualBarReplay({
 
           // Check if hovering near existing horizontal lines or position box handles
           if (param.point) {
-            const { y: mouseY } = param.point;
+            const { x: mouseX, y: mouseY } = param.point;
             let foundHover: string | null = null;
-            for (const hl of horizontalLinesRef.current) {
-              try {
-                const ly = series.priceToCoordinate(hl.price);
-                if (ly !== null && isFinite(ly) && Math.abs(mouseY - ly) <= 12) {
-                  foundHover = 'h_' + hl.id;
-                  break;
+
+            // Check TradingView position ruler handles
+            if (scaleRef.current?.tvVisuals) {
+              const { tpY, slY, entryY, boxLeft, boxRight, boxCenterX, topY, bottomY, handleWidthY } = scaleRef.current.tvVisuals;
+              const cx = boxCenterX ?? (boxLeft + boxRight) / 2;
+
+              if (tpY !== null && Math.hypot(mouseX - cx, mouseY - tpY) <= 12) {
+                foundHover = 'tp';
+              } else if (slY !== null && Math.hypot(mouseX - cx, mouseY - slY) <= 12) {
+                foundHover = 'sl';
+              } else if (entryY !== null && Math.hypot(mouseX - cx, mouseY - entryY) <= 12) {
+                foundHover = 'entry';
+              } else {
+                const wy = handleWidthY ?? (topY !== undefined && bottomY !== undefined ? (topY + bottomY) / 2 : entryY);
+                if (Math.hypot(mouseX - boxRight, mouseY - wy) <= 14) {
+                  foundHover = 'width';
                 }
-              } catch {}
+              }
             }
-            if (foundHover) {
-              setHoverHandle(foundHover);
-            } else if (hoverHandleRef.current && hoverHandleRef.current.startsWith('h_')) {
-              setHoverHandle(null);
+
+            if (!foundHover) {
+              for (const hl of horizontalLinesRef.current) {
+                try {
+                  const ly = series.priceToCoordinate(hl.price);
+                  if (ly !== null && isFinite(ly) && Math.abs(mouseY - ly) <= 12) {
+                    foundHover = 'h_' + hl.id;
+                    break;
+                  }
+                } catch {}
+              }
             }
+
+            setHoverHandle(foundHover);
           }
         });
 
@@ -1176,7 +1214,7 @@ export default function ManualBarReplay({
   }, [currentIndex, orderDirection, position, currentCandle, slPrice, tpPrice, resetSlTpToDefaults]);
 
   // Dynamic Position Sizing & Risk Calculations
-  const entryPrice = currentCandle?.close || 0;
+  const entryPrice = position ? position.entryPrice : (plannedEntryPrice !== null ? plannedEntryPrice : (currentCandle?.close || 0));
   const parsedSl = parseFloat(slPrice);
   const parsedTp = parseFloat(tpPrice);
 
@@ -1236,13 +1274,12 @@ export default function ManualBarReplay({
         lines.entryLine = null;
       }
 
-      // Stop Loss Line
-      const effectiveSl = position ? position.stopLoss : (parsedSl > 0 ? parsedSl : null);
-      if (effectiveSl && effectiveSl > 0) {
-        const title = position ? `止损 SL: ${effectiveSl}` : `计划止损: ${effectiveSl}`;
+      // Stop Loss Line (only for active open position to keep chart uncluttered like TradingView)
+      if (position && position.stopLoss > 0) {
+        const title = `止损 SL: ${position.stopLoss}`;
         if (!lines.slLine) {
           lines.slLine = masterSeries.createPriceLine({
-            price: effectiveSl,
+            price: position.stopLoss,
             color: '#ef4444',
             lineWidth: 2,
             lineStyle: LineStyle.Dashed,
@@ -1250,20 +1287,19 @@ export default function ManualBarReplay({
             title,
           });
         } else {
-          lines.slLine.applyOptions({ price: effectiveSl, title });
+          lines.slLine.applyOptions({ price: position.stopLoss, title });
         }
       } else if (lines.slLine) {
         masterSeries.removePriceLine(lines.slLine);
         lines.slLine = null;
       }
 
-      // Take Profit Line
-      const effectiveTp = position ? position.takeProfit : (parsedTp > 0 ? parsedTp : null);
-      if (effectiveTp && effectiveTp > 0) {
-        const title = position ? `止盈 TP: ${effectiveTp}` : `计划止盈: ${effectiveTp}`;
+      // Take Profit Line (only for active open position to keep chart uncluttered like TradingView)
+      if (position && position.takeProfit && position.takeProfit > 0) {
+        const title = `止盈 TP: ${position.takeProfit}`;
         if (!lines.tpLine) {
           lines.tpLine = masterSeries.createPriceLine({
-            price: effectiveTp,
+            price: position.takeProfit,
             color: '#10b981',
             lineWidth: 2,
             lineStyle: LineStyle.Dashed,
@@ -1271,7 +1307,7 @@ export default function ManualBarReplay({
             title,
           });
         } else {
-          lines.tpLine.applyOptions({ price: effectiveTp, title });
+          lines.tpLine.applyOptions({ price: position.takeProfit, title });
         }
       } else if (lines.tpLine) {
         masterSeries.removePriceLine(lines.tpLine);
@@ -1280,7 +1316,7 @@ export default function ManualBarReplay({
     } catch (err) {
       console.warn('Failed to update TradingView price lines:', err);
     }
-  }, [position, parsedSl, parsedTp]);
+  }, [position]);
 
   // Handlers for switching direction, quick SL, and applying R:R
   const handleSwitchDirection = (dir: 'long' | 'short') => {
@@ -1625,30 +1661,40 @@ export default function ManualBarReplay({
       return;
     }
 
-    // 2. Tool: Long Position Sizing Tool placement
-    if (activeTool === 'long') {
-      setOrderDirection('long');
+    // 2. Tool: Long / Short Position Sizing Tool placement (TradingView风格放置)
+    if (activeTool === 'long' || activeTool === 'short') {
+      const isLong = activeTool === 'long';
+      setOrderDirection(isLong ? 'long' : 'short');
       userCustomizedSlTp.current = true;
       const entry = clickedPrice;
-      const typicalDist = (scale ? (scale.maxPrice - scale.minPrice) * 0.12 : entry * 0.005);
-      const newSl = entry - typicalDist;
-      const newTp = entry + typicalDist * riskRewardRatio;
-      setSlPrice(formatPriceNumber(newSl, entry));
-      setTpPrice(formatPriceNumber(newTp, entry));
-      setActiveTool('pointer');
-      return;
-    }
+      setPlannedEntryPrice(entry);
 
-    // 3. Tool: Short Position Sizing Tool placement
-    if (activeTool === 'short') {
-      setOrderDirection('short');
-      userCustomizedSlTp.current = true;
-      const entry = clickedPrice;
-      const typicalDist = (scale ? (scale.maxPrice - scale.minPrice) * 0.12 : entry * 0.005);
-      const newSl = entry + typicalDist;
-      const newTp = entry - typicalDist * riskRewardRatio;
+      // Determine clicked bar timestamp to pin the box
+      const winVisible = getWindowVisibleSlice(winIdx);
+      if (winVisible.length > 0) {
+        const displayCount = Math.min(65, winVisible.length);
+        const chartW = scale?.chartW || (rect.width - 74);
+        const paddingLeft = scale?.chartPadding?.left || 12;
+        const barSpacing = chartW / Math.max(1, displayCount);
+        const clickedCol = Math.floor((mouseX - paddingLeft) / Math.max(1, barSpacing));
+        const sliceCandles = winVisible.slice(winVisible.length - displayCount);
+        if (clickedCol >= 0 && clickedCol < sliceCandles.length) {
+          setRulerStartBarTime(sliceCandles[clickedCol].time);
+        } else if (sliceCandles.length > 0) {
+          setRulerStartBarTime(sliceCandles[sliceCandles.length - 1].time);
+        }
+      }
+
+      const visibleRange = scale ? (scale.maxPrice - scale.minPrice) : entry * 0.05;
+      const typicalDist = Math.max(visibleRange * 0.08, entry * 0.004);
+      const rr = (riskRewardRatio && riskRewardRatio > 0) ? riskRewardRatio : 2.0;
+
+      const newSl = isLong ? entry - typicalDist : entry + typicalDist;
+      const newTp = isLong ? entry + typicalDist * rr : entry - typicalDist * rr;
+
       setSlPrice(formatPriceNumber(newSl, entry));
       setTpPrice(formatPriceNumber(newTp, entry));
+      setShowTvVisuals(true);
       setActiveTool('pointer');
       return;
     }
@@ -1669,22 +1715,55 @@ export default function ManualBarReplay({
       return;
     }
 
-    // 5. Tool: Pointer mode - Check for handles on TP, SL, or Horizontal Lines
+    // 5. Tool: Pointer mode - Check for handles on TP, SL, Entry, Width, or Horizontal Lines
     if (showTvVisuals && scale?.tvVisuals) {
-      const { tpY, slY, entryY, boxLeft, boxRight } = scale.tvVisuals;
-      if (mouseX >= boxLeft - 15 && mouseX <= boxRight + 40) {
-        if (tpY !== null && Math.abs(mouseY - tpY) <= 14) {
-          setDragTarget({ type: 'tp', startY: mouseY });
-          return;
-        }
-        if (Math.abs(mouseY - slY) <= 14) {
-          setDragTarget({ type: 'sl', startY: mouseY });
-          return;
-        }
-        if (Math.abs(mouseY - entryY) <= 10 && !position) {
-          setDragTarget({ type: 'entry', startY: mouseY });
-          return;
-        }
+      const { tpY, slY, entryY, boxLeft, boxRight, boxCenterX, topY, bottomY, handleWidthY } = scale.tvVisuals;
+      const cx = boxCenterX ?? (boxLeft + boxRight) / 2;
+      const effectiveEntry = plannedEntryPrice !== null ? plannedEntryPrice : (currentCandle?.close || 0);
+
+      // TP Handle
+      if (tpY !== null && Math.hypot(mouseX - cx, mouseY - tpY) <= 14) {
+        setDragTarget({
+          type: 'tp',
+          startY: mouseY,
+          startPrice: parsedTp,
+          startEntry: effectiveEntry,
+          startSl: parsedSl,
+        });
+        return;
+      }
+      // SL Handle
+      if (slY !== null && Math.hypot(mouseX - cx, mouseY - slY) <= 14) {
+        setDragTarget({
+          type: 'sl',
+          startY: mouseY,
+          startPrice: parsedSl,
+          startEntry: effectiveEntry,
+          startTp: parsedTp,
+        });
+        return;
+      }
+      // Center Entry Handle (moves entire position)
+      if (entryY !== null && Math.hypot(mouseX - cx, mouseY - entryY) <= 14 && !position) {
+        setDragTarget({
+          type: 'entry',
+          startY: mouseY,
+          startPrice: effectiveEntry,
+          startSl: parsedSl,
+          startTp: parsedTp,
+        });
+        return;
+      }
+      // Right Width Handle (stretches ruler bar span)
+      const wy = handleWidthY ?? (topY !== undefined && bottomY !== undefined ? (topY + bottomY) / 2 : entryY);
+      if (Math.hypot(mouseX - boxRight, mouseY - wy) <= 14) {
+        setDragTarget({
+          type: 'width',
+          startX: mouseX,
+          startY: mouseY,
+          startSpan: rulerBarSpan,
+        });
+        return;
       }
     }
 
@@ -1749,10 +1828,10 @@ export default function ManualBarReplay({
       }
     }
 
-    // If currently dragging TP, SL, or Horizontal Line
+    // If currently dragging TP, SL, Entry, Width, or Horizontal Line
     if (dragTarget) {
-      const currentEntry = position ? position.entryPrice : entryPrice;
-      const minStep = (scale ? (scale.maxPrice - scale.minPrice) : currentEntry) * 0.005;
+      const currentEntry = position ? position.entryPrice : (plannedEntryPrice !== null ? plannedEntryPrice : entryPrice);
+      const minStep = (scale ? (scale.maxPrice - scale.minPrice) : currentEntry) * 0.001;
 
       if (dragTarget.type === 'tp') {
         userCustomizedSlTp.current = true;
@@ -1763,9 +1842,10 @@ export default function ManualBarReplay({
           newTp = Math.min(newTp, currentEntry - minStep);
         }
         setTpPrice(formatPriceNumber(newTp, currentEntry));
-        if (slDistance > 0) {
+        const newSlDist = Math.abs(currentEntry - (parsedSl || 0));
+        if (newSlDist > 0) {
           const newTpDist = Math.abs(newTp - currentEntry);
-          setRiskRewardRatio(Math.max(0.1, Math.round((newTpDist / slDistance) * 100) / 100));
+          setRiskRewardRatio(Math.max(0.1, Math.round((newTpDist / newSlDist) * 100) / 100));
         }
       } else if (dragTarget.type === 'sl') {
         userCustomizedSlTp.current = true;
@@ -1777,9 +1857,33 @@ export default function ManualBarReplay({
         }
         setSlPrice(formatPriceNumber(newSl, currentEntry));
         const newSlDist = Math.abs(currentEntry - newSl);
-        if (newSlDist > 0 && tpDistance > 0) {
-          setRiskRewardRatio(Math.max(0.1, Math.round((tpDistance / newSlDist) * 100) / 100));
+        const currTpDist = Math.abs((parsedTp || 0) - currentEntry);
+        if (newSlDist > 0 && currTpDist > 0) {
+          setRiskRewardRatio(Math.max(0.1, Math.round((currTpDist / newSlDist) * 100) / 100));
         }
+      } else if (dragTarget.type === 'entry') {
+        userCustomizedSlTp.current = true;
+        const startPrice = dragTarget.startPrice || currentEntry;
+        const delta = currentPrice - startPrice;
+        const newEntry = currentPrice;
+        setPlannedEntryPrice(newEntry);
+        if (dragTarget.startSl !== undefined && !isNaN(dragTarget.startSl)) {
+          const newSl = dragTarget.startSl + delta;
+          setSlPrice(formatPriceNumber(newSl, newEntry));
+        }
+        if (dragTarget.startTp !== undefined && !isNaN(dragTarget.startTp)) {
+          const newTp = dragTarget.startTp + delta;
+          setTpPrice(formatPriceNumber(newTp, newEntry));
+        }
+      } else if (dragTarget.type === 'width') {
+        const deltaX = mouseX - (dragTarget.startX || mouseX);
+        const winVisible = getWindowVisibleSlice(winIdx);
+        const displayCount = Math.min(65, winVisible.length);
+        const chartW = scale?.chartW || (rect.width - 74);
+        const barSpacing = chartW / Math.max(1, displayCount);
+        const deltaBars = Math.round(deltaX / Math.max(1, barSpacing));
+        const newSpan = Math.max(5, Math.min(80, (dragTarget.startSpan || 25) + deltaBars));
+        setRulerBarSpan(newSpan);
       } else if (dragTarget.type === 'horizontal' && dragTarget.lineId) {
         setHorizontalLines(prev =>
           prev.map(l => (l.id === dragTarget.lineId ? { ...l, price: currentPrice } : l))
@@ -1801,41 +1905,44 @@ export default function ManualBarReplay({
     }
 
     // Hover detection for interactive feedback
+    let foundHover: string | null = null;
     if (showTvVisuals && scale?.tvVisuals) {
-      const { tpY, slY, entryY, boxLeft, boxRight } = scale.tvVisuals;
-      if (mouseX >= boxLeft - 15 && mouseX <= boxRight + 40) {
-        if (tpY !== null && Math.abs(mouseY - tpY) <= 14) {
-          setHoverHandle('tp');
-          return;
-        }
-        if (Math.abs(mouseY - slY) <= 14) {
-          setHoverHandle('sl');
-          return;
-        }
-        if (Math.abs(mouseY - entryY) <= 10 && !position) {
-          setHoverHandle('entry');
-          return;
+      const { tpY, slY, entryY, boxLeft, boxRight, boxCenterX, topY, bottomY, handleWidthY } = scale.tvVisuals;
+      const cx = boxCenterX ?? (boxLeft + boxRight) / 2;
+
+      if (tpY !== null && Math.hypot(mouseX - cx, mouseY - tpY) <= 12) {
+        foundHover = 'tp';
+      } else if (slY !== null && Math.hypot(mouseX - cx, mouseY - slY) <= 12) {
+        foundHover = 'sl';
+      } else if (entryY !== null && Math.hypot(mouseX - cx, mouseY - entryY) <= 12) {
+        foundHover = 'entry';
+      } else {
+        const wy = handleWidthY ?? (topY !== undefined && bottomY !== undefined ? (topY + bottomY) / 2 : entryY);
+        if (Math.hypot(mouseX - boxRight, mouseY - wy) <= 14) {
+          foundHover = 'width';
         }
       }
     }
 
-    for (const hl of horizontalLines) {
-      let ly: number | null = null;
-      if (series) {
-        try {
-          ly = series.priceToCoordinate(hl.price);
-        } catch {}
-      }
-      if (ly === null || !isFinite(ly)) {
-        ly = scale ? scale.priceToY(hl.price) : null;
-      }
-      if (ly !== null && Math.abs(mouseY - ly) <= 12) {
-        setHoverHandle('h_' + hl.id);
-        return;
+    if (!foundHover) {
+      for (const hl of horizontalLines) {
+        let ly: number | null = null;
+        if (series) {
+          try {
+            ly = series.priceToCoordinate(hl.price);
+          } catch {}
+        }
+        if (ly === null || !isFinite(ly)) {
+          ly = scale ? scale.priceToY(hl.price) : null;
+        }
+        if (ly !== null && Math.abs(mouseY - ly) <= 12) {
+          foundHover = 'h_' + hl.id;
+          break;
+        }
       }
     }
 
-    setHoverHandle(null);
+    setHoverHandle(foundHover);
   };
 
   const handleCanvasMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => handleWindowMouseMove(e, 0);
@@ -1926,6 +2033,12 @@ export default function ManualBarReplay({
     if (dragTarget?.type === 'tp' || dragTarget?.type === 'sl' || hoverHandle === 'tp' || hoverHandle === 'sl') {
       return 'cursor-ns-resize';
     }
+    if (dragTarget?.type === 'entry' || hoverHandle === 'entry') {
+      return 'cursor-move';
+    }
+    if (dragTarget?.type === 'width' || hoverHandle === 'width') {
+      return 'cursor-ew-resize';
+    }
     if (dragTarget?.type === 'horizontal' || (hoverHandle && hoverHandle.startsWith('h_'))) {
       return 'cursor-row-resize';
     }
@@ -2009,7 +2122,7 @@ export default function ManualBarReplay({
 
       const activeOrPlannedSl = position ? position.stopLoss : (parsedSl > 0 ? parsedSl : null);
       const activeOrPlannedTp = position ? position.takeProfit : (parsedTp > 0 ? parsedTp : null);
-      const activeOrPlannedEntry = position ? position.entryPrice : (currentCandle ? currentCandle.close : null);
+      const activeOrPlannedEntry = position ? position.entryPrice : (plannedEntryPrice !== null ? plannedEntryPrice : (currentCandle ? currentCandle.close : null));
 
       if (activeOrPlannedEntry && isFinite(activeOrPlannedEntry)) {
         if (activeOrPlannedEntry < minPrice) minPrice = activeOrPlannedEntry;
@@ -2079,7 +2192,7 @@ export default function ManualBarReplay({
       const barSpacing = chartW / displayCount;
       const candleW = Math.max(2, barSpacing * 0.7);
 
-      // Draw TV Visuals Shaded Box
+      // Draw TV Visuals Shaded Box (TradingView 风格闭合多空盈亏区间)
       let tvBoxState: any = undefined;
       if (showTvVisuals && activeOrPlannedEntry && activeOrPlannedSl) {
         const series = tvSeries.current[winIdx];
@@ -2099,36 +2212,69 @@ export default function ManualBarReplay({
         if (slY === null || !isFinite(slY)) slY = priceToY(activeOrPlannedSl);
         if (tpY === null && activeOrPlannedTp && activeOrPlannedTp > 0) tpY = priceToY(activeOrPlannedTp);
 
-        let startIndex = Math.max(0, displayCount - 20);
-        if (position) {
-          const foundIdx = sliceCandles.findIndex(c => c.time === position.entryTime);
-          if (foundIdx >= 0) startIndex = foundIdx;
+        // Calculate bounded box horizontally
+        let startIndex = Math.max(0, displayCount - (rulerBarSpan || 25));
+        const anchorTime = position ? position.entryTime : rulerStartBarTime;
+        if (anchorTime) {
+          const foundIdx = sliceCandles.findIndex(c => c.time === anchorTime);
+          if (foundIdx >= 0) {
+            startIndex = foundIdx;
+          }
         }
         const boxLeft = Math.max(chartPadding.left + startIndex * barSpacing, chartPadding.left);
-        const boxRight = w - chartPadding.right;
-        const boxW = Math.max(70, boxRight - boxLeft);
-        tvBoxState = { entryY, slY, tpY, boxLeft, boxRight, boxW };
+        const maxAvailW = Math.max(80, (w - chartPadding.right - 8) - boxLeft);
+        const boxW = Math.max(80, Math.min(barSpacing * (rulerBarSpan || 25), maxAvailW));
+        const boxRight = boxLeft + boxW;
+        const boxCenterX = boxLeft + boxW / 2;
 
-        const lossTop = Math.min(entryY, slY);
-        const lossHeight = Math.max(2, Math.abs(entryY - slY));
-        ctx.fillStyle = isDark ? 'rgba(239, 68, 68, 0.10)' : 'rgba(239, 68, 68, 0.06)';
-        ctx.fillRect(boxLeft, lossTop, boxW, lossHeight);
-        ctx.strokeStyle = isDark ? 'rgba(248, 113, 113, 0.45)' : 'rgba(220, 38, 38, 0.35)';
-        ctx.lineWidth = 1;
-        ctx.setLineDash?.([4, 2]);
-        ctx.strokeRect(boxLeft, lossTop, boxW, lossHeight);
-        ctx.setLineDash?.([]);
+        const activeOrPlannedDir = position ? position.direction : orderDirection;
+        const topY = Math.min(entryY, slY, tpY !== null ? tpY : entryY);
+        const bottomY = Math.max(entryY, slY, tpY !== null ? tpY : entryY);
+        const handleWidthY = (topY + bottomY) / 2;
 
-        if (tpY !== null) {
-          const profitTop = Math.min(entryY, tpY);
-          const profitHeight = Math.max(2, Math.abs(entryY - tpY));
-          ctx.fillStyle = isDark ? 'rgba(16, 185, 129, 0.10)' : 'rgba(16, 185, 129, 0.06)';
-          ctx.fillRect(boxLeft, profitTop, boxW, profitHeight);
-          ctx.strokeStyle = isDark ? 'rgba(52, 211, 153, 0.45)' : 'rgba(5, 150, 105, 0.35)';
+        tvBoxState = { entryY, slY, tpY, boxLeft, boxRight, boxW, boxCenterX, topY, bottomY, handleWidthY };
+
+        // Shaded Boxes:
+        // For Long: Profit (TP to Entry) on top, Loss (Entry to SL) on bottom.
+        // For Short: Loss (SL to Entry) on top, Profit (Entry to TP) on bottom.
+        if (activeOrPlannedDir === 'long') {
+          // Profit zone (top)
+          if (tpY !== null) {
+            const pTop = Math.min(entryY, tpY);
+            const pH = Math.max(2, Math.abs(entryY - tpY));
+            ctx.fillStyle = isDark ? 'rgba(8, 153, 129, 0.22)' : 'rgba(8, 153, 129, 0.16)';
+            ctx.fillRect(boxLeft, pTop, boxW, pH);
+            ctx.strokeStyle = isDark ? 'rgba(8, 153, 129, 0.5)' : 'rgba(8, 153, 129, 0.4)';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(boxLeft, pTop, boxW, pH);
+          }
+          // Loss zone (bottom)
+          const lTop = Math.min(entryY, slY);
+          const lH = Math.max(2, Math.abs(entryY - slY));
+          ctx.fillStyle = isDark ? 'rgba(242, 54, 69, 0.22)' : 'rgba(242, 54, 69, 0.16)';
+          ctx.fillRect(boxLeft, lTop, boxW, lH);
+          ctx.strokeStyle = isDark ? 'rgba(242, 54, 69, 0.5)' : 'rgba(242, 54, 69, 0.4)';
           ctx.lineWidth = 1;
-          ctx.setLineDash?.([4, 2]);
-          ctx.strokeRect(boxLeft, profitTop, boxW, profitHeight);
-          ctx.setLineDash?.([]);
+          ctx.strokeRect(boxLeft, lTop, boxW, lH);
+        } else {
+          // Loss zone (top for Short)
+          const lTop = Math.min(entryY, slY);
+          const lH = Math.max(2, Math.abs(entryY - slY));
+          ctx.fillStyle = isDark ? 'rgba(242, 54, 69, 0.22)' : 'rgba(242, 54, 69, 0.16)';
+          ctx.fillRect(boxLeft, lTop, boxW, lH);
+          ctx.strokeStyle = isDark ? 'rgba(242, 54, 69, 0.5)' : 'rgba(242, 54, 69, 0.4)';
+          ctx.lineWidth = 1;
+          ctx.strokeRect(boxLeft, lTop, boxW, lH);
+          // Profit zone (bottom for Short)
+          if (tpY !== null) {
+            const pTop = Math.min(entryY, tpY);
+            const pH = Math.max(2, Math.abs(entryY - tpY));
+            ctx.fillStyle = isDark ? 'rgba(8, 153, 129, 0.22)' : 'rgba(8, 153, 129, 0.16)';
+            ctx.fillRect(boxLeft, pTop, boxW, pH);
+            ctx.strokeStyle = isDark ? 'rgba(8, 153, 129, 0.5)' : 'rgba(8, 153, 129, 0.4)';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(boxLeft, pTop, boxW, pH);
+          }
         }
       }
 
@@ -2358,57 +2504,215 @@ export default function ManualBarReplay({
 
       // Draw TradingView position lines & draggable handles
       if (showTvVisuals && tvBoxState && activeOrPlannedEntry && activeOrPlannedSl) {
-        const { entryY, slY, tpY, boxLeft, boxRight, boxW } = tvBoxState;
+        const { entryY, slY, tpY, boxLeft, boxRight, boxW, boxCenterX, topY, bottomY, handleWidthY } = tvBoxState;
         const activeOrPlannedDir = position ? position.direction : orderDirection;
 
-        ctx.strokeStyle = activeOrPlannedDir === 'long' ? '#10B981' : '#EF4444';
-        ctx.lineWidth = 1.6;
+        const drawRoundedRect = (c: CanvasRenderingContext2D, rx: number, ry: number, rw: number, rh: number, radius: number) => {
+          c.beginPath();
+          if (typeof (c as any).roundRect === 'function') {
+            (c as any).roundRect(rx, ry, rw, rh, radius);
+          } else {
+            c.moveTo(rx + radius, ry);
+            c.lineTo(rx + rw - radius, ry);
+            c.arcTo(rx + rw, ry, rx + rw, ry + radius, radius);
+            c.lineTo(rx + rw, ry + rh - radius);
+            c.arcTo(rx + rw, ry + rh, rx + rw - radius, ry + rh, radius);
+            c.lineTo(rx + radius, ry + rh);
+            c.arcTo(rx, ry + rh, rx, ry + rh - radius, radius);
+            c.lineTo(rx, ry + radius);
+            c.arcTo(rx, ry, rx + radius, ry, radius);
+            c.closePath();
+          }
+        };
+
+        // 1. Entry Line (Blue/Slate center border)
+        ctx.strokeStyle = '#2962ff';
+        ctx.lineWidth = 1.5;
         ctx.beginPath();
-        ctx.moveTo(chartPadding.left, entryY);
+        ctx.moveTo(boxLeft, entryY);
         ctx.lineTo(boxRight, entryY);
         ctx.stroke();
 
-        ctx.strokeStyle = '#EF4444';
-        ctx.lineWidth = 1.3;
-        ctx.setLineDash?.([3, 2]);
+        // Subtle dotted guide line from boxRight to price scale
+        ctx.strokeStyle = isDark ? 'rgba(41, 98, 255, 0.4)' : 'rgba(41, 98, 255, 0.3)';
+        ctx.lineWidth = 1;
+        ctx.setLineDash?.([2, 3]);
+        ctx.beginPath();
+        ctx.moveTo(boxRight, entryY);
+        ctx.lineTo(w - chartPadding.right, entryY);
+        ctx.stroke();
+        ctx.setLineDash?.([]);
+
+        // 2. SL Solid Border (Red)
+        ctx.strokeStyle = '#f23645';
+        ctx.lineWidth = 1.8;
         ctx.beginPath();
         ctx.moveTo(boxLeft, slY);
         ctx.lineTo(boxRight, slY);
         ctx.stroke();
-        ctx.setLineDash?.([]);
 
+        // 3. TP Solid Border (Green)
         if (tpY !== null) {
-          ctx.strokeStyle = '#10B981';
-          ctx.lineWidth = 1.3;
-          ctx.setLineDash?.([3, 2]);
+          ctx.strokeStyle = '#089981';
+          ctx.lineWidth = 1.8;
           ctx.beginPath();
           ctx.moveTo(boxLeft, tpY);
           ctx.lineTo(boxRight, tpY);
           ctx.stroke();
-          ctx.setLineDash?.([]);
         }
 
-        // Draggable interactive handles
-        const handleX = boxLeft + boxW / 2;
+        // 4. Central TradingView Info Pill Badges (Target & Stop badges)
+        const badgeW = Math.min(132, Math.max(90, boxW - 16));
+        const badgeH = 34;
+
+        // Target (Profit) Badge
+        if (tpY !== null) {
+          const profitMidY = (entryY + tpY) / 2;
+          const targetDistVal = Math.abs((activeOrPlannedTp || activeOrPlannedEntry) - activeOrPlannedEntry);
+          const targetPctVal = activeOrPlannedEntry > 0 ? ((targetDistVal / activeOrPlannedEntry) * 100).toFixed(2) : '0.00';
+          const rrText = (currentRR || 2).toFixed(2);
+
+          ctx.save?.();
+          const badgeX = boxCenterX - badgeW / 2;
+          const badgeY = profitMidY - badgeH / 2;
+          drawRoundedRect(ctx, badgeX, badgeY, badgeW, badgeH, 4);
+          ctx.fillStyle = isDark ? 'rgba(19, 23, 34, 0.90)' : 'rgba(255, 255, 255, 0.95)';
+          ctx.fill();
+          ctx.strokeStyle = isDark ? 'rgba(8, 153, 129, 0.6)' : 'rgba(8, 153, 129, 0.45)';
+          ctx.lineWidth = 1;
+          ctx.stroke();
+
+          ctx.textAlign = 'center';
+          ctx.fillStyle = '#089981';
+          ctx.font = 'bold 10px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+          ctx.fillText(`目标: +${formatPriceNumber(targetDistVal, activeOrPlannedEntry)} (${targetPctVal}%)`, boxCenterX, badgeY + 13);
+          ctx.fillStyle = isDark ? '#94a3b8' : '#64748b';
+          ctx.font = '9.5px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+          ctx.fillText(`盈亏比: 1 : ${rrText}`, boxCenterX, badgeY + 27);
+          ctx.restore?.();
+        }
+
+        // Stop (Loss) Badge
+        {
+          const lossMidY = (entryY + slY) / 2;
+          const slDistVal = Math.abs(activeOrPlannedEntry - activeOrPlannedSl);
+          const slPctVal = activeOrPlannedEntry > 0 ? ((slDistVal / activeOrPlannedEntry) * 100).toFixed(2) : '0.00';
+
+          ctx.save?.();
+          const badgeX = boxCenterX - badgeW / 2;
+          const badgeY = lossMidY - badgeH / 2;
+          drawRoundedRect(ctx, badgeX, badgeY, badgeW, badgeH, 4);
+          ctx.fillStyle = isDark ? 'rgba(19, 23, 34, 0.90)' : 'rgba(255, 255, 255, 0.95)';
+          ctx.fill();
+          ctx.strokeStyle = isDark ? 'rgba(242, 54, 69, 0.6)' : 'rgba(242, 54, 69, 0.45)';
+          ctx.lineWidth = 1;
+          ctx.stroke();
+
+          ctx.textAlign = 'center';
+          ctx.fillStyle = '#f23645';
+          ctx.font = 'bold 10px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+          ctx.fillText(`止损: -${formatPriceNumber(slDistVal, activeOrPlannedEntry)} (-${slPctVal}%)`, boxCenterX, badgeY + 13);
+          ctx.fillStyle = isDark ? '#94a3b8' : '#64748b';
+          ctx.font = '9.5px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+          ctx.fillText(`风险额: $${projectedLoss.toFixed(2)}`, boxCenterX, badgeY + 27);
+          ctx.restore?.();
+        }
+
+        // 5. Draggable Interactive Handles
+        // TP Handle (circle on TP line at boxCenterX)
         if (tpY !== null) {
           const isTpActive = activeWindowIndex === winIdx && (dragTarget?.type === 'tp' || hoverHandle === 'tp');
           ctx.beginPath();
-          ctx.arc?.(handleX, tpY, isTpActive ? 6.5 : 5, 0, Math.PI * 2);
+          ctx.arc?.(boxCenterX, tpY, isTpActive ? 6.5 : 5, 0, Math.PI * 2);
           ctx.fillStyle = '#ffffff';
           ctx.fill();
-          ctx.strokeStyle = '#10B981';
-          ctx.lineWidth = 2;
+          ctx.strokeStyle = '#089981';
+          ctx.lineWidth = isTpActive ? 2.5 : 2;
           ctx.stroke();
         }
+
+        // SL Handle (circle on SL line at boxCenterX)
         {
           const isSlActive = activeWindowIndex === winIdx && (dragTarget?.type === 'sl' || hoverHandle === 'sl');
           ctx.beginPath();
-          ctx.arc?.(handleX, slY, isSlActive ? 6.5 : 5, 0, Math.PI * 2);
+          ctx.arc?.(boxCenterX, slY, isSlActive ? 6.5 : 5, 0, Math.PI * 2);
           ctx.fillStyle = '#ffffff';
           ctx.fill();
-          ctx.strokeStyle = '#EF4444';
-          ctx.lineWidth = 2;
+          ctx.strokeStyle = '#f23645';
+          ctx.lineWidth = isSlActive ? 2.5 : 2;
           ctx.stroke();
+        }
+
+        // Center / Entry Handle (moves entire position up/down)
+        if (!position) {
+          const isEntryActive = activeWindowIndex === winIdx && (dragTarget?.type === 'entry' || hoverHandle === 'entry');
+          ctx.beginPath();
+          ctx.arc?.(boxCenterX, entryY, isEntryActive ? 7 : 5.5, 0, Math.PI * 2);
+          ctx.fillStyle = '#ffffff';
+          ctx.fill();
+          ctx.strokeStyle = '#2962ff';
+          ctx.lineWidth = isEntryActive ? 2.5 : 2;
+          ctx.stroke();
+        }
+
+        // Width Handle (on right edge, allows stretching bar span)
+        {
+          const isWidthActive = activeWindowIndex === winIdx && (dragTarget?.type === 'width' || hoverHandle === 'width');
+          const wy = handleWidthY ?? ((topY + bottomY) / 2);
+          drawRoundedRect(ctx, boxRight - 3, wy - 9, 6, 18, 3);
+          ctx.fillStyle = '#ffffff';
+          ctx.fill();
+          ctx.strokeStyle = isWidthActive ? '#2962ff' : '#787b86';
+          ctx.lineWidth = isWidthActive ? 2 : 1.5;
+          ctx.stroke();
+        }
+
+        // 4 Corner Selection Dots (TradingView hallmark)
+        const corners = [
+          { x: boxLeft, y: topY },
+          { x: boxRight, y: topY },
+          { x: boxLeft, y: bottomY },
+          { x: boxRight, y: bottomY },
+        ];
+        corners.forEach(pt => {
+          ctx.beginPath();
+          ctx.arc?.(pt.x, pt.y, 2.5, 0, Math.PI * 2);
+          ctx.fillStyle = '#ffffff';
+          ctx.fill();
+          ctx.strokeStyle = '#787b86';
+          ctx.lineWidth = 1;
+          ctx.stroke();
+        });
+
+        // 6. Right Price Scale Tags (Badges on Y Axis)
+        // TP Tag (Green)
+        if (tpY !== null && tpY >= chartPadding.top && tpY <= h - chartPadding.bottom) {
+          ctx.fillStyle = '#089981';
+          ctx.fillRect(w - chartPadding.right, tpY - 8, 62, 16);
+          ctx.fillStyle = '#ffffff';
+          ctx.font = 'bold 9px monospace';
+          ctx.textAlign = 'left';
+          ctx.fillText(formatPriceNumber(activeOrPlannedTp, activeOrPlannedTp), w - chartPadding.right + 4, tpY + 4);
+        }
+
+        // Entry Tag (Blue)
+        if (entryY >= chartPadding.top && entryY <= h - chartPadding.bottom) {
+          ctx.fillStyle = '#2962ff';
+          ctx.fillRect(w - chartPadding.right, entryY - 8, 62, 16);
+          ctx.fillStyle = '#ffffff';
+          ctx.font = 'bold 9px monospace';
+          ctx.textAlign = 'left';
+          ctx.fillText(formatPriceNumber(activeOrPlannedEntry, activeOrPlannedEntry), w - chartPadding.right + 4, entryY + 4);
+        }
+
+        // SL Tag (Red)
+        if (slY >= chartPadding.top && slY <= h - chartPadding.bottom) {
+          ctx.fillStyle = '#f23645';
+          ctx.fillRect(w - chartPadding.right, slY - 8, 62, 16);
+          ctx.fillStyle = '#ffffff';
+          ctx.font = 'bold 9px monospace';
+          ctx.textAlign = 'left';
+          ctx.fillText(formatPriceNumber(activeOrPlannedSl, activeOrPlannedSl), w - chartPadding.right + 4, slY + 4);
         }
       }
 
@@ -2503,6 +2807,7 @@ export default function ManualBarReplay({
     visibleCandles, windowCount, windowTimeframes, windowCandles, 
     position, currentCandle, showTvVisuals, orderDirection, 
     parsedSl, parsedTp, activeLots, floatingProfit, floatingPct, 
+    plannedEntryPrice, rulerStartBarTime, rulerBarSpan, currentRR, projectedLoss,
     horizontalLines, trendLines, rectangles, isDrawingTrend, trendStart, trendCurrent, 
     isDrawingRect, rectStart, rectCurrent, hoverHandle, dragTarget, activeTool, mousePos,
     showMa20, showMa50, showMa200, showEma9, showBollinger, showVolume, showRsi,
@@ -2686,27 +2991,24 @@ export default function ManualBarReplay({
     const isPrimary = winIdx === 0;
     const isActive = activeWindowIndex === winIdx;
 
-    let canvasHeight = 'h-[500px] sm:h-[580px] lg:h-[620px]';
-    if (windowCount === 1) {
-      canvasHeight = isFullscreen ? 'h-[620px] sm:h-[720px]' : 'h-[500px] sm:h-[580px] lg:h-[620px]';
-    } else if (windowCount === 2) {
-      canvasHeight = isFullscreen ? 'h-[480px] sm:h-[560px]' : 'h-[420px] sm:h-[480px]';
-    } else {
-      canvasHeight = isFullscreen ? 'h-[360px] sm:h-[420px]' : 'h-[300px] sm:h-[360px]';
-    }
+    const minCanvasHeight = windowCount === 1 
+      ? 'min-h-[460px]' 
+      : windowCount === 2 
+      ? (isFullscreen ? 'min-h-[360px]' : 'min-h-[280px]') 
+      : 'min-h-[220px]';
 
     return (
       <div
         key={winIdx}
         onClick={() => setActiveWindowIndex(winIdx)}
-        className={`rounded-lg border transition-all overflow-hidden bg-white dark:bg-[#131722] flex flex-col ${
+        className={`rounded-lg border transition-all overflow-hidden bg-white dark:bg-[#131722] flex flex-col flex-1 h-full min-h-0 ${
           isActive 
             ? 'border-[#2962ff] ring-1 ring-[#2962ff]/40 shadow-lg' 
             : 'border-gray-200 dark:border-[#2a2e39] hover:border-gray-300 dark:hover:border-[#363a45]'
         }`}
       >
         {/* Window Sub-Header Bar (周期选择与当前窗口状态) */}
-        <div className="flex items-center justify-between px-3 py-1.5 bg-gray-50 dark:bg-[#1e222d] border-b border-gray-200 dark:border-[#2a2e39] text-xs">
+        <div className="flex items-center justify-between px-3 py-1.5 bg-gray-50 dark:bg-[#1e222d] border-b border-gray-200 dark:border-[#2a2e39] text-xs shrink-0">
           <div className="flex items-center space-x-2">
             <span className={`px-2 py-0.5 rounded text-[10px] font-bold tracking-wider ${
               isActive 
@@ -2764,14 +3066,14 @@ export default function ManualBarReplay({
         </div>
 
         {/* TradingView Chart Container + Drawing Canvas Overlay */}
-        <div className="relative flex-1 bg-white dark:bg-[#131722] overflow-hidden">
+        <div className="relative flex-1 h-full min-h-0 bg-white dark:bg-[#131722] overflow-hidden">
           {/* TradingView Lightweight Charts Container */}
           <div
             ref={(el) => {
               tvContainers.current[winIdx] = el;
             }}
             data-testid={`tv-container-${winIdx}`}
-            className={`w-full ${canvasHeight} block select-none`}
+            className={`w-full h-full ${minCanvasHeight} block select-none`}
           />
 
           {/* Canvas for Drawing Tools / Overlays / Fallback */}
@@ -2844,9 +3146,9 @@ export default function ManualBarReplay({
 
 
       {/* 2. MAIN WORKSPACE ROW (Full Width Chart + Right Order Panel) */}
-      <div className="flex flex-1 overflow-hidden relative min-h-[500px]">
+      <div className="flex flex-1 overflow-hidden relative items-stretch">
         {/* 2.1 CENTER CHART VIEWPORT (Full Width) */}
-        <div className="flex-1 flex flex-col relative overflow-hidden bg-white dark:bg-[#131722]">
+        <div className="flex-1 flex flex-col relative overflow-hidden bg-white dark:bg-[#131722] min-w-0 h-full">
           {/* TradingView Unified Pro Chart Header (品种、指标、画图、信息、下单一体化) */}
           <div className="bg-white/95 dark:bg-[#1e222d]/90 backdrop-blur-sm border-b border-gray-200 dark:border-[#2a2e39] px-3 py-1.5 flex flex-wrap items-center justify-between gap-2 text-xs select-none z-20 text-gray-800 dark:text-gray-200">
             {/* Left: Symbol Search, Timeframe, Indicators, Reload, Info */}
@@ -2884,24 +3186,6 @@ export default function ManualBarReplay({
                 <option value="D1">日线 (D1)</option>
               </select>
 
-              {/* Visible Timeframe Dropdown */}
-              <select
-                value={timeframe}
-                onChange={(e) => {
-                  setTimeframe(e.target.value);
-                  handleWindowTimeframeChange(0, e.target.value);
-                }}
-                className="text-xs px-2 py-1 border border-gray-200 dark:border-[#2a2e39] rounded-lg bg-white dark:bg-[#131722] text-gray-800 dark:text-gray-200 font-semibold cursor-pointer hover:bg-gray-100 dark:hover:bg-[#2a2e39] transition focus:outline-none focus:border-[#2962ff]"
-                title="切换K线周期"
-              >
-                <option value="M1">1m</option>
-                <option value="M5">5m</option>
-                <option value="M15">15m</option>
-                <option value="M30">30m</option>
-                <option value="H1">1h</option>
-                <option value="H4">4h</option>
-                <option value="D1">D</option>
-              </select>
 
               {/* Indicators Menu Button */}
               <div className="relative">
@@ -3113,22 +3397,6 @@ export default function ManualBarReplay({
                 <span className="sr-only">矩形区域</span>
               </button>
 
-              {/* Scissors Jump */}
-              <button
-                type="button"
-                onClick={() => setActiveTool(activeTool === 'jump' ? 'pointer' : 'jump')}
-                className={`px-1.5 py-1 rounded-md text-xs font-semibold flex items-center space-x-1 transition ${
-                  activeTool === 'jump'
-                    ? 'bg-amber-500 text-white shadow-xs'
-                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200 dark:text-gray-400 dark:hover:text-white dark:hover:bg-[#2a2e39]'
-                }`}
-                title="选择切片复盘起点 (点击图表任意K线切入)"
-              >
-                <Scissors className="w-3.5 h-3.5" />
-                <span className="hidden xl:inline text-[11px]">剪刀</span>
-                <span className="sr-only">切片起点</span>
-              </button>
-
               {/* Clear drawings */}
               {(horizontalLines.length > 0 || trendLines.length > 0 || rectangles.length > 0) && (
                 <button
@@ -3146,47 +3414,6 @@ export default function ManualBarReplay({
                 </button>
               )}
             </div>
-
-            {/* Quick Order Execution Console integrated in top chart subheader */}
-            {!position && showTvVisuals && currentCandle && (
-              <div className="flex items-center space-x-1.5 font-sans">
-                <button
-                  type="button"
-                  onClick={() => openOrder('short')}
-                  className="px-2 py-1 bg-[#f23645] hover:bg-rose-600 text-white rounded font-bold text-xs flex items-center space-x-1 leading-tight transition shadow-xs active:scale-95"
-                  title="按市价卖出做空"
-                >
-                  <span className="text-[9px] uppercase tracking-wider opacity-85">SELL</span>
-                  <span className="font-mono">{currentCandle.close}</span>
-                </button>
-
-                <div className="flex items-center px-1.5 py-0.5 bg-gray-100 dark:bg-[#131722] rounded border border-gray-200 dark:border-[#2a2e39] text-xs">
-                  <span className="text-[10px] text-gray-500 dark:text-gray-400 mr-1">手数</span>
-                  <span className="font-mono font-bold text-gray-900 dark:text-white">{activeLots}</span>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => openOrder('long')}
-                  className="px-2 py-1 bg-[#089981] hover:bg-emerald-600 text-white rounded font-bold text-xs flex items-center space-x-1 leading-tight transition shadow-xs active:scale-95"
-                  title="按市价买入做多"
-                >
-                  <span className="text-[9px] uppercase tracking-wider opacity-85">BUY</span>
-                  <span className="font-mono">{currentCandle.close}</span>
-                </button>
-
-                <div className="h-4 w-px bg-gray-200 dark:bg-[#2a2e39]" />
-
-                <button
-                  type="button"
-                  onClick={() => openOrder(orderDirection)}
-                  className="px-2.5 py-1 bg-[#2962ff] hover:bg-[#1e54e4] text-white rounded text-xs font-bold transition shadow-xs flex items-center space-x-1 active:scale-95"
-                  title="以当前画线位置的止损价、止盈价和计算手数直接下单"
-                >
-                  <span>以当前画线下单 ({orderDirection === 'long' ? 'BUY 做多' : 'SELL 做空'} {activeLots}手 | 1:{currentRR.toFixed(1)})</span>
-                </button>
-              </div>
-            )}
 
             {/* Right: Multi-window split, Order panel toggle, Strategy tester toggle, Fullscreen */}
             <div className="flex items-center space-x-1">
@@ -3287,7 +3514,7 @@ export default function ManualBarReplay({
           )}
 
           {/* Chart Window(s) Grid */}
-          <div className={`grid gap-1.5 flex-1 p-1 ${
+          <div className={`grid gap-1.5 flex-1 p-1 h-full min-h-0 ${
             windowCount === 1 
               ? 'grid-cols-1' 
               : windowCount === 2 
@@ -3398,368 +3625,384 @@ export default function ManualBarReplay({
 
         {/* 2.3 RIGHT DOCK: TRADINGVIEW ORDER TICKET & RISK CALCULATOR */}
         {isOrderPanelOpen && (
-          <div className="w-80 sm:w-88 bg-gray-50 dark:bg-[#1e222d] border-l border-gray-200 dark:border-[#2a2e39] flex flex-col shrink-0 overflow-y-auto max-h-[640px] text-xs p-3.5 space-y-3 z-10 text-gray-800 dark:text-gray-200">
-            <div className="flex items-center justify-between pb-2 border-b border-gray-200 dark:border-[#2a2e39]">
-              <div className="flex items-center space-x-1.5 font-bold text-gray-900 dark:text-white">
-                <Sliders className="w-4 h-4 text-[#2962ff]" />
-                <span>订单配置与风控 (Order Ticket)</span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsOrderPanelOpen(false)}
-                className="p-1 hover:bg-gray-200 dark:hover:bg-[#2a2e39] rounded text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white"
-                title="收起订单面板"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            </div>
-
-            {/* Long / Short Switcher */}
-            <div className="flex items-center justify-between gap-2">
-              <div className="grid grid-cols-2 p-1 bg-gray-100 dark:bg-[#131722] rounded-lg border border-gray-200 dark:border-[#2a2e39] flex-1 text-xs font-semibold">
+          <div className="w-80 sm:w-88 bg-gray-50 dark:bg-[#1e222d] border-l border-gray-200 dark:border-[#2a2e39] flex flex-col shrink-0 text-xs p-3 space-y-2 z-10 text-gray-800 dark:text-gray-200 overflow-hidden justify-between">
+            <div className="space-y-2">
+              <div className="flex items-center justify-between pb-1.5 border-b border-gray-200 dark:border-[#2a2e39]">
+                <div className="flex items-center space-x-1.5 font-bold text-gray-900 dark:text-white">
+                  <Sliders className="w-4 h-4 text-[#2962ff]" />
+                  <span>订单配置与风控 (Order Ticket)</span>
+                </div>
                 <button
                   type="button"
-                  onClick={() => handleSwitchDirection('long')}
-                  className={`py-1.5 rounded-md flex items-center justify-center space-x-1 transition-all ${
-                    orderDirection === 'long' 
-                      ? 'bg-[#089981] text-white shadow-xs' 
-                      : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white'
-                  }`}
+                  onClick={() => setIsOrderPanelOpen(false)}
+                  className="p-1 hover:bg-gray-200 dark:hover:bg-[#2a2e39] rounded text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white"
+                  title="收起订单面板"
                 >
-                  <TrendingUp className="w-3.5 h-3.5" />
-                  <span>看涨做多 (Long Tool)</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => handleSwitchDirection('short')}
-                  className={`py-1.5 rounded-md flex items-center justify-center space-x-1 transition-all ${
-                    orderDirection === 'short' 
-                      ? 'bg-[#f23645] text-white shadow-xs' 
-                      : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white'
-                  }`}
-                >
-                  <TrendingDown className="w-3.5 h-3.5" />
-                  <span>看跌做空 (Short Tool)</span>
+                  <X className="w-3.5 h-3.5" />
                 </button>
               </div>
-            </div>
 
-            {/* Visual checkbox */}
-            <label className="flex items-center space-x-2 text-xs text-gray-600 dark:text-gray-400 cursor-pointer pt-0.5">
-              <input
-                type="checkbox"
-                checked={showTvVisuals}
-                onChange={(e) => setShowTvVisuals(e.target.checked)}
-                className="rounded border-gray-300 dark:border-[#2a2e39] text-[#2962ff] focus:ring-0 bg-white dark:bg-[#131722]"
-              />
-              <span>图表显示多空盈亏标尺</span>
-            </label>
-
-            {/* 1. Account Capital */}
-            <div className="space-y-1 bg-white dark:bg-[#131722] p-2.5 rounded-lg border border-gray-200 dark:border-[#2a2e39]">
-              <div className="flex justify-between items-center text-[11px]">
-                <span className="font-medium text-gray-700 dark:text-gray-300 flex items-center space-x-1">
-                  <DollarSign className="w-3.5 h-3.5 text-[#2962ff]" />
-                  <span>账户资金 (Capital)</span>
-                </span>
-                <span className="text-gray-500 font-mono">虚拟复盘</span>
-              </div>
-              <div className="flex items-center space-x-1">
-                <span className="text-gray-500 font-bold">$</span>
-                <input
-                  type="number"
-                  step="1000"
-                  value={accountCapital}
-                  onChange={(e) => setAccountCapital(Math.max(100, parseFloat(e.target.value) || 10000))}
-                  className="w-full px-2 py-1 text-xs font-mono font-bold bg-gray-50 dark:bg-[#1e222d] border border-gray-300 dark:border-[#2a2e39] rounded text-gray-900 dark:text-white focus:outline-none focus:border-[#2962ff]"
-                />
-              </div>
-              <div className="flex items-center space-x-1 pt-1">
-                {[5000, 10000, 50000, 100000].map(amt => (
+              {/* Long / Short Switcher */}
+              <div className="flex items-center justify-between gap-2">
+                <div className="grid grid-cols-2 p-1 bg-gray-100 dark:bg-[#131722] rounded-lg border border-gray-200 dark:border-[#2a2e39] flex-1 text-xs font-semibold">
                   <button
-                    key={amt}
                     type="button"
-                    onClick={() => setAccountCapital(amt)}
-                    className={`px-1.5 py-0.5 rounded text-[10px] font-mono transition ${
-                      accountCapital === amt ? 'bg-[#2962ff] text-white font-bold' : 'bg-gray-100 dark:bg-[#1e222d] text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+                    onClick={() => handleSwitchDirection('long')}
+                    className={`py-1 rounded-md flex items-center justify-center space-x-1 transition-all ${
+                      orderDirection === 'long' 
+                        ? 'bg-[#089981] text-white shadow-xs' 
+                        : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white'
                     }`}
                   >
-                    ${amt >= 1000 ? `${amt / 1000}k` : amt}
+                    <TrendingUp className="w-3.5 h-3.5" />
+                    <span>看涨做多 (Long Tool)</span>
                   </button>
-                ))}
-              </div>
-            </div>
 
-            {/* 2. Risk % */}
-            <div className="space-y-1 bg-white dark:bg-[#131722] p-2.5 rounded-lg border border-gray-200 dark:border-[#2a2e39]">
-              <div className="flex justify-between items-center text-[11px]">
-                <span className="font-medium text-amber-500 dark:text-amber-400 flex items-center space-x-1">
-                  <Shield className="w-3.5 h-3.5" />
-                  <span>单笔风险比例 (Risk %)</span>
-                </span>
-                <span className="text-amber-500 dark:text-amber-400 font-mono font-bold">
-                  风险额: ${riskAmount.toFixed(2)}
-                </span>
-              </div>
-              <div className="flex items-center space-x-1">
-                <input
-                  type="number"
-                  step="0.5"
-                  min="0.1"
-                  max="10"
-                  value={riskPercent}
-                  onChange={(e) => setRiskPercent(Math.max(0.1, parseFloat(e.target.value) || 1))}
-                  className="w-full px-2 py-1 text-xs font-mono font-bold bg-gray-50 dark:bg-[#1e222d] border border-gray-300 dark:border-[#2a2e39] rounded text-gray-900 dark:text-white focus:outline-none focus:border-[#2962ff]"
-                />
-                <span className="text-gray-500 dark:text-gray-400 font-bold">%</span>
-              </div>
-              <div className="flex items-center space-x-1 pt-1">
-                {[0.5, 1.0, 2.0, 3.0].map(pct => (
                   <button
-                    key={pct}
                     type="button"
-                    onClick={() => setRiskPercent(pct)}
-                    className={`px-1.5 py-0.5 rounded text-[10px] font-mono transition ${
-                      riskPercent === pct ? 'bg-amber-600 text-white font-bold' : 'bg-gray-100 dark:bg-[#1e222d] text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+                    onClick={() => handleSwitchDirection('short')}
+                    className={`py-1 rounded-md flex items-center justify-center space-x-1 transition-all ${
+                      orderDirection === 'short' 
+                        ? 'bg-[#f23645] text-white shadow-xs' 
+                        : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white'
                     }`}
                   >
-                    {pct}%
+                    <TrendingDown className="w-3.5 h-3.5" />
+                    <span>看跌做空 (Short Tool)</span>
                   </button>
-                ))}
-              </div>
-            </div>
-
-            {/* 3. Stop Loss (SL) */}
-            <div className="space-y-1 bg-white dark:bg-[#131722] p-2.5 rounded-lg border border-gray-200 dark:border-[#2a2e39]">
-              <div className="flex justify-between items-center text-[11px]">
-                <span className="font-medium text-rose-500 dark:text-rose-400 flex items-center space-x-1">
-                  <Target className="w-3.5 h-3.5" />
-                  <span>止损价格 (Stop Loss)</span>
-                </span>
-                <span className="text-gray-500 dark:text-gray-400 font-mono text-[10px]">
-                  {formatPips(slDistance, entryPrice)}
-                </span>
-              </div>
-              <input
-                type="number"
-                step="any"
-                value={slPrice}
-                onChange={(e) => {
-                  userCustomizedSlTp.current = true;
-                  setSlPrice(e.target.value);
-                  const newSl = parseFloat(e.target.value);
-                  if (!isNaN(newSl) && entryPrice > 0) {
-                    const dist = Math.abs(entryPrice - newSl);
-                    if (dist > 0) {
-                      const newTp = orderDirection === 'long' 
-                        ? entryPrice + dist * riskRewardRatio 
-                        : entryPrice - dist * riskRewardRatio;
-                      setTpPrice(formatPriceNumber(newTp, entryPrice));
-                    }
-                  }
-                }}
-                placeholder="0.00"
-                className="w-full px-2 py-1 text-xs font-mono font-bold text-rose-500 dark:text-rose-400 bg-gray-50 dark:bg-[#1e222d] border border-gray-300 dark:border-[#2a2e39] rounded focus:outline-none focus:border-rose-500"
-              />
-              <div className="flex flex-wrap items-center gap-1 pt-0.5">
-                <button
-                  type="button"
-                  onClick={() => handleQuickSL('bar')}
-                  className="px-1.5 py-0.5 bg-gray-100 hover:bg-gray-200 dark:bg-[#1e222d] dark:hover:bg-[#2a2e39] text-gray-700 dark:text-gray-300 text-[10px] rounded"
-                >
-                  当前K极值
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleQuickSL('swing5')}
-                  className="px-1.5 py-0.5 bg-gray-100 hover:bg-gray-200 dark:bg-[#1e222d] dark:hover:bg-[#2a2e39] text-gray-700 dark:text-gray-300 text-[10px] rounded"
-                >
-                  前5根极值
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleQuickSL('pips20')}
-                  className="px-1.5 py-0.5 bg-gray-100 hover:bg-gray-200 dark:bg-[#1e222d] dark:hover:bg-[#2a2e39] text-gray-700 dark:text-gray-300 text-[10px] rounded font-mono"
-                >
-                  20点
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    userCustomizedSlTp.current = true;
-                    if (horizontalLines.length > 0) {
-                      const closest = [...horizontalLines].sort((a, b) => Math.abs(a.price - entryPrice) - Math.abs(b.price - entryPrice))[0];
-                      setSlPrice(formatPriceNumber(closest.price, entryPrice));
-                    } else if (rectangles.length > 0) {
-                      const lastRect = rectangles[rectangles.length - 1];
-                      const chosenPrice = orderDirection === 'long' ? lastRect.price2 : lastRect.price1;
-                      setSlPrice(formatPriceNumber(chosenPrice, entryPrice));
-                    }
-                  }}
-                  disabled={horizontalLines.length === 0 && rectangles.length === 0}
-                  className="px-1.5 py-0.5 bg-[#2962ff]/20 text-[#2962ff] hover:bg-[#2962ff]/30 disabled:opacity-30 text-[10px] rounded font-semibold"
-                >
-                  画线价格
-                </button>
-              </div>
-            </div>
-
-            {/* 4. Take Profit (TP) */}
-            <div className="space-y-1 bg-white dark:bg-[#131722] p-2.5 rounded-lg border border-gray-200 dark:border-[#2a2e39]">
-              <div className="flex justify-between items-center text-[11px]">
-                <span className="font-medium text-emerald-500 dark:text-emerald-400 flex items-center space-x-1">
-                  <Sparkles className="w-3.5 h-3.5" />
-                  <span>止盈价格 (Take Profit)</span>
-                </span>
-                <span className="text-gray-500 dark:text-gray-400 font-mono text-[10px]">
-                  {formatPips(tpDistance, entryPrice)}
-                </span>
-              </div>
-              <input
-                type="number"
-                step="any"
-                value={tpPrice}
-                onChange={(e) => {
-                  userCustomizedSlTp.current = true;
-                  setTpPrice(e.target.value);
-                  const newTp = parseFloat(e.target.value);
-                  if (!isNaN(newTp) && entryPrice > 0 && slDistance > 0) {
-                    const newTpDist = Math.abs(newTp - entryPrice);
-                    setRiskRewardRatio(Math.round((newTpDist / slDistance) * 100) / 100);
-                  }
-                }}
-                placeholder="0.00"
-                className="w-full px-2 py-1 text-xs font-mono font-bold text-emerald-500 dark:text-emerald-400 bg-gray-50 dark:bg-[#1e222d] border border-gray-300 dark:border-[#2a2e39] rounded focus:outline-none focus:border-emerald-500"
-              />
-              <div className="flex items-center space-x-1 pt-0.5">
-                {[1.0, 1.5, 2.0, 3.0].map(rr => (
-                  <button
-                    key={rr}
-                    type="button"
-                    onClick={() => handleApplyRR(rr)}
-                    className={`px-1.5 py-0.5 rounded text-[10px] font-mono transition ${
-                      Math.abs(riskRewardRatio - rr) < 0.05 ? 'bg-[#089981] text-white font-bold' : 'bg-gray-100 dark:bg-[#1e222d] text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
-                    }`}
-                  >
-                    1:{rr}
-                  </button>
-                ))}
-                <button
-                  type="button"
-                  onClick={() => {
-                    userCustomizedSlTp.current = true;
-                    if (horizontalLines.length > 0) {
-                      const closest = [...horizontalLines].sort((a, b) => Math.abs(a.price - entryPrice) - Math.abs(b.price - entryPrice))[0];
-                      setTpPrice(formatPriceNumber(closest.price, entryPrice));
-                    } else if (rectangles.length > 0) {
-                      const lastRect = rectangles[rectangles.length - 1];
-                      const chosenPrice = orderDirection === 'long' ? lastRect.price1 : lastRect.price2;
-                      setTpPrice(formatPriceNumber(chosenPrice, entryPrice));
-                    }
-                  }}
-                  disabled={horizontalLines.length === 0 && rectangles.length === 0}
-                  className="px-1.5 py-0.5 bg-[#2962ff]/20 text-[#2962ff] hover:bg-[#2962ff]/30 disabled:opacity-30 text-[10px] rounded font-semibold"
-                >
-                  画线价格
-                </button>
-              </div>
-            </div>
-
-            {/* Metrics Summary Box */}
-            <div className="p-3 bg-white dark:bg-[#131722] rounded-lg border border-gray-200 dark:border-[#2a2e39] space-y-2 text-xs">
-              <div className="flex justify-between items-center">
-                <span className="text-gray-600 dark:text-gray-400">推荐开仓手数:</span>
-                <div className="flex items-center space-x-1.5">
-                  <label className="text-[10px] text-[#2962ff] cursor-pointer flex items-center space-x-0.5">
-                    <input
-                      type="checkbox"
-                      checked={autoSizing}
-                      onChange={(e) => setAutoSizing(e.target.checked)}
-                      className="w-3 h-3 text-[#2962ff] rounded bg-white dark:bg-[#1e222d] border-gray-300 dark:border-[#2a2e39]"
-                    />
-                    <span>自动控仓</span>
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    disabled={autoSizing}
-                    value={activeLots}
-                    onChange={(e) => setLotSize(e.target.value)}
-                    className="w-16 px-1.5 py-0.5 text-xs font-mono font-bold bg-gray-50 dark:bg-[#1e222d] border border-gray-300 dark:border-[#2a2e39] rounded text-gray-900 dark:text-white text-right"
-                  />
-                  <span className="text-[10px] text-gray-500">手</span>
                 </div>
               </div>
 
-              <div className="flex justify-between items-center">
-                <span className="text-gray-600 dark:text-gray-400">预估止损亏损:</span>
-                <span className="font-mono font-bold text-rose-500 dark:text-rose-400">
-                  -${projectedLoss.toFixed(2)} (-{((projectedLoss / accountCapital) * 100).toFixed(1)}%)
-                </span>
+              {/* Visual checkbox */}
+              <label className="flex items-center space-x-2 text-[11px] text-gray-600 dark:text-gray-400 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={showTvVisuals}
+                  onChange={(e) => setShowTvVisuals(e.target.checked)}
+                  className="rounded border-gray-300 dark:border-[#2a2e39] text-[#2962ff] focus:ring-0 bg-white dark:bg-[#131722]"
+                />
+                <span>图表显示多空盈亏标尺</span>
+              </label>
+
+              {/* 1. Account Capital & 2. Risk % (2 Columns) */}
+              <div className="grid grid-cols-2 gap-2">
+                {/* Account Capital */}
+                <div className="space-y-1 bg-white dark:bg-[#131722] p-2 rounded-lg border border-gray-200 dark:border-[#2a2e39]">
+                  <div className="flex justify-between items-center text-[11px]">
+                    <span className="font-medium text-gray-700 dark:text-gray-300 flex items-center space-x-1">
+                      <DollarSign className="w-3 h-3 text-[#2962ff]" />
+                      <span className="truncate">账户资金 (Capital)</span>
+                    </span>
+                  </div>
+                  <div className="flex items-center space-x-1">
+                    <span className="text-gray-500 font-bold text-xs">$</span>
+                    <input
+                      type="number"
+                      step="1000"
+                      value={accountCapital}
+                      onChange={(e) => setAccountCapital(Math.max(100, parseFloat(e.target.value) || 10000))}
+                      className="w-full px-1.5 py-0.5 text-xs font-mono font-bold bg-gray-50 dark:bg-[#1e222d] border border-gray-300 dark:border-[#2a2e39] rounded text-gray-900 dark:text-white focus:outline-none focus:border-[#2962ff]"
+                    />
+                  </div>
+                  <div className="grid grid-cols-4 gap-0.5 pt-0.5">
+                    {[5000, 10000, 50000, 100000].map(amt => (
+                      <button
+                        key={amt}
+                        type="button"
+                        onClick={() => setAccountCapital(amt)}
+                        className={`py-0.5 rounded text-[10px] font-mono transition text-center ${
+                          accountCapital === amt ? 'bg-[#2962ff] text-white font-bold' : 'bg-gray-100 dark:bg-[#1e222d] text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+                        }`}
+                      >
+                        ${amt >= 1000 ? `${amt / 1000}k` : amt}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Risk % */}
+                <div className="space-y-1 bg-white dark:bg-[#131722] p-2 rounded-lg border border-gray-200 dark:border-[#2a2e39]">
+                  <div className="flex justify-between items-center text-[11px]">
+                    <span className="font-medium text-amber-500 dark:text-amber-400 flex items-center space-x-1">
+                      <Shield className="w-3 h-3" />
+                      <span className="truncate">单笔风险比例 (Risk %)</span>
+                    </span>
+                    <span className="text-amber-500 dark:text-amber-400 font-mono font-bold text-[10px]">
+                      ${riskAmount.toFixed(0)}
+                    </span>
+                  </div>
+                  <div className="flex items-center space-x-1">
+                    <input
+                      type="number"
+                      step="0.5"
+                      min="0.1"
+                      max="10"
+                      value={riskPercent}
+                      onChange={(e) => setRiskPercent(Math.max(0.1, parseFloat(e.target.value) || 1))}
+                      className="w-full px-1.5 py-0.5 text-xs font-mono font-bold bg-gray-50 dark:bg-[#1e222d] border border-gray-300 dark:border-[#2a2e39] rounded text-gray-900 dark:text-white focus:outline-none focus:border-[#2962ff]"
+                    />
+                    <span className="text-gray-500 dark:text-gray-400 font-bold text-xs">%</span>
+                  </div>
+                  <div className="grid grid-cols-4 gap-0.5 pt-0.5">
+                    {[0.5, 1.0, 2.0, 3.0].map(pct => (
+                      <button
+                        key={pct}
+                        type="button"
+                        onClick={() => setRiskPercent(pct)}
+                        className={`py-0.5 rounded text-[10px] font-mono transition text-center ${
+                          riskPercent === pct ? 'bg-amber-600 text-white font-bold' : 'bg-gray-100 dark:bg-[#1e222d] text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+                        }`}
+                      >
+                        {pct}%
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
 
-              <div className="flex justify-between items-center">
-                <span className="text-gray-600 dark:text-gray-400">预估止盈收益:</span>
-                <span className="font-mono font-bold text-emerald-500 dark:text-emerald-400">
-                  +${projectedProfit.toFixed(2)} (+{((projectedProfit / accountCapital) * 100).toFixed(1)}%)
-                </span>
+              {/* 3. Stop Loss (SL) */}
+              <div className="space-y-1 bg-white dark:bg-[#131722] p-2 rounded-lg border border-gray-200 dark:border-[#2a2e39]">
+                <div className="flex justify-between items-center text-[11px]">
+                  <span className="font-medium text-rose-500 dark:text-rose-400 flex items-center space-x-1">
+                    <Target className="w-3.5 h-3.5" />
+                    <span>止损价格 (Stop Loss)</span>
+                  </span>
+                  <span className="text-gray-500 dark:text-gray-400 font-mono text-[10px]">
+                    {formatPips(slDistance, entryPrice)}
+                  </span>
+                </div>
+                <div className="flex items-center space-x-1.5">
+                  <input
+                    type="number"
+                    step="any"
+                    value={slPrice}
+                    onChange={(e) => {
+                      userCustomizedSlTp.current = true;
+                      setSlPrice(e.target.value);
+                      const newSl = parseFloat(e.target.value);
+                      if (!isNaN(newSl) && entryPrice > 0) {
+                        const dist = Math.abs(entryPrice - newSl);
+                        if (dist > 0) {
+                          const newTp = orderDirection === 'long' 
+                            ? entryPrice + dist * riskRewardRatio 
+                            : entryPrice - dist * riskRewardRatio;
+                          setTpPrice(formatPriceNumber(newTp, entryPrice));
+                        }
+                      }
+                    }}
+                    placeholder="0.00"
+                    className="flex-1 min-w-0 px-2 py-0.5 text-xs font-mono font-bold text-rose-500 dark:text-rose-400 bg-gray-50 dark:bg-[#1e222d] border border-gray-300 dark:border-[#2a2e39] rounded focus:outline-none focus:border-rose-500"
+                  />
+                  <div className="flex items-center space-x-1 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => handleQuickSL('bar')}
+                      className="px-1.5 py-0.5 bg-gray-100 hover:bg-gray-200 dark:bg-[#1e222d] dark:hover:bg-[#2a2e39] text-gray-700 dark:text-gray-300 text-[10px] rounded"
+                    >
+                      当前K
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleQuickSL('swing5')}
+                      className="px-1.5 py-0.5 bg-gray-100 hover:bg-gray-200 dark:bg-[#1e222d] dark:hover:bg-[#2a2e39] text-gray-700 dark:text-gray-300 text-[10px] rounded"
+                    >
+                      前5根
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleQuickSL('pips20')}
+                      className="px-1.5 py-0.5 bg-gray-100 hover:bg-gray-200 dark:bg-[#1e222d] dark:hover:bg-[#2a2e39] text-gray-700 dark:text-gray-300 text-[10px] rounded font-mono"
+                    >
+                      20点
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        userCustomizedSlTp.current = true;
+                        if (horizontalLines.length > 0) {
+                          const closest = [...horizontalLines].sort((a, b) => Math.abs(a.price - entryPrice) - Math.abs(b.price - entryPrice))[0];
+                          setSlPrice(formatPriceNumber(closest.price, entryPrice));
+                        } else if (rectangles.length > 0) {
+                          const lastRect = rectangles[rectangles.length - 1];
+                          const chosenPrice = orderDirection === 'long' ? lastRect.price2 : lastRect.price1;
+                          setSlPrice(formatPriceNumber(chosenPrice, entryPrice));
+                        }
+                      }}
+                      disabled={horizontalLines.length === 0 && rectangles.length === 0}
+                      className="px-1.5 py-0.5 bg-[#2962ff]/20 text-[#2962ff] hover:bg-[#2962ff]/30 disabled:opacity-30 text-[10px] rounded font-semibold"
+                    >
+                      画线价格
+                    </button>
+                  </div>
+                </div>
               </div>
 
-              <div className="flex justify-between items-center pt-1 border-t border-gray-200 dark:border-[#2a2e39]">
-                <span className="text-gray-600 dark:text-gray-400">设定盈亏比 (R:R):</span>
-                <span className="font-mono font-bold text-[#2962ff]">
-                  1 : {currentRR.toFixed(2)}
-                </span>
+              {/* 4. Take Profit (TP) */}
+              <div className="space-y-1 bg-white dark:bg-[#131722] p-2 rounded-lg border border-gray-200 dark:border-[#2a2e39]">
+                <div className="flex justify-between items-center text-[11px]">
+                  <span className="font-medium text-emerald-500 dark:text-emerald-400 flex items-center space-x-1">
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>止盈价格 (Take Profit)</span>
+                  </span>
+                  <span className="text-gray-500 dark:text-gray-400 font-mono text-[10px]">
+                    {formatPips(tpDistance, entryPrice)}
+                  </span>
+                </div>
+                <div className="flex items-center space-x-1.5">
+                  <input
+                    type="number"
+                    step="any"
+                    value={tpPrice}
+                    onChange={(e) => {
+                      userCustomizedSlTp.current = true;
+                      setTpPrice(e.target.value);
+                      const newTp = parseFloat(e.target.value);
+                      if (!isNaN(newTp) && entryPrice > 0 && slDistance > 0) {
+                        const newTpDist = Math.abs(newTp - entryPrice);
+                        setRiskRewardRatio(Math.round((newTpDist / slDistance) * 100) / 100);
+                      }
+                    }}
+                    placeholder="0.00"
+                    className="flex-1 min-w-0 px-2 py-0.5 text-xs font-mono font-bold text-emerald-500 dark:text-emerald-400 bg-gray-50 dark:bg-[#1e222d] border border-gray-300 dark:border-[#2a2e39] rounded focus:outline-none focus:border-emerald-500"
+                  />
+                  <div className="flex items-center space-x-1 shrink-0">
+                    {[1.0, 1.5, 2.0, 3.0].map(rr => (
+                      <button
+                        key={rr}
+                        type="button"
+                        onClick={() => handleApplyRR(rr)}
+                        className={`px-1.5 py-0.5 rounded text-[10px] font-mono transition ${
+                          Math.abs(riskRewardRatio - rr) < 0.05 ? 'bg-[#089981] text-white font-bold' : 'bg-gray-100 dark:bg-[#1e222d] text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+                        }`}
+                      >
+                        1:{rr}
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        userCustomizedSlTp.current = true;
+                        if (horizontalLines.length > 0) {
+                          const closest = [...horizontalLines].sort((a, b) => Math.abs(a.price - entryPrice) - Math.abs(b.price - entryPrice))[0];
+                          setTpPrice(formatPriceNumber(closest.price, entryPrice));
+                        } else if (rectangles.length > 0) {
+                          const lastRect = rectangles[rectangles.length - 1];
+                          const chosenPrice = orderDirection === 'long' ? lastRect.price1 : lastRect.price2;
+                          setTpPrice(formatPriceNumber(chosenPrice, entryPrice));
+                        }
+                      }}
+                      disabled={horizontalLines.length === 0 && rectangles.length === 0}
+                      className="px-1.5 py-0.5 bg-[#2962ff]/20 text-[#2962ff] hover:bg-[#2962ff]/30 disabled:opacity-30 text-[10px] rounded font-semibold"
+                    >
+                      画线价格
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Metrics Summary Box */}
+              <div className="p-2 bg-white dark:bg-[#131722] rounded-lg border border-gray-200 dark:border-[#2a2e39] space-y-1.5 text-xs">
+                <div className="flex justify-between items-center text-[11px]">
+                  <span className="text-gray-600 dark:text-gray-400 font-medium">推荐开仓手数:</span>
+                  <div className="flex items-center space-x-1.5">
+                    <label className="text-[10px] text-[#2962ff] cursor-pointer flex items-center space-x-0.5">
+                      <input
+                        type="checkbox"
+                        checked={autoSizing}
+                        onChange={(e) => setAutoSizing(e.target.checked)}
+                        className="w-3 h-3 text-[#2962ff] rounded bg-white dark:bg-[#1e222d] border-gray-300 dark:border-[#2a2e39]"
+                      />
+                      <span>自动控仓</span>
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      disabled={autoSizing}
+                      value={activeLots}
+                      onChange={(e) => setLotSize(e.target.value)}
+                      className="w-16 px-1.5 py-0.5 text-xs font-mono font-bold bg-gray-50 dark:bg-[#1e222d] border border-gray-300 dark:border-[#2a2e39] rounded text-gray-900 dark:text-white text-right"
+                    />
+                    <span className="text-[10px] text-gray-500">手</span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-1 pt-1 border-t border-gray-200 dark:border-[#2a2e39] text-[11px]">
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-500 text-[10px]">预估止损亏损:</span>
+                    <span className="font-mono font-bold text-rose-500 dark:text-rose-400">
+                      -${projectedLoss.toFixed(2)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-500 text-[10px]">预估止盈收益:</span>
+                    <span className="font-mono font-bold text-emerald-500 dark:text-emerald-400">
+                      +${projectedProfit.toFixed(2)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-500 text-[10px]">设定盈亏比:</span>
+                    <span className="font-mono font-bold text-[#2962ff]">
+                      1 : {currentRR.toFixed(2)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-500 text-[10px]">单笔风险:</span>
+                    <span className="font-mono font-bold text-amber-500 dark:text-amber-400">
+                      ${riskAmount.toFixed(0)} ({riskPercent}%)
+                    </span>
+                  </div>
+                </div>
               </div>
             </div>
 
-            {/* Order Execution Button */}
-            {position ? (
-              <button
-                type="button"
-                onClick={closePosition}
-                className="w-full py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg font-bold text-xs shadow-md transition"
-              >
-                市价平仓当前持仓
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => openOrder(orderDirection)}
-                className={`w-full py-2.5 rounded-lg font-bold text-xs text-white shadow-md transition flex items-center justify-center space-x-1.5 active:scale-98 ${
-                  orderDirection === 'long'
-                    ? 'bg-[#089981] hover:bg-emerald-600'
-                    : 'bg-[#f23645] hover:bg-rose-600'
-                }`}
-              >
-                {orderDirection === 'long' ? (
-                  <>
-                    <TrendingUp className="w-4 h-4" />
-                    <span>看涨做多下单 (BUY {activeLots}手 | 1:{currentRR.toFixed(1)})</span>
-                  </>
-                ) : (
-                  <>
-                    <TrendingDown className="w-4 h-4" />
-                    <span>看跌做空下单 (SELL {activeLots}手 | 1:{currentRR.toFixed(1)})</span>
-                  </>
-                )}
-              </button>
-            )}
+            {/* Bottom Actions: Order Execution Button & Messages */}
+            <div className="space-y-1 pt-1">
+              {position ? (
+                <button
+                  type="button"
+                  onClick={closePosition}
+                  className="w-full py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg font-bold text-xs shadow-md transition shrink-0"
+                >
+                  市价平仓当前持仓
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => openOrder(orderDirection)}
+                  className={`w-full py-2 rounded-lg font-bold text-xs text-white shadow-md transition flex items-center justify-center space-x-1.5 active:scale-98 shrink-0 ${
+                    orderDirection === 'long'
+                      ? 'bg-[#089981] hover:bg-emerald-600'
+                      : 'bg-[#f23645] hover:bg-rose-600'
+                  }`}
+                >
+                  {orderDirection === 'long' ? (
+                    <>
+                      <TrendingUp className="w-4 h-4" />
+                      <span>看涨做多下单 (BUY {activeLots}手 | 1:{currentRR.toFixed(1)})</span>
+                    </>
+                  ) : (
+                    <>
+                      <TrendingDown className="w-4 h-4" />
+                      <span>看跌做空下单 (SELL {activeLots}手 | 1:{currentRR.toFixed(1)})</span>
+                    </>
+                  )}
+                </button>
+              )}
 
-            {orderErrorMsg && (
-              <div className="text-xs text-rose-500 flex items-center space-x-1 pt-1 font-medium">
-                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                <span>{orderErrorMsg}</span>
-              </div>
-            )}
+              {orderErrorMsg && (
+                <div className="text-xs text-rose-500 flex items-center space-x-1 pt-0.5 font-medium shrink-0">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                  <span>{orderErrorMsg}</span>
+                </div>
+              )}
 
-            {saveSuccessMsg && (
-              <div className="text-xs text-emerald-400 flex items-center space-x-1 pt-1 font-medium">
-                <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                <span>{saveSuccessMsg}</span>
-              </div>
-            )}
+              {saveSuccessMsg && (
+                <div className="text-xs text-emerald-400 flex items-center space-x-1 pt-0.5 font-medium shrink-0">
+                  <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                  <span>{saveSuccessMsg}</span>
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>
