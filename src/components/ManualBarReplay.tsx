@@ -2677,11 +2677,6 @@ export default function ManualBarReplay({
   }, [replayTrades, tradeFilter]);
 
   const displayCandle = hoveredCandle || currentCandle;
-  const candleChange = displayCandle ? displayCandle.close - displayCandle.open : 0;
-  const candleChangePct = displayCandle && displayCandle.open > 0 
-    ? ((candleChange / displayCandle.open) * 100).toFixed(2) 
-    : '0.00';
-  const isUp = candleChange >= 0;
 
   // Render individual chart window for multi-timeframe linkage
   const renderWindow = (winIdx: number) => {
@@ -2862,40 +2857,23 @@ export default function ManualBarReplay({
             />
           </div>
 
-          {/* Timeframe quick buttons + native select for tests */}
-          <div className="flex items-center space-x-0.5 bg-gray-100 dark:bg-[#131722] p-0.5 rounded-lg border border-gray-200 dark:border-[#2a2e39]">
-            {['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1'].map((tf) => (
-              <button
-                key={tf}
-                type="button"
-                onClick={() => setTimeframe(tf)}
-                className={`px-2 py-1 rounded text-xs font-semibold transition ${
-                  timeframe === tf
-                    ? 'bg-[#2962ff] text-white shadow-xs'
-                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200 dark:text-gray-400 dark:hover:text-gray-200 dark:hover:bg-[#2a2e39]'
-                }`}
-              >
-                {tf === 'M1' ? '1m' : tf === 'M5' ? '5m' : tf === 'M15' ? '15m' : tf === 'M30' ? '30m' : tf === 'H1' ? '1h' : tf === 'H4' ? '4h' : 'D'}
-              </button>
-            ))}
-
-            <label htmlFor="manual-replay-timeframe" className="sr-only">K线周期</label>
-            <select
-              id="manual-replay-timeframe"
-              aria-label="K线周期"
-              value={timeframe}
-              onChange={(e) => setTimeframe(e.target.value)}
-              className="sr-only"
-            >
-              <option value="M1">1 分钟 (M1)</option>
-              <option value="M5">5 分钟 (M5)</option>
-              <option value="M15">15 分钟 (M15)</option>
-              <option value="M30">30 分钟 (M30)</option>
-              <option value="H1">1 小时 (H1)</option>
-              <option value="H4">4 小时 (H4)</option>
-              <option value="D1">日线 (D1)</option>
-            </select>
-          </div>
+          {/* Accessible timeframe select for tests and screen readers */}
+          <label htmlFor="manual-replay-timeframe" className="sr-only">K线周期</label>
+          <select
+            id="manual-replay-timeframe"
+            aria-label="K线周期"
+            value={timeframe}
+            onChange={(e) => setTimeframe(e.target.value)}
+            className="sr-only"
+          >
+            <option value="M1">1 分钟 (M1)</option>
+            <option value="M5">5 分钟 (M5)</option>
+            <option value="M15">15 分钟 (M15)</option>
+            <option value="M30">30 分钟 (M30)</option>
+            <option value="H1">1 小时 (H1)</option>
+            <option value="H4">4 小时 (H4)</option>
+            <option value="D1">日线 (D1)</option>
+          </select>
 
           {/* Indicators Menu Button */}
           <div className="relative">
@@ -3210,14 +3188,6 @@ export default function ManualBarReplay({
               {displayCandle && (
                 <div className="flex items-center space-x-2 text-[11px]">
                   <span className="text-gray-500 dark:text-gray-400">时间: <b className="text-gray-800 dark:text-gray-200">{displayCandle.time}</b></span>
-                  <span className="text-gray-500 dark:text-gray-400">O: <b className="text-gray-800 dark:text-gray-200">{displayCandle.open}</b></span>
-                  <span className="text-gray-500 dark:text-gray-400">H: <b className="text-emerald-500 dark:text-emerald-400">{displayCandle.high}</b></span>
-                  <span className="text-gray-500 dark:text-gray-400">L: <b className="text-rose-500 dark:text-rose-400">{displayCandle.low}</b></span>
-                  <span className="text-gray-500 dark:text-gray-400">C: <b className={isUp ? 'text-emerald-500 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'}>{displayCandle.close}</b></span>
-                  <span className={`font-bold ${isUp ? 'text-emerald-500 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'}`}>
-                    {isUp ? '+' : ''}{candleChangePct}%
-                  </span>
-                  <span className="text-gray-500 dark:text-gray-400 hidden md:inline">量: {displayCandle.volume}</span>
                 </div>
               )}
             </div>
