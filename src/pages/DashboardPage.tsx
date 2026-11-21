@@ -1092,11 +1092,11 @@ export default function DashboardPage() {
               {chartTab === 'daily_pnl' && (
                 <div className="flex flex-wrap items-center gap-2 sm:gap-3 text-xs font-mono">
                   {/* Mode switcher: Zero centered dual vs Side by side */}
-                  <div className="flex items-center bg-gray-100 dark:bg-white/5 p-0.5 rounded-lg border border-gray-200/60 dark:border-white/10 text-[11px]">
+                  <div className="flex items-center bg-gray-100 dark:bg-white/5 p-0.5 rounded-lg border border-gray-200/60 dark:border-white/10 text-xs">
                     <button
                       type="button"
                       onClick={() => setDailyBarLayout('zero_centered')}
-                      className={`px-2 py-0.5 rounded-md transition font-medium ${
+                      className={`px-2.5 py-1 rounded-md transition font-medium ${
                         dailyBarLayout === 'zero_centered'
                           ? 'bg-white dark:bg-purple-600 text-purple-700 dark:text-white shadow-2xs font-bold'
                           : 'text-gray-500 hover:text-gray-800 dark:hover:text-gray-200'
@@ -1107,7 +1107,7 @@ export default function DashboardPage() {
                     <button
                       type="button"
                       onClick={() => setDailyBarLayout('side_by_side')}
-                      className={`px-2 py-0.5 rounded-md transition font-medium ${
+                      className={`px-2.5 py-1 rounded-md transition font-medium ${
                         dailyBarLayout === 'side_by_side'
                           ? 'bg-white dark:bg-purple-600 text-purple-700 dark:text-white shadow-2xs font-bold'
                           : 'text-gray-500 hover:text-gray-800 dark:hover:text-gray-200'
@@ -1118,14 +1118,14 @@ export default function DashboardPage() {
                   </div>
 
                   {/* Dual Bar Legend */}
-                  <div className="hidden sm:flex items-center space-x-2 text-[11px]">
-                    <span className="flex items-center space-x-1 text-emerald-600 dark:text-emerald-400 font-bold">
-                      <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
+                  <div className="hidden sm:flex items-center space-x-2 text-xs">
+                    <span className="flex items-center space-x-1.5 text-emerald-600 dark:text-emerald-400 font-bold">
+                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block" />
                       <span>盈利柱</span>
                     </span>
                     <span className="text-gray-300 dark:text-gray-600">·</span>
-                    <span className="flex items-center space-x-1 text-rose-600 dark:text-rose-400 font-bold">
-                      <span className="w-2 h-2 rounded-full bg-rose-500 inline-block" />
+                    <span className="flex items-center space-x-1.5 text-rose-600 dark:text-rose-400 font-bold">
+                      <span className="w-2.5 h-2.5 rounded-full bg-rose-500 inline-block" />
                       <span>亏损柱</span>
                     </span>
                   </div>
@@ -1133,7 +1133,7 @@ export default function DashboardPage() {
                   <span className="hidden sm:inline text-gray-300 dark:text-gray-700">|</span>
 
                   {/* Green / Red Days Ratio & Overall Win Rate */}
-                  <div className="flex items-center space-x-2">
+                  <div className="flex items-center space-x-2 text-xs sm:text-sm">
                     <span className="text-emerald-600 dark:text-emerald-400 font-bold">{dailyPnLData.greenDays} 绿日</span>
                     <span className="text-gray-300 dark:text-gray-700">/</span>
                     <span className="text-rose-600 dark:text-rose-400 font-bold">{dailyPnLData.redDays} 红日</span>
@@ -1331,25 +1331,25 @@ export default function DashboardPage() {
                       return (
                         <div ref={dailyBarContainerRef} className="pt-4 pb-2 relative">
                           {/* Subtitle indicator */}
-                          <div className="flex items-center justify-between text-xs text-gray-400 mb-2 font-mono">
-                            <span className="flex items-center space-x-1 text-emerald-600 dark:text-emerald-400 font-medium">
-                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                          <div className="flex items-center justify-between text-xs sm:text-sm text-gray-500 dark:text-gray-400 mb-3 font-mono">
+                            <span className="flex items-center space-x-1.5 text-emerald-600 dark:text-emerald-400 font-semibold">
+                              <span className="w-2 h-2 rounded-full bg-emerald-500" />
                               <span>最高盈利日: +${Math.round(maxProfit)}</span>
                             </span>
-                            <span className="font-semibold text-gray-500 dark:text-gray-300 hidden sm:inline">
+                            <span className="font-semibold text-gray-600 dark:text-gray-300 hidden sm:inline">
                               {dailyBarLayout === 'zero_centered'
                                 ? '基准零轴 ($0.00) · 每天包含盈利(金额/单数)与亏损(金额/单数)两条柱子'
                                 : '并排对比 · 每天包含盈利(金额/单数)与亏损(金额/单数)两条柱子'}
                             </span>
-                            <span className="flex items-center space-x-1 text-rose-600 dark:text-rose-400 font-medium">
-                              <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                            <span className="flex items-center space-x-1.5 text-rose-600 dark:text-rose-400 font-semibold">
+                              <span className="w-2 h-2 rounded-full bg-rose-500" />
                               <span>最大亏损日: -${Math.round(maxLoss)}</span>
                             </span>
                           </div>
 
                           {/* 1. Layout: Zero-centered dual bars (零轴双向双柱) */}
                           {dailyBarLayout === 'zero_centered' && (
-                            <div className="min-h-[340px] flex items-center justify-between gap-1 sm:gap-2 overflow-x-auto border-t border-b border-gray-100 dark:border-white/5 py-3 px-1">
+                            <div className="min-h-[360px] flex items-center justify-between gap-1.5 sm:gap-2.5 overflow-x-auto border-t border-b border-gray-100 dark:border-white/5 py-4 px-1">
                               {dailyPnLData.list.map((item, idx) => {
                                 const hasProfit = item.profit > 0.001;
                                 const hasLoss = item.loss > 0.001;
@@ -1360,7 +1360,7 @@ export default function DashboardPage() {
                                 return (
                                   <div
                                     key={idx}
-                                    className="flex-1 min-w-[56px] sm:min-w-[68px] max-w-[84px] h-full flex flex-col items-center justify-between relative group cursor-pointer px-0.5 select-none"
+                                    className="flex-1 min-w-[68px] sm:min-w-[84px] max-w-[104px] h-full flex flex-col items-center justify-between relative group cursor-pointer px-0.5 select-none"
                                     onMouseEnter={(e) => {
                                       if (!dailyBarContainerRef.current) return;
                                       const rect = dailyBarContainerRef.current.getBoundingClientRect();
@@ -1382,26 +1382,26 @@ export default function DashboardPage() {
                                     onMouseLeave={() => setHoverDailyBar(null)}
                                   >
                                     {/* Upper half: Above Zero Line (盈利金额 & 盈利单数 + 盈利柱) */}
-                                    <div className="h-[132px] w-full flex flex-col justify-end items-center">
+                                    <div className="h-[142px] w-full flex flex-col justify-end items-center">
                                       {/* 盈利数据文本: 金额 & 单数 */}
-                                      <div className="h-[36px] flex flex-col items-center justify-end pb-1 w-full text-center">
+                                      <div className="h-[44px] flex flex-col items-center justify-end pb-1 w-full text-center">
                                         {hasProfit ? (
                                           <>
-                                            <span className="text-[10px] sm:text-[11px] font-bold font-mono text-emerald-600 dark:text-emerald-400 leading-none">
+                                            <span className="text-xs sm:text-[13px] font-extrabold font-mono text-emerald-600 dark:text-emerald-400 leading-none">
                                               +${item.profit >= 1000 ? (item.profit / 1000).toFixed(1) + 'k' : item.profit.toFixed(0)}
                                             </span>
-                                            <span className="text-[9px] font-mono font-medium text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/70 border border-emerald-200/80 dark:border-emerald-800/60 px-1 py-0.2 rounded-xs mt-0.5 leading-none shadow-2xs">
+                                            <span className="text-[11px] sm:text-xs font-mono font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-100/80 dark:bg-emerald-950/80 border border-emerald-200 dark:border-emerald-800/70 px-1.5 py-0.5 rounded mt-1 leading-none shadow-2xs">
                                               {item.wins}单
                                             </span>
                                           </>
                                         ) : (
-                                          <span className="text-[9px] text-gray-300 dark:text-gray-700">-</span>
+                                          <span className="text-xs text-gray-300 dark:text-gray-700">-</span>
                                         )}
                                       </div>
 
                                       {/* 柱子槽位 (左侧盈利柱，右侧占位留白) - 留足间距确保永不遮挡 */}
-                                      <div className="h-[96px] w-full flex items-end justify-center gap-1 px-1">
-                                        <div className="flex-1 max-w-[20px] h-full flex items-end justify-center">
+                                      <div className="h-[96px] w-full flex items-end justify-center gap-1.5 px-1">
+                                        <div className="flex-1 max-w-[24px] sm:max-w-[28px] h-full flex items-end justify-center">
                                           {hasProfit && (
                                             <div
                                               style={{ height: `${profitBarH}px`, maxHeight: `${barMaxH}px` }}
@@ -1410,7 +1410,7 @@ export default function DashboardPage() {
                                             />
                                           )}
                                         </div>
-                                        <div className="flex-1 max-w-[20px] h-full" />
+                                        <div className="flex-1 max-w-[24px] sm:max-w-[28px] h-full" />
                                       </div>
                                     </div>
 
@@ -1418,11 +1418,11 @@ export default function DashboardPage() {
                                     <div className="w-full h-[2px] bg-gray-200 dark:bg-white/15 my-1" />
 
                                     {/* Lower half: Below Zero Line (亏损柱 + 亏损单数 & 亏损金额) */}
-                                    <div className="h-[132px] w-full flex flex-col justify-start items-center">
+                                    <div className="h-[142px] w-full flex flex-col justify-start items-center">
                                       {/* 柱子槽位 (左侧占位留白，右侧亏损柱) - 留足间距确保永不遮挡 */}
-                                      <div className="h-[96px] w-full flex items-start justify-center gap-1 px-1">
-                                        <div className="flex-1 max-w-[20px] h-full" />
-                                        <div className="flex-1 max-w-[20px] h-full flex items-start justify-center">
+                                      <div className="h-[96px] w-full flex items-start justify-center gap-1.5 px-1">
+                                        <div className="flex-1 max-w-[24px] sm:max-w-[28px] h-full" />
+                                        <div className="flex-1 max-w-[24px] sm:max-w-[28px] h-full flex items-start justify-center">
                                           {hasLoss && (
                                             <div
                                               style={{ height: `${lossBarH}px`, maxHeight: `${barMaxH}px` }}
@@ -1434,40 +1434,40 @@ export default function DashboardPage() {
                                       </div>
 
                                       {/* 亏损数据文本: 单数 & 金额 */}
-                                      <div className="h-[36px] flex flex-col items-center justify-start pt-1 w-full text-center">
+                                      <div className="h-[44px] flex flex-col items-center justify-start pt-1 w-full text-center">
                                         {hasLoss ? (
                                           <>
-                                            <span className="text-[9px] font-mono font-medium text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/70 border border-rose-200/80 dark:border-rose-800/60 px-1 py-0.2 rounded-xs mb-0.5 leading-none shadow-2xs">
+                                            <span className="text-[11px] sm:text-xs font-mono font-bold text-rose-700 dark:text-rose-300 bg-rose-100/80 dark:bg-rose-950/80 border border-rose-200 dark:border-rose-800/70 px-1.5 py-0.5 rounded mb-1 leading-none shadow-2xs">
                                               {item.losses}单
                                             </span>
-                                            <span className="text-[10px] sm:text-[11px] font-bold font-mono text-rose-600 dark:text-rose-400 leading-none">
+                                            <span className="text-xs sm:text-[13px] font-extrabold font-mono text-rose-600 dark:text-rose-400 leading-none">
                                               -${item.loss >= 1000 ? (item.loss / 1000).toFixed(1) + 'k' : item.loss.toFixed(0)}
                                             </span>
                                           </>
                                         ) : (
-                                          <span className="text-[9px] text-gray-300 dark:text-gray-700">-</span>
+                                          <span className="text-xs text-gray-300 dark:text-gray-700">-</span>
                                         )}
                                       </div>
                                     </div>
 
                                     {/* Bottom Date, Net Badge & Win Rate */}
-                                    <div className="flex flex-col items-center mt-1.5 space-y-0.5">
-                                      <span className="text-[10px] font-mono text-gray-500 dark:text-gray-400 truncate">
+                                    <div className="flex flex-col items-center mt-2 space-y-1">
+                                      <span className="text-xs sm:text-[13px] font-mono font-bold text-gray-600 dark:text-gray-300 truncate">
                                         {item.date.substring(5)}
                                       </span>
                                       <span
-                                        className={`text-[9px] font-mono px-1.5 py-0.2 rounded-xs font-bold whitespace-nowrap shadow-2xs ${
+                                        className={`text-[11px] sm:text-xs font-mono px-2 py-0.5 rounded-md font-bold whitespace-nowrap shadow-2xs ${
                                           item.pnl > 0.001
-                                            ? 'text-emerald-700 dark:text-emerald-300 bg-emerald-100/70 dark:bg-emerald-950/70 border border-emerald-300/40 dark:border-emerald-800/50'
+                                            ? 'text-emerald-700 dark:text-emerald-300 bg-emerald-100/80 dark:bg-emerald-950/80 border border-emerald-300/50 dark:border-emerald-800/60'
                                             : item.pnl < -0.001
-                                            ? 'text-rose-700 dark:text-rose-300 bg-rose-100/70 dark:bg-rose-950/70 border border-rose-300/40 dark:border-rose-800/50'
-                                            : 'text-gray-500 bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10'
+                                            ? 'text-rose-700 dark:text-rose-300 bg-rose-100/80 dark:bg-rose-950/80 border border-rose-300/50 dark:border-rose-800/60'
+                                            : 'text-gray-600 bg-gray-100 dark:bg-white/10 border border-gray-200 dark:border-white/10'
                                         }`}
                                         title={`当日净盈亏: ${item.pnl >= 0 ? '+' : ''}$${item.pnl.toFixed(2)}`}
                                       >
                                         净 {item.pnl >= 0 ? '+' : '-'}${Math.abs(item.pnl).toFixed(0)}
                                       </span>
-                                      <span className="text-[9px] font-mono font-medium text-purple-600 dark:text-purple-400 mt-0.5">
+                                      <span className="text-[11px] sm:text-xs font-mono font-semibold text-purple-600 dark:text-purple-400">
                                         胜率 {dayWinRate}%
                                       </span>
                                     </div>
@@ -1479,7 +1479,7 @@ export default function DashboardPage() {
 
                           {/* 2. Layout: Side-by-side dual bars (同向并排双柱) */}
                           {dailyBarLayout === 'side_by_side' && (
-                            <div className="min-h-[340px] flex items-end justify-between gap-1 sm:gap-2 overflow-x-auto border-t border-b border-gray-100 dark:border-white/5 py-4 px-1">
+                            <div className="min-h-[360px] flex items-end justify-between gap-1.5 sm:gap-2.5 overflow-x-auto border-t border-b border-gray-100 dark:border-white/5 py-4 px-1">
                               {dailyPnLData.list.map((item, idx) => {
                                 const hasProfit = item.profit > 0.001;
                                 const hasLoss = item.loss > 0.001;
@@ -1491,7 +1491,7 @@ export default function DashboardPage() {
                                 return (
                                   <div
                                     key={idx}
-                                    className="flex-1 min-w-[56px] sm:min-w-[68px] max-w-[84px] h-full flex flex-col items-center justify-end relative group cursor-pointer px-0.5 select-none"
+                                    className="flex-1 min-w-[72px] sm:min-w-[88px] max-w-[110px] h-full flex flex-col items-center justify-end relative group cursor-pointer px-1 select-none"
                                     onMouseEnter={(e) => {
                                       if (!dailyBarContainerRef.current) return;
                                       const rect = dailyBarContainerRef.current.getBoundingClientRect();
@@ -1513,16 +1513,16 @@ export default function DashboardPage() {
                                     onMouseLeave={() => setHoverDailyBar(null)}
                                   >
                                     {/* Dual Side-by-side Bars Area */}
-                                    <div className="w-full h-[225px] flex items-end justify-center gap-1.5 px-0.5">
+                                    <div className="w-full h-[230px] flex items-end justify-center gap-1.5 sm:gap-2 px-0.5">
                                       {/* Left Bar: 盈利 (Green) */}
-                                      <div className="flex-1 max-w-[22px] h-full flex flex-col justify-end items-center">
+                                      <div className="flex-1 max-w-[28px] sm:max-w-[32px] h-full flex flex-col justify-end items-center">
                                         {hasProfit ? (
                                           <>
-                                            <div className="flex flex-col items-center mb-1 text-center leading-tight">
-                                              <span className="text-[10px] font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                                            <div className="flex flex-col items-center mb-1.5 text-center leading-tight">
+                                              <span className="text-xs sm:text-[13px] font-mono font-extrabold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
                                                 +${item.profit >= 1000 ? (item.profit / 1000).toFixed(1) + 'k' : item.profit.toFixed(0)}
                                               </span>
-                                              <span className="text-[9px] font-mono font-medium text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/70 border border-emerald-200/80 dark:border-emerald-800/60 px-1 py-0.2 rounded-xs mt-0.5">
+                                              <span className="text-[11px] sm:text-xs font-mono font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-100/80 dark:bg-emerald-950/80 border border-emerald-200 dark:border-emerald-800/70 px-1.5 py-0.5 rounded mt-1 shadow-2xs whitespace-nowrap">
                                                 {item.wins}单
                                               </span>
                                             </div>
@@ -1533,19 +1533,19 @@ export default function DashboardPage() {
                                             />
                                           </>
                                         ) : (
-                                          <div className="h-1 w-full bg-emerald-500/20 rounded-t" />
+                                          <div className="h-1.5 w-full bg-emerald-500/20 rounded-t" />
                                         )}
                                       </div>
 
                                       {/* Right Bar: 亏损 (Red) */}
-                                      <div className="flex-1 max-w-[22px] h-full flex flex-col justify-end items-center">
+                                      <div className="flex-1 max-w-[28px] sm:max-w-[32px] h-full flex flex-col justify-end items-center">
                                         {hasLoss ? (
                                           <>
-                                            <div className="flex flex-col items-center mb-1 text-center leading-tight">
-                                              <span className="text-[10px] font-mono font-bold text-rose-600 dark:text-rose-400">
+                                            <div className="flex flex-col items-center mb-1.5 text-center leading-tight">
+                                              <span className="text-xs sm:text-[13px] font-mono font-extrabold text-rose-600 dark:text-rose-400 whitespace-nowrap">
                                                 -${item.loss >= 1000 ? (item.loss / 1000).toFixed(1) + 'k' : item.loss.toFixed(0)}
                                               </span>
-                                              <span className="text-[9px] font-mono font-medium text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/70 border border-rose-200/80 dark:border-rose-800/60 px-1 py-0.2 rounded-xs mt-0.5">
+                                              <span className="text-[11px] sm:text-xs font-mono font-bold text-rose-700 dark:text-rose-300 bg-rose-100/80 dark:bg-rose-950/80 border border-rose-200 dark:border-rose-800/70 px-1.5 py-0.5 rounded mt-1 shadow-2xs whitespace-nowrap">
                                                 {item.losses}单
                                               </span>
                                             </div>
@@ -1556,31 +1556,31 @@ export default function DashboardPage() {
                                             />
                                           </>
                                         ) : (
-                                          <div className="h-1 w-full bg-rose-500/20 rounded-t" />
+                                          <div className="h-1.5 w-full bg-rose-500/20 rounded-t" />
                                         )}
                                       </div>
                                     </div>
 
                                     {/* Baseline */}
-                                    <div className="w-full h-[2px] bg-gray-200 dark:bg-white/15 my-1" />
+                                    <div className="w-full h-[2px] bg-gray-200 dark:bg-white/15 my-1.5" />
 
                                     {/* Date, Net Badge & Win Rate */}
-                                    <div className="flex flex-col items-center mt-1 space-y-0.5">
-                                      <span className="text-[10px] font-mono text-gray-500 dark:text-gray-400 truncate">
+                                    <div className="flex flex-col items-center mt-1 space-y-1">
+                                      <span className="text-xs sm:text-[13px] font-mono font-bold text-gray-600 dark:text-gray-300 truncate">
                                         {item.date.substring(5)}
                                       </span>
                                       <span
-                                        className={`text-[9px] font-mono px-1.5 py-0.2 rounded-xs font-bold whitespace-nowrap shadow-2xs ${
+                                        className={`text-[11px] sm:text-xs font-mono px-2 py-0.5 rounded-md font-bold whitespace-nowrap shadow-2xs ${
                                           item.pnl > 0.001
-                                            ? 'text-emerald-700 dark:text-emerald-300 bg-emerald-100/70 dark:bg-emerald-950/70 border border-emerald-300/40 dark:border-emerald-800/50'
+                                            ? 'text-emerald-700 dark:text-emerald-300 bg-emerald-100/80 dark:bg-emerald-950/80 border border-emerald-300/50 dark:border-emerald-800/60'
                                             : item.pnl < -0.001
-                                            ? 'text-rose-700 dark:text-rose-300 bg-rose-100/70 dark:bg-rose-950/70 border border-rose-300/40 dark:border-rose-800/50'
-                                            : 'text-gray-500 bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10'
+                                            ? 'text-rose-700 dark:text-rose-300 bg-rose-100/80 dark:bg-rose-950/80 border border-rose-300/50 dark:border-rose-800/60'
+                                            : 'text-gray-600 bg-gray-100 dark:bg-white/10 border border-gray-200 dark:border-white/10'
                                         }`}
                                       >
                                         净 {item.pnl >= 0 ? '+' : '-'}${Math.abs(item.pnl).toFixed(0)}
                                       </span>
-                                      <span className="text-[9px] font-mono font-medium text-purple-600 dark:text-purple-400 mt-0.5">
+                                      <span className="text-[11px] sm:text-xs font-mono font-semibold text-purple-600 dark:text-purple-400">
                                         胜率 {dayWinRate}%
                                       </span>
                                     </div>
@@ -1604,26 +1604,26 @@ export default function DashboardPage() {
                                 <div className="w-2.5 h-2.5 bg-gray-900/95 dark:bg-[#111827]/95 border-l border-t border-gray-700/80 dark:border-white/15 rotate-45 mx-auto -mb-1.5 z-10 relative" />
                               )}
 
-                              <div className="bg-gray-900/95 dark:bg-[#111827]/95 text-white border border-gray-700/80 dark:border-white/15 rounded-xl px-3.5 py-2.5 shadow-2xl backdrop-blur-md text-xs font-mono min-w-[210px]">
-                                <div className="flex items-center justify-between text-[11px] text-gray-400 mb-1.5 border-b border-white/10 pb-1">
-                                  <span className="font-semibold text-gray-200">{hoverDailyBar.date}</span>
-                                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/10 text-gray-300 font-sans">
+                              <div className="bg-gray-900/95 dark:bg-[#111827]/95 text-white border border-gray-700/80 dark:border-white/15 rounded-xl px-4 py-3 shadow-2xl backdrop-blur-md text-xs sm:text-sm font-mono min-w-[230px]">
+                                <div className="flex items-center justify-between text-xs text-gray-400 mb-2 border-b border-white/10 pb-1.5">
+                                  <span className="font-bold text-gray-200">{hoverDailyBar.date}</span>
+                                  <span className="text-[11px] px-2 py-0.5 rounded bg-white/10 text-gray-300 font-sans">
                                     总单数: {hoverDailyBar.count} 笔
                                   </span>
                                 </div>
 
-                                <div className="flex items-baseline justify-between mb-1.5">
-                                  <span className="text-gray-400 text-[11px]">当日净盈亏:</span>
-                                  <strong className={`text-sm font-bold ${hoverDailyBar.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                <div className="flex items-baseline justify-between mb-2">
+                                  <span className="text-gray-400 text-xs">当日净盈亏:</span>
+                                  <strong className={`text-base font-bold ${hoverDailyBar.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
                                     {hoverDailyBar.pnl >= 0 ? '+' : ''}${hoverDailyBar.pnl.toFixed(2)}
                                   </strong>
                                 </div>
 
                                 {/* Dual Bar Breakdown */}
-                                <div className="space-y-1 pt-1.5 border-t border-white/10 text-[11px]">
+                                <div className="space-y-1.5 pt-1.5 border-t border-white/10 text-xs">
                                   <div className="flex items-center justify-between text-emerald-400">
-                                    <span className="flex items-center space-x-1">
-                                      <span className="w-2 h-2 rounded-xs bg-emerald-500 inline-block" />
+                                    <span className="flex items-center space-x-1.5">
+                                      <span className="w-2.5 h-2.5 rounded-xs bg-emerald-500 inline-block" />
                                       <span>盈利柱:</span>
                                     </span>
                                     <span className="font-bold">
@@ -1632,8 +1632,8 @@ export default function DashboardPage() {
                                   </div>
 
                                   <div className="flex items-center justify-between text-rose-400">
-                                    <span className="flex items-center space-x-1">
-                                      <span className="w-2 h-2 rounded-xs bg-rose-500 inline-block" />
+                                    <span className="flex items-center space-x-1.5">
+                                      <span className="w-2.5 h-2.5 rounded-xs bg-rose-500 inline-block" />
                                       <span>亏损柱:</span>
                                     </span>
                                     <span className="font-bold">
@@ -1642,7 +1642,7 @@ export default function DashboardPage() {
                                   </div>
                                 </div>
 
-                                <div className="flex items-center justify-between text-[10px] text-gray-400 pt-1.5 mt-1 border-t border-white/5">
+                                <div className="flex items-center justify-between text-xs text-gray-400 pt-2 mt-1.5 border-t border-white/5">
                                   <span>胜负比: <strong className="text-gray-200">{hoverDailyBar.wins}W / {hoverDailyBar.losses}L</strong></span>
                                   <span>胜率: <strong className="text-gray-200">{hoverDailyBar.count > 0 ? ((hoverDailyBar.wins / hoverDailyBar.count) * 100).toFixed(0) : 0}%</strong></span>
                                 </div>
