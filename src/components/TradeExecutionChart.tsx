@@ -274,13 +274,14 @@ export const TradeExecutionChart: React.FC<TradeExecutionChartProps> = ({
   const formattedData = useMemo(() => {
     if (!candles || candles.length === 0) return [];
     const mapped = candles.map((c, i) => {
-      // Prioritize timestamp integer from backend/MT5 for exact second-level alignment
+      // Prioritize time string so candles and trade entry/exit markers share the exact same
+      // unified Beijing time representation, eliminating timezone offset mismatches
       let t: number | null = null;
-      if (typeof c.timestamp === 'number' && !isNaN(c.timestamp) && c.timestamp > 0) {
-        t = c.timestamp > 1e11 ? Math.floor(c.timestamp / 1000) : c.timestamp;
-      }
-      if (!t && c.time) {
+      if (c.time) {
         t = parseTimeToUTCSeconds(c.time);
+      }
+      if ((!t || isNaN(t)) && typeof c.timestamp === 'number' && !isNaN(c.timestamp) && c.timestamp > 0) {
+        t = c.timestamp > 1e11 ? Math.floor(c.timestamp / 1000) : c.timestamp;
       }
       if (!t || isNaN(t)) {
         t = 1700000000 + i * 300;
@@ -344,8 +345,8 @@ export const TradeExecutionChart: React.FC<TradeExecutionChartProps> = ({
         if (currentBar && targetPrice >= currentBar.low && targetPrice <= currentBar.high) {
           return closestIdx;
         }
-        // If current bar doesn't touch, scan closest neighboring bars in order of distance (+1, -1, +2, -2)
-        for (const offset of [1, -1, 2, -2]) {
+        // If current bar doesn't touch, scan closest neighboring bars in order of distance (+1, -1, +2, -2, etc.)
+        for (const offset of [1, -1, 2, -2, 3, -3, 4, -4, 5, -5]) {
           const testIdx = closestIdx + offset;
           if (testIdx >= 0 && testIdx < formattedData.length) {
             const bar = formattedData[testIdx];
@@ -368,7 +369,7 @@ export const TradeExecutionChart: React.FC<TradeExecutionChartProps> = ({
 
     // Safety check: exit cannot be before entry
     if (xIdx < eIdx) {
-      xIdx = Math.min(formattedData.length - 1, eIdx + 5);
+      xIdx = eIdx;
     }
 
     const preIdx = Math.max(0, eIdx - 10); // 逐帧复盘在入场前 10 根 K 线开始推演观察
@@ -467,18 +468,49 @@ export const TradeExecutionChart: React.FC<TradeExecutionChartProps> = ({
           const minLow = Math.min(...heldCandles.map(c => c.low));
           mfePrice = maxHigh;
           maePrice = minLow;
-          mfeAmount = (mfePrice - entryPrice) * size * effectiveContractSize;
-          maeAmount = Math.abs(Math.min(0, (maePrice - entryPrice) * size * effectiveContractSize));
         } else {
           const minLow = Math.min(...heldCandles.map(c => c.low));
           const maxHigh = Math.max(...heldCandles.map(c => c.high));
           mfePrice = minLow;
           maePrice = maxHigh;
-          mfeAmount = (entryPrice - mfePrice) * size * effectiveContractSize;
-          maeAmount = Math.abs(Math.min(0, (entryPrice - maePrice) * size * effectiveContractSize));
+        }
+      }
+
+      // Logical bounds check: if trade is exited, MFE must reach at least the exit price
+      if (exitPrice && exitPrice > 0 && currentBarIdx >= exitBarIndex) {
+        if (isLong) {
+          mfePrice = Math.max(mfePrice, exitPrice);
+        } else {
+          mfePrice = Math.min(mfePrice, exitPrice);
         }
       }
     }
+
+    // Points calculations
+    const effectiveExitPrice = exitPrice || currentPrice;
+    const actualPoints = isLong
+      ? effectiveExitPrice - entryPrice
+      : entryPrice - effectiveExitPrice;
+
+    const mfePoints = isLong
+      ? Math.max(0, mfePrice - entryPrice)
+      : Math.max(0, entryPrice - mfePrice);
+
+    const maePoints = isLong
+      ? Math.max(0, entryPrice - maePrice)
+      : Math.max(0, maePrice - entryPrice);
+
+    // Compute effective profit per point from finalProfit if available to prevent contract size/multiplier distortion
+    let profitPerPoint = size * effectiveContractSize;
+    if (finalProfit && Math.abs(finalProfit) > 0 && Math.abs(actualPoints) > 0.00001) {
+      const impliedPpp = Math.abs(finalProfit) / Math.abs(actualPoints);
+      if (impliedPpp > 0) {
+        profitPerPoint = impliedPpp;
+      }
+    }
+
+    mfeAmount = mfePoints * profitPerPoint;
+    maeAmount = maePoints * profitPerPoint;
 
     // Current floating PnL
     let floatingPnL = 0;
@@ -487,19 +519,18 @@ export const TradeExecutionChart: React.FC<TradeExecutionChartProps> = ({
 
     if (isInPosition && entryPrice > 0) {
       const priceDiff = isLong ? currentPrice - entryPrice : entryPrice - currentPrice;
-      floatingPnL = priceDiff * size * effectiveContractSize;
+      floatingPnL = priceDiff * profitPerPoint;
       floatingPercent = (priceDiff / entryPrice) * 100;
       floatingPips = Math.abs(priceDiff);
     } else if (isPostExit) {
-      floatingPnL = finalProfit;
-      floatingPercent = pnlPercent || 0;
+      floatingPnL = finalProfit !== 0 ? finalProfit : actualPoints * profitPerPoint;
+      floatingPercent = pnlPercent || (entryPrice > 0 ? (actualPoints / entryPrice) * 100 : 0);
     }
 
-    // TraderSync Signature: Exit Efficiency & Left on Table (卖飞空间)
+    // TraderSync Signature: Exit Efficiency based on favorable excursion points captured
     let exitEfficiency = 0;
-    if (mfeAmount > 0) {
-      const targetPnl = finalProfit !== 0 ? finalProfit : (isLong ? (exitPrice || currentPrice) - entryPrice : entryPrice - (exitPrice || currentPrice)) * size * effectiveContractSize;
-      exitEfficiency = Math.max(0, Math.min(100, Math.round((targetPnl / mfeAmount) * 100)));
+    if (mfePoints > 0) {
+      exitEfficiency = Math.max(0, Math.min(100, Math.round((Math.max(0, actualPoints) / mfePoints) * 100)));
     }
 
     // Post-exit excursion (Did market keep running in trade direction?)
@@ -515,21 +546,21 @@ export const TradeExecutionChart: React.FC<TradeExecutionChartProps> = ({
           const highestPost = Math.max(...postCandles.map(c => c.high));
           if (highestPost > exitRefPrice) {
             leftOnTablePips = highestPost - exitRefPrice;
-            leftOnTableAmount = leftOnTablePips * size * effectiveContractSize;
+            leftOnTableAmount = leftOnTablePips * profitPerPoint;
           }
           const lowestPost = Math.min(...postCandles.map(c => c.low));
           if (lowestPost < exitRefPrice) {
-            reversalAvoidedAmount = (exitRefPrice - lowestPost) * size * effectiveContractSize;
+            reversalAvoidedAmount = (exitRefPrice - lowestPost) * profitPerPoint;
           }
         } else {
           const lowestPost = Math.min(...postCandles.map(c => c.low));
           if (lowestPost < exitRefPrice) {
             leftOnTablePips = exitRefPrice - lowestPost;
-            leftOnTableAmount = leftOnTablePips * size * effectiveContractSize;
+            leftOnTableAmount = leftOnTablePips * profitPerPoint;
           }
           const highestPost = Math.max(...postCandles.map(c => c.high));
           if (highestPost > exitRefPrice) {
-            reversalAvoidedAmount = (highestPost - exitRefPrice) * size * effectiveContractSize;
+            reversalAvoidedAmount = (highestPost - exitRefPrice) * profitPerPoint;
           }
         }
       }
@@ -550,6 +581,7 @@ export const TradeExecutionChart: React.FC<TradeExecutionChartProps> = ({
       mfeAmount,
       maePrice,
       maeAmount,
+      profitPerPoint,
       exitEfficiency,
       leftOnTableAmount,
       leftOnTablePips,
@@ -604,7 +636,10 @@ export const TradeExecutionChart: React.FC<TradeExecutionChartProps> = ({
     }
 
     // Drawdown / Bag holding review
-    if (liveStats.maeAmount > (stopLoss ? Math.abs(entryPrice - stopLoss) * size * effectiveContractSize * 1.3 : 80)) {
+    const riskThreshold = stopLoss
+      ? Math.abs(entryPrice - stopLoss) * liveStats.profitPerPoint * 1.3
+      : 80;
+    if (liveStats.maeAmount > riskThreshold) {
       tips.push({
         title: '警惕扛单风险 (MAE 过深)',
         desc: `持仓期间经历的最大逆行回撤达到 -$${liveStats.maeAmount.toFixed(1)}，已超过安全风险边界，需严格坚守止损纪律。`,

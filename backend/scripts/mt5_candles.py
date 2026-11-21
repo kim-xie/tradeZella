@@ -239,6 +239,10 @@ def get_candles(symbol="EURUSD", timeframe_str="H1", count=300, start_date=None,
                             offset_h = 5 if is_us_dst(s_dt) else 6
                             rates = mt5.copy_rates_range(actual_symbol, tf, s_dt - datetime.timedelta(hours=offset_h), e_dt - datetime.timedelta(hours=offset_h))
                         if rates is None or len(rates) == 0:
+                            rates = mt5.copy_rates_range(actual_symbol, tf, s_dt - datetime.timedelta(hours=8), e_dt - datetime.timedelta(hours=8))
+                        if rates is None or len(rates) == 0:
+                            rates = mt5.copy_rates_from(actual_symbol, tf, s_dt, count)
+                        if rates is None or len(rates) == 0:
                             rates = mt5.copy_rates_from_pos(actual_symbol, tf, 0, count)
                     except Exception:
                         rates = mt5.copy_rates_from_pos(actual_symbol, tf, 0, count)
@@ -247,8 +251,9 @@ def get_candles(symbol="EURUSD", timeframe_str="H1", count=300, start_date=None,
 
                 if rates is not None and len(rates) > 0:
                     data_source = "MT5 Direct Terminal"
+                    shanghai_tz = datetime.timezone(datetime.timedelta(hours=8))
                     for r in rates:
-                        dt_candle = datetime.datetime.fromtimestamp(r['time'])
+                        dt_candle = datetime.datetime.fromtimestamp(r['time'], tz=datetime.timezone.utc).astimezone(shanghai_tz)
                         candles.append({
                             "time": dt_candle.strftime('%Y-%m-%d %H:%M'),
                             "timestamp": int(r['time']),

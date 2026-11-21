@@ -304,4 +304,52 @@ describe('TradeExecutionChart - Replay & Timeframe', () => {
       );
     });
   });
+
+  it('accurately calculates exit efficiency and MFE/MAE without contract multiplier distortion for small profits', async () => {
+    // 模拟 1M K线，时间与入场时间完全一致（北京时间）
+    const m1Candles = [
+      { time: '2026-11-20 15:55', timestamp: 1795161300, open: 3550.0, high: 3552.0, low: 3548.0, close: 3549.0, volume: 100 },
+      { time: '2026-11-20 15:56', timestamp: 1795161360, open: 3548.63, high: 3549.0, low: 3543.0, close: 3544.91, volume: 120 },
+      { time: '2026-11-20 15:57', timestamp: 1795161420, open: 3544.91, high: 3546.0, low: 3542.0, close: 3543.5, volume: 110 },
+    ];
+
+    vi.spyOn(api, 'fetchCandles').mockResolvedValue({
+      success: true,
+      symbol: 'XAUUSD',
+      timeframe: 'M1',
+      contractSize: 100,
+      dataSource: 'MT5 Direct Terminal',
+      count: m1Candles.length,
+      candles: m1Candles,
+    });
+
+    render(
+      <TradeExecutionChart
+        symbol="XAUUSD"
+        direction="short"
+        entryPrice={3548.63}
+        exitPrice={3544.91}
+        entryTime="2026-11-20 15:56:00"
+        exitTime="2026-11-20 15:56:45"
+        size={1}
+        profit={3.72} // 净盈亏 3.72 美元（对应 3.72 点）
+        initialTimeframe="M1"
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('出场落袋效率')).toBeInTheDocument();
+    });
+
+    // 入场 3548.63，平仓 3544.91，做空盈利 3.72 点。
+    // 该K线最低 3543.0，最大顺行 3548.63 - 3543.0 = 5.63 点。
+    // 出场效率 = 3.72 / 5.63 = 66%（绝非由于 100 倍乘数导致的 2% 错误）
+    expect(screen.getByText(/出场落袋效率/i)).toBeInTheDocument();
+    expect(screen.getByText(/最大顺行 \(MFE\)/i)).toBeInTheDocument();
+    expect(screen.getByText(/最大逆行 \(MAE\)/i)).toBeInTheDocument();
+
+    // 检查出场效率是否合理大于 50%
+    const efficiencyEl = screen.getByText(/%/);
+    expect(parseInt(efficiencyEl.textContent || '0', 10)).toBeGreaterThanOrEqual(50);
+  });
 });
