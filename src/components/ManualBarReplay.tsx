@@ -579,6 +579,9 @@ export default function ManualBarReplay({
   const [lotSize, setLotSize] = useState<string>('0.1');
   const [autoSizing, setAutoSizing] = useState<boolean>(true);
   const [showTvVisuals, setShowTvVisuals] = useState<boolean>(true);
+  const [orderErrorMsg, setOrderErrorMsg] = useState<string | null>(null);
+  const [replayBarPosition, setReplayBarPosition] = useState<'bottom' | 'top'>('bottom');
+  const userCustomizedSlTp = useRef<boolean>(false);
 
   // Theme support
   const { theme } = useTheme();
@@ -1154,10 +1157,21 @@ export default function ManualBarReplay({
     setTpPrice(formatPriceNumber(defaultTp, entry));
   }, [allCandles, currentIndex, currentCandle, riskRewardRatio]);
 
-  // Initial and candle-change sync
+  // Initial and candle-change sync: keep default SL/TP dynamically anchored to current candle when no position is open
   useEffect(() => {
-    if (!position && currentCandle && (!slPrice || !tpPrice)) {
-      resetSlTpToDefaults(orderDirection, currentCandle);
+    if (!position && currentCandle) {
+      if (!slPrice || !tpPrice || !userCustomizedSlTp.current) {
+        resetSlTpToDefaults(orderDirection, currentCandle);
+      } else {
+        const curSl = parseFloat(slPrice);
+        const curTp = parseFloat(tpPrice);
+        const entry = currentCandle.close;
+        const isInvalidLong = orderDirection === 'long' && (curSl >= entry || curTp <= entry);
+        const isInvalidShort = orderDirection === 'short' && (curSl <= entry || curTp >= entry);
+        if (isInvalidLong || isInvalidShort) {
+          resetSlTpToDefaults(orderDirection, currentCandle);
+        }
+      }
     }
   }, [currentIndex, orderDirection, position, currentCandle, slPrice, tpPrice, resetSlTpToDefaults]);
 
@@ -1271,6 +1285,7 @@ export default function ManualBarReplay({
   // Handlers for switching direction, quick SL, and applying R:R
   const handleSwitchDirection = (dir: 'long' | 'short') => {
     setOrderDirection(dir);
+    userCustomizedSlTp.current = false;
     if (currentCandle) {
       resetSlTpToDefaults(dir, currentCandle);
     }
@@ -1278,6 +1293,7 @@ export default function ManualBarReplay({
 
   const handleApplyRR = (rr: number) => {
     setRiskRewardRatio(rr);
+    userCustomizedSlTp.current = false;
     if (!currentCandle) return;
     const entry = currentCandle.close;
     const sl = parseFloat(slPrice);
@@ -1293,6 +1309,7 @@ export default function ManualBarReplay({
   };
 
   const handleQuickSL = (type: 'bar' | 'swing3' | 'swing5' | 'pips20' | 'pips50') => {
+    userCustomizedSlTp.current = false;
     if (!currentCandle) return;
     const entry = currentCandle.close;
     let targetSl = entry;
@@ -1429,51 +1446,71 @@ export default function ManualBarReplay({
 
   // Open position with TradingView risk sizing
   const openOrder = (direction: 'long' | 'short') => {
-    if (!currentCandle) return;
+    if (!currentCandle) {
+      setOrderErrorMsg('暂无行情K线数据，无法开仓');
+      return;
+    }
     if (position) {
-      alert('当前已有持仓，请先平仓或等待止盈止损触发后再开新仓');
+      setOrderErrorMsg('当前已有持仓，请先市价平仓或等待止盈止损触发后再开新仓');
+      setTimeout(() => setOrderErrorMsg(null), 4000);
       return;
     }
 
     const currentEntry = currentCandle.close;
-    const sl = slPrice ? parseFloat(slPrice) : null;
-    const tp = tpPrice ? parseFloat(tpPrice) : null;
+    
+    // Estimate volatility distance
+    const sliceCandles = allCandles.slice(0, currentIndex + 1);
+    const recentCandles = sliceCandles.slice(-20);
+    const avgRange = recentCandles.length > 0
+      ? recentCandles.reduce((acc, c) => acc + (c.high - c.low), 0) / recentCandles.length
+      : currentEntry * 0.002;
+    const defaultSlDist = Math.max(avgRange * 1.5, currentEntry * (currentEntry > 500 ? 0.001 : 0.0015));
 
-    if (sl !== null && !isNaN(sl)) {
-      if (direction === 'long' && sl >= currentEntry) {
-        alert('多头看涨止损价必须低于当前入场价！');
-        return;
-      }
-      if (direction === 'short' && sl <= currentEntry) {
-        alert('空头看跌止损价必须高于当前入场价！');
-        return;
-      }
+    let effectiveSl = slPrice ? parseFloat(slPrice) : null;
+    let effectiveTp = tpPrice ? parseFloat(tpPrice) : null;
+
+    // Validate and auto-correct SL if invalid or opposite side
+    if (effectiveSl === null || isNaN(effectiveSl) || (direction === 'long' && effectiveSl >= currentEntry) || (direction === 'short' && effectiveSl <= currentEntry)) {
+      effectiveSl = direction === 'long' ? currentEntry - defaultSlDist : currentEntry + defaultSlDist;
     }
 
-    if (tp !== null && !isNaN(tp)) {
-      if (direction === 'long' && tp <= currentEntry) {
-        alert('多头看涨止盈价必须高于当前入场价！');
-        return;
-      }
-      if (direction === 'short' && tp >= currentEntry) {
-        alert('空头看跌止盈价必须低于当前入场价！');
-        return;
-      }
+    const slDist = Math.abs(currentEntry - effectiveSl);
+
+    // Validate and auto-correct TP if invalid or opposite side
+    const targetRr = (riskRewardRatio && riskRewardRatio > 0) ? riskRewardRatio : 2.0;
+    if (effectiveTp === null || isNaN(effectiveTp) || (direction === 'long' && effectiveTp <= currentEntry) || (direction === 'short' && effectiveTp >= currentEntry)) {
+      effectiveTp = direction === 'long' ? currentEntry + slDist * targetRr : currentEntry - slDist * targetRr;
     }
 
+    const rawLots = autoSizing ? calculatedLots : parseFloat(lotSize);
+    const safeLots = Math.max(0.01, isNaN(rawLots) || rawLots <= 0 ? (calculatedLots || 0.1) : rawLots);
+    const loss = Math.round(slDist * safeLots * contractSize * 100) / 100;
+    const profit = Math.round(Math.abs(effectiveTp - currentEntry) * safeLots * contractSize * 100) / 100;
+    const actualRr = slDist > 0 ? Math.abs(effectiveTp - currentEntry) / slDist : targetRr;
+
+    // Set position
     setPosition({
       symbol,
       direction,
-      size: activeLots,
+      size: safeLots,
       entryPrice: currentEntry,
       entryTime: currentCandle.time,
       entryBarIndex: currentIndex,
-      stopLoss: sl,
-      takeProfit: tp,
-      riskAmount: projectedLoss,
-      targetProfit: projectedProfit,
-      rrRatio: currentRR,
+      stopLoss: effectiveSl,
+      takeProfit: effectiveTp,
+      riskAmount: loss,
+      targetProfit: profit,
+      rrRatio: Math.round(actualRr * 100) / 100,
     });
+
+    // Sync state so order drawer and drawing box reflect the exact placed order
+    setOrderDirection(direction);
+    setSlPrice(formatPriceNumber(effectiveSl, currentEntry));
+    setTpPrice(formatPriceNumber(effectiveTp, currentEntry));
+
+    setOrderErrorMsg(null);
+    setSaveSuccessMsg(`开仓成功: ${direction === 'long' ? 'BUY 做多' : 'SELL 做空'} ${safeLots}手 @ ${currentEntry} (SL: ${formatPriceNumber(effectiveSl, currentEntry)} | TP: ${formatPriceNumber(effectiveTp, currentEntry)})`);
+    setTimeout(() => setSaveSuccessMsg(null), 5000);
   };
 
   // Close position manually
@@ -1591,6 +1628,7 @@ export default function ManualBarReplay({
     // 2. Tool: Long Position Sizing Tool placement
     if (activeTool === 'long') {
       setOrderDirection('long');
+      userCustomizedSlTp.current = true;
       const entry = clickedPrice;
       const typicalDist = (scale ? (scale.maxPrice - scale.minPrice) * 0.12 : entry * 0.005);
       const newSl = entry - typicalDist;
@@ -1604,6 +1642,7 @@ export default function ManualBarReplay({
     // 3. Tool: Short Position Sizing Tool placement
     if (activeTool === 'short') {
       setOrderDirection('short');
+      userCustomizedSlTp.current = true;
       const entry = clickedPrice;
       const typicalDist = (scale ? (scale.maxPrice - scale.minPrice) * 0.12 : entry * 0.005);
       const newSl = entry + typicalDist;
@@ -1716,6 +1755,7 @@ export default function ManualBarReplay({
       const minStep = (scale ? (scale.maxPrice - scale.minPrice) : currentEntry) * 0.005;
 
       if (dragTarget.type === 'tp') {
+        userCustomizedSlTp.current = true;
         let newTp = currentPrice;
         if (orderDirection === 'long') {
           newTp = Math.max(newTp, currentEntry + minStep);
@@ -1728,6 +1768,7 @@ export default function ManualBarReplay({
           setRiskRewardRatio(Math.max(0.1, Math.round((newTpDist / slDistance) * 100) / 100));
         }
       } else if (dragTarget.type === 'sl') {
+        userCustomizedSlTp.current = true;
         let newSl = currentPrice;
         if (orderDirection === 'long') {
           newSl = Math.min(newSl, currentEntry - minStep);
@@ -2943,70 +2984,30 @@ export default function ManualBarReplay({
           </button>
         </div>
 
-        {/* Center: TradingView Replay Player */}
-        <div className="flex items-center space-x-1.5 bg-gray-100 dark:bg-[#131722] p-1 rounded-lg border border-gray-200 dark:border-[#2a2e39] shadow-inner">
+        {/* Center: Replay status banner & floating island position toggle */}
+        <div className="hidden lg:flex items-center space-x-2 bg-gray-100 dark:bg-[#131722] px-3 py-1.5 rounded-lg border border-gray-200 dark:border-[#2a2e39] text-xs select-none">
+          <span className="flex h-2 w-2 relative">
+            <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${isPlaying ? 'bg-amber-400' : 'bg-emerald-400'}`} />
+            <span className={`relative inline-flex rounded-full h-2 w-2 ${isPlaying ? 'bg-amber-500' : 'bg-emerald-500'}`} />
+          </span>
+          <span className="font-semibold text-gray-700 dark:text-gray-300">
+            {isPlaying ? '自动回放中...' : 'K线逐根复盘'}
+          </span>
+          <span className="text-gray-400 dark:text-gray-600">|</span>
+          <span className="font-mono text-[#2962ff] font-bold">
+            {currentIndex + 1} / {allCandles.length} 根
+          </span>
+          <span className="text-gray-500 dark:text-gray-400 font-mono hidden xl:inline">
+            ({currentCandle?.time || '-'})
+          </span>
           <button
-            onClick={() => setActiveTool(activeTool === 'jump' ? 'pointer' : 'jump')}
-            title="选择切片复盘起点 (点击图表任意K线切入)"
-            className={`p-1.5 rounded-md font-medium text-xs flex items-center space-x-1 transition ${
-              activeTool === 'jump' 
-                ? 'bg-amber-500 text-white shadow-sm ring-1 ring-amber-300' 
-                : 'hover:bg-gray-200 dark:hover:bg-[#2a2e39] text-gray-700 dark:text-gray-300'
-            }`}
+            type="button"
+            onClick={() => setReplayBarPosition(prev => prev === 'bottom' ? 'top' : 'bottom')}
+            className="ml-1 text-[11px] px-2 py-0.5 rounded-md bg-white dark:bg-[#1e222d] border border-gray-200 dark:border-[#2a2e39] hover:text-[#2962ff] text-gray-500 dark:text-gray-400 transition"
+            title="切换回放控制浮岛位置 (底部居中 / 顶部悬浮)"
           >
-            <Scissors className="w-4 h-4" />
+            {replayBarPosition === 'bottom' ? '浮岛: 底部' : '浮岛: 顶部'}
           </button>
-
-          <button
-            onClick={() => {
-              setCurrentIndex(50);
-              setPosition(null);
-              setIsPlaying(false);
-            }}
-            title="重置到起点"
-            className="p-1.5 hover:bg-gray-200 dark:hover:bg-[#2a2e39] rounded-md text-gray-700 dark:text-gray-300 transition"
-          >
-            <RotateCcw className="w-4 h-4" />
-          </button>
-
-          <button
-            onClick={() => setIsPlaying(!isPlaying)}
-            title={isPlaying ? '暂停' : '自动播放'}
-            className={`p-1.5 rounded-md font-medium text-xs flex items-center space-x-1 transition ${
-              isPlaying ? 'bg-amber-500/20 text-amber-400' : 'bg-[#2962ff] text-white hover:bg-[#1e54e4]'
-            }`}
-          >
-            {isPlaying ? <Pause className="w-4 h-4 fill-amber-400" /> : <Play className="w-4 h-4 fill-white" />}
-          </button>
-
-          <button
-            onClick={stepForward}
-            title="前进一根 K 线 (快捷键: 空格或右方向键)"
-            className="px-2.5 py-1 bg-gray-200 hover:bg-gray-300 dark:bg-[#2a2e39] dark:hover:bg-[#363a45] rounded-md text-xs font-semibold text-gray-800 dark:text-gray-200 flex items-center space-x-1 transition"
-          >
-            <span>前进一根</span>
-            <SkipForward className="w-3.5 h-3.5" />
-          </button>
-
-          <select
-            value={playSpeed}
-            onChange={(e) => setPlaySpeed(parseInt(e.target.value))}
-            className="text-[11px] px-1.5 py-1 border border-gray-200 dark:border-[#2a2e39] rounded bg-white dark:bg-[#131722] text-gray-800 dark:text-gray-300 focus:outline-none"
-          >
-            <option value={2000}>0.5x 慢速</option>
-            <option value={1000}>1x 正常</option>
-            <option value={500}>2x 快速</option>
-            <option value={200}>5x 极速</option>
-          </select>
-
-          <div className="hidden xl:flex items-center space-x-2 pl-2 border-l border-gray-200 dark:border-[#2a2e39] text-[11px]">
-            <span className="font-semibold text-[#2962ff]">
-              进度: {currentIndex + 1} / {allCandles.length} 根
-            </span>
-            <span className="text-gray-500 dark:text-gray-400 font-mono">
-              当前时间: {currentCandle?.time || '-'}
-            </span>
-          </div>
         </div>
 
         {/* Right: Multi-window split, Order panel toggle, Strategy tester toggle, Fullscreen */}
@@ -3122,7 +3123,7 @@ export default function ManualBarReplay({
             type="button"
             onClick={() => {
               setActiveTool('long');
-              setOrderDirection('long');
+              handleSwitchDirection('long');
             }}
             className={`p-2 rounded-lg transition relative group ${
               activeTool === 'long'
@@ -3140,7 +3141,7 @@ export default function ManualBarReplay({
             type="button"
             onClick={() => {
               setActiveTool('short');
-              setOrderDirection('short');
+              handleSwitchDirection('short');
             }}
             className={`p-2 rounded-lg transition relative group ${
               activeTool === 'short'
@@ -3337,6 +3338,116 @@ export default function ManualBarReplay({
           }`}>
             {Array.from({ length: windowCount }, (_, i) => renderWindow(i))}
           </div>
+
+          {/* Order notification toasts */}
+          {orderErrorMsg && (
+            <div className="absolute top-14 left-1/2 -translate-x-1/2 z-30 bg-rose-500 text-white px-4 py-2 rounded-xl shadow-2xl text-xs font-bold flex items-center space-x-2 backdrop-blur-md animate-fade-in border border-rose-400">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{orderErrorMsg}</span>
+            </div>
+          )}
+
+          {saveSuccessMsg && (
+            <div className="absolute top-14 left-1/2 -translate-x-1/2 z-30 bg-emerald-600 text-white px-4 py-2 rounded-xl shadow-2xl text-xs font-bold flex items-center space-x-2 backdrop-blur-md animate-fade-in border border-emerald-400">
+              <CheckCircle2 className="w-4 h-4 shrink-0" />
+              <span>{saveSuccessMsg}</span>
+            </div>
+          )}
+
+          {/* TradingView Floating Replay Controller Island (回放控制浮岛) */}
+          <div className={`absolute z-30 ${
+            replayBarPosition === 'bottom' 
+              ? 'bottom-6 left-1/2 -translate-x-1/2' 
+              : 'top-14 left-1/2 -translate-x-1/2'
+          } flex items-center space-x-2 bg-white/95 dark:bg-[#1e222d]/95 backdrop-blur-md px-3.5 py-2 rounded-2xl border border-gray-200/90 dark:border-[#2a2e39]/90 shadow-2xl select-none transition-all duration-200`}>
+            {/* Scissors Jump */}
+            <button
+              onClick={() => setActiveTool(activeTool === 'jump' ? 'pointer' : 'jump')}
+              title="选择切片复盘起点 (点击图表任意K线切入)"
+              className={`p-2 rounded-xl font-medium text-xs flex items-center space-x-1.5 transition ${
+                activeTool === 'jump' 
+                  ? 'bg-amber-500 text-white shadow-sm ring-2 ring-amber-300' 
+                  : 'hover:bg-gray-100 dark:hover:bg-[#2a2e39] text-gray-700 dark:text-gray-300'
+              }`}
+            >
+              <Scissors className="w-4 h-4 text-amber-500" />
+              <span className="hidden sm:inline text-xs font-semibold">剪刀选点</span>
+            </button>
+
+            {/* Reset */}
+            <button
+              onClick={() => {
+                setCurrentIndex(50);
+                setPosition(null);
+                setIsPlaying(false);
+              }}
+              title="重置到起点"
+              className="p-2 hover:bg-gray-100 dark:hover:bg-[#2a2e39] rounded-xl text-gray-700 dark:text-gray-300 transition"
+            >
+              <RotateCcw className="w-4 h-4" />
+            </button>
+
+            <div className="h-6 w-px bg-gray-200 dark:bg-[#2a2e39]" />
+
+            {/* Big Circular Play / Pause Button */}
+            <button
+              onClick={() => setIsPlaying(!isPlaying)}
+              title={isPlaying ? '暂停' : '自动播放'}
+              className={`w-9 h-9 rounded-full font-bold text-xs flex items-center justify-center transition shadow-md active:scale-95 ${
+                isPlaying 
+                  ? 'bg-amber-500 text-white hover:bg-amber-600 ring-4 ring-amber-300/40' 
+                  : 'bg-[#2962ff] text-white hover:bg-[#1e54e4] ring-4 ring-[#2962ff]/30'
+              }`}
+            >
+              {isPlaying ? <Pause className="w-4 h-4 fill-white" /> : <Play className="w-4 h-4 fill-white ml-0.5" />}
+            </button>
+
+            {/* Step Forward (前进一根) */}
+            <button
+              onClick={stepForward}
+              title="前进一根 K 线 (快捷键: 空格或右方向键)"
+              className="px-3.5 py-1.5 bg-gray-100 hover:bg-gray-200 dark:bg-[#2a2e39] dark:hover:bg-[#363a45] rounded-xl text-xs font-bold text-gray-800 dark:text-gray-100 flex items-center space-x-1.5 transition active:scale-95 shadow-xs"
+            >
+              <span>前进一根</span>
+              <span className="text-[10px] font-mono px-1 py-0.2 bg-white/80 dark:bg-[#131722]/80 text-gray-500 dark:text-gray-400 rounded border border-gray-200 dark:border-[#363a45]">Space</span>
+              <SkipForward className="w-3.5 h-3.5 text-[#2962ff]" />
+            </button>
+
+            {/* Speed Select */}
+            <select
+              value={playSpeed}
+              onChange={(e) => setPlaySpeed(parseInt(e.target.value))}
+              className="text-xs font-semibold px-2 py-1.5 border border-gray-200 dark:border-[#2a2e39] rounded-xl bg-gray-50 dark:bg-[#131722] text-gray-800 dark:text-gray-200 focus:outline-none cursor-pointer"
+            >
+              <option value={2000}>0.5x 慢速</option>
+              <option value={1000}>1.0x 正常</option>
+              <option value={500}>2.0x 快速</option>
+              <option value={200}>5.0x 极速</option>
+            </select>
+
+            <div className="h-6 w-px bg-gray-200 dark:bg-[#2a2e39]" />
+
+            {/* Progress Badge */}
+            <div className="text-[11px] font-mono text-gray-600 dark:text-gray-300 flex items-center space-x-1.5 px-1.5">
+              <span className="text-[#2962ff] font-bold">{currentIndex + 1}</span>
+              <span className="text-gray-400">/</span>
+              <span>{allCandles.length} 根</span>
+            </div>
+
+            {/* Position switch toggle button */}
+            <button
+              type="button"
+              onClick={() => setReplayBarPosition(prev => prev === 'bottom' ? 'top' : 'bottom')}
+              className="p-1.5 hover:bg-gray-100 dark:hover:bg-[#2a2e39] rounded-lg text-gray-400 hover:text-[#2962ff] transition"
+              title={replayBarPosition === 'bottom' ? '切换浮岛到上方' : '切换浮岛到下方'}
+            >
+              {replayBarPosition === 'bottom' ? (
+                <ArrowUpRight className="w-3.5 h-3.5" />
+              ) : (
+                <ArrowDownRight className="w-3.5 h-3.5" />
+              )}
+            </button>
+          </div>
         </div>
 
         {/* 2.3 RIGHT DOCK: TRADINGVIEW ORDER TICKET & RISK CALCULATOR */}
@@ -3489,6 +3600,7 @@ export default function ManualBarReplay({
                 step="any"
                 value={slPrice}
                 onChange={(e) => {
+                  userCustomizedSlTp.current = true;
                   setSlPrice(e.target.value);
                   const newSl = parseFloat(e.target.value);
                   if (!isNaN(newSl) && entryPrice > 0) {
@@ -3529,6 +3641,7 @@ export default function ManualBarReplay({
                 <button
                   type="button"
                   onClick={() => {
+                    userCustomizedSlTp.current = true;
                     if (horizontalLines.length > 0) {
                       const closest = [...horizontalLines].sort((a, b) => Math.abs(a.price - entryPrice) - Math.abs(b.price - entryPrice))[0];
                       setSlPrice(formatPriceNumber(closest.price, entryPrice));
@@ -3562,6 +3675,7 @@ export default function ManualBarReplay({
                 step="any"
                 value={tpPrice}
                 onChange={(e) => {
+                  userCustomizedSlTp.current = true;
                   setTpPrice(e.target.value);
                   const newTp = parseFloat(e.target.value);
                   if (!isNaN(newTp) && entryPrice > 0 && slDistance > 0) {
@@ -3588,6 +3702,7 @@ export default function ManualBarReplay({
                 <button
                   type="button"
                   onClick={() => {
+                    userCustomizedSlTp.current = true;
                     if (horizontalLines.length > 0) {
                       const closest = [...horizontalLines].sort((a, b) => Math.abs(a.price - entryPrice) - Math.abs(b.price - entryPrice))[0];
                       setTpPrice(formatPriceNumber(closest.price, entryPrice));
@@ -3686,9 +3801,16 @@ export default function ManualBarReplay({
               </button>
             )}
 
+            {orderErrorMsg && (
+              <div className="text-xs text-rose-500 flex items-center space-x-1 pt-1 font-medium">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                <span>{orderErrorMsg}</span>
+              </div>
+            )}
+
             {saveSuccessMsg && (
-              <div className="text-xs text-emerald-400 flex items-center space-x-1 pt-1">
-                <CheckCircle2 className="w-3.5 h-3.5" />
+              <div className="text-xs text-emerald-400 flex items-center space-x-1 pt-1 font-medium">
+                <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
                 <span>{saveSuccessMsg}</span>
               </div>
             )}
