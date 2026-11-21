@@ -11,7 +11,6 @@ import {
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react';
-import Button from './common/Button';
 import { TradeExecutionChart } from './TradeExecutionChart';
 import ErrorBoundary from './common/ErrorBoundary';
 import { SERVER_BASE_URL as API_BASE_URL } from '../services/api';
@@ -648,16 +647,6 @@ export const TradeDetailDrawer: React.FC<TradeDetailDrawerProps> = ({ trade, onC
                 </div>
               </div>
             )}
-          </div>
-
-          {/* Sticky Footer */}
-          <div
-            className="flex justify-end p-4 border-t border-gray-200 dark:border-white/10 shrink-0 bg-gray-50/60 dark:bg-navy-950/60"
-            onTouchMove={(e) => e.preventDefault()}
-          >
-            <Button variant="gradient" onClick={onClose}>
-              关闭
-            </Button>
           </div>
         </div>
       </aside>

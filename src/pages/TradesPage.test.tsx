@@ -780,8 +780,8 @@ describe('TradesPage', () => {
     expect(document.body.style.overflow).toBe('hidden');
     expect(document.documentElement.style.overflow).toBe('hidden');
 
-    // Click "关闭" button
-    const closeBtn = screen.getByRole('button', { name: '关闭' });
+    // Click header close button
+    const closeBtn = screen.getByLabelText('关闭详情抽屉');
     fireEvent.click(closeBtn);
 
     // Drawer is closed
