@@ -21,6 +21,74 @@ export const getTradeEntryTime = (t: Trade): string => {
   return t.entry_time || t.entryTime || (t as any).trade_date || t.createdat || t.createdAt || '';
 };
 
+/**
+ * 获取交易所属的“交易日”（Trading Day / Session Date），格式为 YYYY-MM-DD。
+ *
+ * 核心金融逻辑与行业标准 (TradeZella / TraderSync)：
+ * 全球金融市场（外汇、美股大盘指数、黄金原油等大宗商品）美盘交易跨越北京时间零点（前一日 21:00 至次日凌晨 05:00/06:00 闭市）。
+ * 国际主流交易日志平台统一以每日清算结算休市时间（美东 17:00 / 冬令时北京时间 06:00，夏令时 05:00）作为交易日切日点。
+ * 因此，北京时间凌晨 00:00:00 ~ 05:59:59 间成交的交易，实质上属于前一天的交易日（特别是周五美盘下半夜延续至周六清晨的订单统一归属【周五交易日】，周六休市无交易）。
+ *
+ * @param trade 交易记录对象
+ * @param cutoffHour 切日小时（默认 6，即 06:00:00 前归属前一交易日）
+ */
+export const getTradeTradingDate = (trade: Trade, cutoffHour: number = 6): string => {
+  const rawDate = getTradeEntryTime(trade);
+  if (!rawDate) return '';
+
+  const str = String(rawDate).trim();
+  const match = str.match(/^(\d{4})[./-](\d{1,2})[./-](\d{1,2})(?:[T\s](\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/);
+  if (!match) {
+    return str.length >= 10 ? str.substring(0, 10).replace(/[./]/g, '-') : str;
+  }
+
+  const year = parseInt(match[1], 10);
+  const month = parseInt(match[2], 10);
+  const day = parseInt(match[3], 10);
+  const hour = match[4] !== undefined ? parseInt(match[4], 10) : 12;
+
+  let effectiveCutoff = cutoffHour;
+  try {
+    if (typeof localStorage !== 'undefined') {
+      const savedCutoff = localStorage.getItem('tradezella_trading_day_cutoff');
+      if (savedCutoff !== null && !isNaN(Number(savedCutoff))) {
+        effectiveCutoff = Number(savedCutoff);
+      }
+    }
+  } catch {}
+
+  const pad = (n: number) => String(n).padStart(2, '0');
+
+  // 若在切日点前（如 00:00 ~ 05:59），回退归入上一日交易日
+  if (hour < effectiveCutoff) {
+    const prevDate = new Date(year, month - 1, day - 1);
+    return `${prevDate.getFullYear()}-${pad(prevDate.getMonth() + 1)}-${pad(prevDate.getDate())}`;
+  }
+
+  return `${year}-${pad(month)}-${pad(day)}`;
+};
+
+/**
+ * 判断某笔交易是否属于跨夜美盘交易（北京时间 00:00 ~ 05:59:59）
+ */
+export const isTradeOvernightSession = (trade: Trade, cutoffHour: number = 6): boolean => {
+  const rawDate = getTradeEntryTime(trade);
+  if (!rawDate) return false;
+  const match = String(rawDate).trim().match(/[T\s](\d{1,2}):/);
+  if (!match) return false;
+  const hour = parseInt(match[1], 10);
+  let effectiveCutoff = cutoffHour;
+  try {
+    if (typeof localStorage !== 'undefined') {
+      const savedCutoff = localStorage.getItem('tradezella_trading_day_cutoff');
+      if (savedCutoff !== null && !isNaN(Number(savedCutoff))) {
+        effectiveCutoff = Number(savedCutoff);
+      }
+    }
+  } catch {}
+  return hour < effectiveCutoff;
+};
+
 export const getTradeExitTime = (t: Trade): string => {
   return t.exit_time || t.exitTime || '';
 };
@@ -279,8 +347,7 @@ export const computeTradeSummaryStatsFromDailyMap = (
 export const computeTradeSummaryStats = (trades: Trade[]): MonthStats => {
   const tradesByDay: Record<string, Trade[]> = {};
   trades.forEach((trade) => {
-    const rawDate = getTradeEntryTime(trade);
-    const dateStr = (rawDate && rawDate.length >= 10) ? rawDate.substring(0, 10) : 'unknown';
+    const dateStr = getTradeTradingDate(trade) || 'unknown';
     if (!tradesByDay[dateStr]) tradesByDay[dateStr] = [];
     tradesByDay[dateStr].push(trade);
   });

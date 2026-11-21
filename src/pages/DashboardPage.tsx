@@ -39,6 +39,7 @@ import {
   getTradeSize,
   getTradeDirection,
   getTradeEntryTime,
+  getTradeTradingDate,
   getTradeExitTime,
   formatCurrency,
   formatDurationShort,
@@ -141,11 +142,10 @@ export default function DashboardPage() {
       if (isNaN(tradeDate.getTime())) return false;
 
       if (timeRange === 'today') {
-        return (
-          tradeDate.getFullYear() === now.getFullYear() &&
-          tradeDate.getMonth() === now.getMonth() &&
-          tradeDate.getDate() === now.getDate()
-        );
+        const pad = (n: number) => String(n).padStart(2, '0');
+        const localNowStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+        const currentTradingDay = getTradeTradingDate({ entry_time: localNowStr } as any);
+        return getTradeTradingDate(trade) === currentTradingDay;
       }
 
       if (timeRange === 'week') {
@@ -233,11 +233,11 @@ export default function DashboardPage() {
     const winLossRatio = avgLoss > 0 ? avgWin / avgLoss : (avgWin > 0 ? avgWin : 0);
     const expectancy = closedCount > 0 ? totalProfitLoss / closedCount : 0;
 
-    // Unique trading days
+    // Unique trading days (TradeZella / TraderSync Session Standard)
     const daysMap = new Set<string>();
     filteredTrades.forEach((t) => {
-      const d = getTradeEntryTime(t);
-      if (d && d.length >= 10) daysMap.add(d.substring(0, 10));
+      const d = getTradeTradingDate(t);
+      if (d && d.length >= 10) daysMap.add(d);
     });
     const tradingDaysCount = daysMap.size;
     const avgDailyPnL = tradingDaysCount > 0 ? totalProfitLoss / tradingDaysCount : 0;
@@ -313,8 +313,7 @@ export default function DashboardPage() {
     }> = {};
 
     metrics.sortedCompleted.forEach((trade) => {
-      const rawDate = getTradeEntryTime(trade);
-      const dateStr = rawDate && rawDate.length >= 10 ? rawDate.substring(0, 10) : '未知';
+      const dateStr = getTradeTradingDate(trade) || '未知';
       if (!map[dateStr]) {
         map[dateStr] = {
           date: dateStr,

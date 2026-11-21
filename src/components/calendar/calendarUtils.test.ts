@@ -9,6 +9,8 @@ import {
   formatCurrency,
   formatDurationShort,
   formatDateTime,
+  getTradeTradingDate,
+  isTradeOvernightSession,
 } from './calendarUtils';
 import { Trade } from './calendarTypes';
 
@@ -198,5 +200,75 @@ describe('calendarUtils', () => {
     expect(formatDateTime('2026-11-09T15:31')).toBe('2026-11-09 15:31');
     expect(formatDateTime('')).toBe('-');
     expect(formatDateTime(undefined)).toBe('-');
+  });
+
+  describe('Trading Day Cutoff Logic (TradeZella Standard)', () => {
+    it('correctly maps overnight Friday US session (Saturday 00:00~05:59) to Friday trading day', () => {
+      // 2026-11-14 is Saturday. 02:30 AM should roll back to 2026-11-13 (Friday)
+      const fridayNightTrade1: Trade = {
+        id: 101,
+        symbol: 'NAS100',
+        direction: 'long',
+        size: 0.2,
+        entryprice: 20500,
+        entry_time: '2026-11-14T02:30:00',
+      };
+      expect(getTradeTradingDate(fridayNightTrade1)).toBe('2026-11-13');
+      expect(isTradeOvernightSession(fridayNightTrade1)).toBe(true);
+
+      // 05:59:59 AM just before Saturday market close rolls back to Friday
+      const fridayNightTrade2: Trade = {
+        id: 102,
+        symbol: 'USOIL',
+        direction: 'short',
+        size: 0.1,
+        entryprice: 70,
+        entry_time: '2026-11-14T05:59:59',
+      };
+      expect(getTradeTradingDate(fridayNightTrade2)).toBe('2026-11-13');
+      expect(isTradeOvernightSession(fridayNightTrade2)).toBe(true);
+
+      // 06:00:00 AM or daytime crypto trade stays on Saturday
+      const saturdayCryptoTrade: Trade = {
+        id: 103,
+        symbol: 'BTCUSD',
+        direction: 'long',
+        size: 0.1,
+        entryprice: 90000,
+        entry_time: '2026-11-14T14:20:00',
+      };
+      expect(getTradeTradingDate(saturdayCryptoTrade)).toBe('2026-11-14');
+      expect(isTradeOvernightSession(saturdayCryptoTrade)).toBe(false);
+    });
+
+    it('correctly handles month and year boundary rollbacks before 06:00 AM', () => {
+      // 2026-11-01 02:00 -> rolls back to 2026-10-31
+      const monthBoundaryTrade: Trade = {
+        id: 104,
+        symbol: 'EURUSD',
+        direction: 'long',
+        size: 1,
+        entryprice: 1.08,
+        entry_time: '2026-11-01 01:45:00',
+      };
+      expect(getTradeTradingDate(monthBoundaryTrade)).toBe('2026-10-31');
+
+      // 2026-01-01 04:00 -> rolls back to 2025-12-31
+      const yearBoundaryTrade: Trade = {
+        id: 105,
+        symbol: 'XAUUSD',
+        direction: 'short',
+        size: 1,
+        entryprice: 2000,
+        entry_time: '2026-01-01T04:15:00',
+      };
+      expect(getTradeTradingDate(yearBoundaryTrade)).toBe('2025-12-31');
+    });
+
+    it('handles various date format separators (dot, slash, ISO)', () => {
+      expect(getTradeTradingDate({ entry_time: '2026.11.14 03:00:00' } as any)).toBe('2026-11-13');
+      expect(getTradeTradingDate({ entry_time: '2026/11/14 03:00:00' } as any)).toBe('2026-11-13');
+      expect(getTradeTradingDate({ entry_time: '2026-11-13' } as any)).toBe('2026-11-13');
+    });
   });
 });

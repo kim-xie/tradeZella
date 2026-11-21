@@ -14,6 +14,7 @@ import {
   getTradeDurationMinutes,
   formatDurationShort,
   isTradeMistake,
+  isTradeOvernightSession,
   getTradeTags,
 } from './calendarUtils';
 import {
@@ -386,7 +387,18 @@ export const CalendarDayDrawer: React.FC<CalendarDayDrawerProps> = ({
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-1 text-[11px] text-gray-500 dark:text-gray-400 font-mono border-t border-gray-100 dark:border-white/5 pt-1.5 min-w-0">
                         <div className="truncate">入场: <span className="text-gray-800 dark:text-gray-200 font-bold">{entry || '-'}</span></div>
                         <div className="truncate">出场: <span className="text-gray-800 dark:text-gray-200 font-bold">{exit || '-'}</span></div>
-                        <div className="truncate">时间: <span className="text-gray-600 dark:text-gray-300">{getTradeEntryTime(t).substring(11, 16) || '-'}</span></div>
+                        <div className="truncate flex items-center">
+                          <span>时间: </span>
+                          <span className="text-gray-600 dark:text-gray-300 ml-1">{getTradeEntryTime(t).substring(11, 16) || '-'}</span>
+                          {isTradeOvernightSession(t) && (
+                            <span
+                              className="ml-1 px-1 py-0.2 rounded text-[9px] font-medium bg-purple-50 dark:bg-purple-950/60 text-purple-600 dark:text-purple-300 border border-purple-200 dark:border-purple-800/60 shrink-0"
+                              title="北京时间凌晨 00:00~06:00 间成交的跨夜美盘交易，归属前一交易日"
+                            >
+                              跨夜美盘
+                            </span>
+                          )}
+                        </div>
                         <div className="truncate">持仓: <span className="text-gray-600 dark:text-gray-300">{formatDurationShort(getTradeDurationMinutes(t) || 0)}</span></div>
                       </div>
 

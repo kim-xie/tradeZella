@@ -12,6 +12,7 @@ import {
   getTradeExitPrice,
   getTradeSize,
   getTradeEntryTime,
+  getTradeTradingDate,
   getTradeExitTime,
   getTradeStopLoss,
   getTradeTakeProfit,
@@ -121,13 +122,11 @@ const StatsPage: React.FC = () => {
     fetchTrades();
   });
 
-  // Group trades by day: "YYYY-MM-DD"
+  // Group trades by trading day: "YYYY-MM-DD"
   const tradesByDay = useMemo(() => {
     const map: Record<string, Trade[]> = {};
     trades.forEach((trade) => {
-      const rawDate = getTradeEntryTime(trade);
-      if (!rawDate) return;
-      const dateStr = rawDate.substring(0, 10);
+      const dateStr = getTradeTradingDate(trade);
       if (!dateStr || dateStr.length < 10) return;
       if (!map[dateStr]) map[dateStr] = [];
       map[dateStr].push(trade);
@@ -248,14 +247,24 @@ const StatsPage: React.FC = () => {
               )}
             </div>
 
-            {/* Right: Next Month Arrow */}
-            <button
-              onClick={nextMonth}
-              className="w-[38px] h-[38px] flex items-center justify-center rounded-xl border border-gray-200 dark:border-white/10 bg-white dark:bg-[#070a13] text-gray-600 dark:text-gray-300 hover:text-purple-600 dark:hover:text-purple-400 hover:border-purple-400 dark:hover:border-purple-500/80 transition-all shadow-2xs shrink-0"
-              title="下个月"
-            >
-              <ChevronRight className="w-4 h-4" />
-            </button>
+            {/* Right: Cutoff Badge & Next Month Arrow */}
+            <div className="flex items-center space-x-2">
+              <div
+                className="hidden md:flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-purple-50/70 dark:bg-purple-950/40 text-[11px] text-purple-700 dark:text-purple-300 border border-purple-200/60 dark:border-purple-800/50 cursor-help"
+                title="全球交易日切日标准：北京时间 00:00~06:00 之间的跨夜美盘交易统一归属前一交易日（周五晚间美盘统一归属周五交易日，周六休市）"
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-purple-500 animate-pulse"></span>
+                <span className="font-mono">交易日切日: 06:00</span>
+              </div>
+
+              <button
+                onClick={nextMonth}
+                className="w-[38px] h-[38px] flex items-center justify-center rounded-xl border border-gray-200 dark:border-white/10 bg-white dark:bg-[#070a13] text-gray-600 dark:text-gray-300 hover:text-purple-600 dark:hover:text-purple-400 hover:border-purple-400 dark:hover:border-purple-500/80 transition-all shadow-2xs shrink-0"
+                title="下个月"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
           </div>
 
           {/* 3. Calendar Grid (Weekdays Header + Days with Unified Metrics) */}

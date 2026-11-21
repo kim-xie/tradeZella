@@ -4,6 +4,7 @@ import {
   computeDayStats,
   formatCurrency,
   getTradeEntryTime,
+  getTradeTradingDate,
 } from './calendarUtils';
 import { Calendar, BarChart2, TrendingUp, ChevronRight } from 'lucide-react';
 
@@ -39,9 +40,9 @@ export const CalendarYearMonthMatrix: React.FC<CalendarYearMonthMatrixProps> = (
     const yearMap: Record<number, Trade[]> = {};
     const yearsSet = new Set<number>();
 
-    // Collect years from actual trade data only
+    // Collect years from actual trade data using trading day
     trades.forEach((t) => {
-      const timeStr = getTradeEntryTime(t);
+      const timeStr = getTradeTradingDate(t);
       if (!timeStr || timeStr.length < 7) return;
       const y = parseInt(timeStr.substring(0, 4), 10);
       const m = parseInt(timeStr.substring(5, 7), 10) - 1;
