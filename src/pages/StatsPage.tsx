@@ -588,11 +588,11 @@ const StatsPage: React.FC = () => {
             onTouchMove={(e) => e.preventDefault()}
           >
             <div
-              className="bg-white dark:bg-[#0f172a] rounded-2xl border border-gray-200 dark:border-white/10 shadow-2xl w-full max-w-5xl h-[85vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-150 z-[1020]"
+              className="bg-white dark:bg-[#0f172a] rounded-2xl border border-gray-200 dark:border-white/10 shadow-2xl w-full max-w-5xl max-h-[92vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-150 z-[1020]"
               onClick={(e) => e.stopPropagation()}
             >
               {/* Modal Header */}
-              <div className="p-4 border-b border-gray-200 dark:border-white/10 flex items-center justify-between bg-gray-50 dark:bg-navy-950">
+              <div className="p-4 border-b border-gray-200 dark:border-white/10 flex items-center justify-between bg-gray-50 dark:bg-navy-950 shrink-0">
                 <div className="flex items-center space-x-3">
                   <div className="p-2 rounded-lg bg-purple-500/10 text-purple-600 dark:text-purple-400">
                     <LineChart className="w-5 h-5" />
@@ -637,7 +637,7 @@ const StatsPage: React.FC = () => {
               </div>
 
               {/* Chart Body */}
-              <div className="flex-1 p-4 overflow-hidden bg-white dark:bg-[#0b0f19]">
+              <div className="flex-1 p-4 overflow-y-auto min-h-0 bg-white dark:bg-[#0b0f19]">
                 <TradeExecutionChart
                   symbol={chartModalTrade.symbol}
                   direction={getTradeDirection(chartModalTrade)}
@@ -648,7 +648,7 @@ const StatsPage: React.FC = () => {
                   stopLoss={getTradeStopLoss(chartModalTrade)}
                   takeProfit={getTradeTakeProfit(chartModalTrade)}
                   pnl={calculateTradePnL(chartModalTrade)}
-                  height={560}
+                  height={450}
                 />
               </div>
             </div>

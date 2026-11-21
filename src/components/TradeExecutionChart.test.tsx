@@ -16,6 +16,7 @@ vi.mock('lightweight-charts', () => {
   const mockTimeScale = {
     fitContent: vi.fn(),
     setVisibleLogicalRange: vi.fn(),
+    scrollToPosition: vi.fn(),
   };
 
   const mockChart = {
@@ -226,5 +227,50 @@ describe('TradeExecutionChart - Replay & Timeframe', () => {
         })
       );
     });
+  });
+
+  it('supports switching to replay mode and navigating with quick jump buttons (入场前, 入场点, 出场点)', async () => {
+    render(
+      <TradeExecutionChart
+        symbol="美国原油 - 现货."
+        direction="sell"
+        entryPrice={85.628}
+        exitPrice={84.670}
+        stopLoss={86.200}
+        takeProfit={84.000}
+        entryTime="2026-11-20 18:48:00"
+        exitTime="2026-11-20 19:13:00"
+      />
+    );
+
+    // Wait for candles to finish loading
+    await waitFor(() => {
+      expect(screen.queryByText(/正在拉取/)).not.toBeInTheDocument();
+    });
+
+    // Switch to Replay mode
+    const replayBtn = screen.getByRole('button', { name: /逐帧复盘/i });
+    fireEvent.click(replayBtn);
+
+    // Check quick jump buttons exist
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '入场前' })).toBeInTheDocument();
+    });
+
+    const jumpEntryBtn = screen.getByRole('button', { name: '入场点' });
+    const jumpExitBtn = screen.getByRole('button', { name: '出场点' });
+
+    expect(jumpEntryBtn).toBeInTheDocument();
+    expect(jumpExitBtn).toBeInTheDocument();
+
+    // Clicking jump to entry updates status
+    fireEvent.click(jumpEntryBtn);
+    await waitFor(() => {
+      expect(screen.getByText(/持仓中/i)).toBeInTheDocument();
+    });
+
+    // Clicking jump to exit updates status
+    fireEvent.click(jumpExitBtn);
+    expect(jumpExitBtn.className).toContain('font-bold');
   });
 });

@@ -1642,7 +1642,7 @@ const TradesPage: React.FC = () => {
             onClick={() => setChartModalTrade(null)}
           />
           <div className="fixed inset-4 sm:inset-10 lg:inset-20 z-50 flex flex-col bg-white dark:bg-[#0b0f19] rounded-2xl shadow-2xl border border-gray-200 dark:border-white/10 overflow-hidden">
-            <div className="flex items-center justify-between p-4 border-b border-gray-100 dark:border-white/10 bg-gray-50/50 dark:bg-white/[0.02]">
+            <div className="flex items-center justify-between p-4 border-b border-gray-100 dark:border-white/10 bg-gray-50/50 dark:bg-white/[0.02] shrink-0">
               <div className="flex items-center space-x-3">
                 <span className="p-2 rounded-xl bg-purple-100 dark:bg-purple-950/60 text-purple-600 dark:text-purple-400">
                   <BarChart2 className="w-5 h-5" />
@@ -1667,7 +1667,7 @@ const TradesPage: React.FC = () => {
                 <X size={20} />
               </button>
             </div>
-            <div className="flex-1 p-4 overflow-hidden">
+            <div className="flex-1 p-4 overflow-y-auto min-h-0">
               <ErrorBoundary fallbackTitle="交易执行打点与行情走势图表加载异常">
                 <TradeExecutionChart
                   symbol={chartModalTrade.symbol}
@@ -1686,7 +1686,7 @@ const TradesPage: React.FC = () => {
                   tags={chartModalTrade.tags}
                   session={chartModalTrade.session}
                   exitReason={calculateExitMethod(chartModalTrade) || undefined}
-                  height={520}
+                  height={450}
                   className="h-full"
                 />
               </ErrorBoundary>

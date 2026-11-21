@@ -147,6 +147,7 @@ export const TradeExecutionChart: React.FC<TradeExecutionChartProps> = ({
 
   // Price lines references
   const entryLineRef = useRef<any>(null);
+  const exitLineRef = useRef<any>(null);
   const slLineRef = useRef<any>(null);
   const tpLineRef = useRef<any>(null);
   const maeLineRef = useRef<any>(null);
@@ -362,8 +363,8 @@ export const TradeExecutionChart: React.FC<TradeExecutionChartProps> = ({
       xIdx = Math.min(formattedData.length - 1, eIdx + 5);
     }
 
-    const preIdx = Math.max(0, eIdx - 60); // 逐帧复盘至少在入场前 60 根 K 线开始推演
-    const postIdx = Math.min(formattedData.length - 1, xIdx + 40); // 平仓后保留 40 根 K 线观察行情反弹/延续
+    const preIdx = Math.max(0, eIdx - 10); // 逐帧复盘在入场前 10 根 K 线开始推演观察
+    const postIdx = Math.min(formattedData.length - 1, xIdx + 20); // 平仓后保留 20 根 K 线观察行情反弹/延续
 
     return {
       entryBarIndex: eIdx,
@@ -637,21 +638,51 @@ export const TradeExecutionChart: React.FC<TradeExecutionChartProps> = ({
       rightPriceScale: {
         borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
         scaleMargins: {
-          top: 0.12,
-          bottom: 0.12,
+          top: 0.15,
+          bottom: 0.15,
         },
+        autoScale: true,
       },
     });
 
     chartInstanceRef.current = chart;
 
-    // Add Candlestick Series
+    // Add Candlestick Series with dynamic autoscale covering entry, exit, SL, and TP
     const candleSeries = chart.addSeries(CandlestickSeries, {
       upColor: '#10B981',
       downColor: '#EF4444',
       borderVisible: false,
       wickUpColor: '#10B981',
       wickDownColor: '#EF4444',
+      autoscaleInfoProvider: (original: () => any) => {
+        const res = typeof original === 'function' ? original() : null;
+        if (!res || !res.priceRange) return res;
+        let min = res.priceRange.minValue;
+        let max = res.priceRange.maxValue;
+        if (entryPrice && entryPrice > 0) {
+          min = Math.min(min, entryPrice);
+          max = Math.max(max, entryPrice);
+        }
+        if (exitPrice && exitPrice > 0) {
+          min = Math.min(min, exitPrice);
+          max = Math.max(max, exitPrice);
+        }
+        if (stopLoss && stopLoss > 0) {
+          min = Math.min(min, stopLoss);
+          max = Math.max(max, stopLoss);
+        }
+        if (takeProfit && takeProfit > 0) {
+          min = Math.min(min, takeProfit);
+          max = Math.max(max, takeProfit);
+        }
+        return {
+          ...res,
+          priceRange: {
+            minValue: min,
+            maxValue: max,
+          },
+        };
+      },
     });
     seriesInstanceRef.current = candleSeries;
 
@@ -664,7 +695,19 @@ export const TradeExecutionChart: React.FC<TradeExecutionChartProps> = ({
       : formattedData.slice(0, Math.min(formattedData.length, Math.max(1, replayIndex + 1)));
     
     candleSeries.setData(initialSlice);
-    chart.timeScale().fitContent();
+
+    // Frame the trade in the viewport
+    if (viewMode === 'overview') {
+      const fromIdx = Math.max(0, entryBarIndex - 20);
+      const toIdx = Math.min(formattedData.length - 1, exitBarIndex + 20);
+      if (toIdx > fromIdx && formattedData.length > 0 && typeof chart.timeScale().setVisibleLogicalRange === 'function') {
+        chart.timeScale().setVisibleLogicalRange({ from: fromIdx, to: toIdx });
+      } else {
+        chart.timeScale().fitContent();
+      }
+    } else {
+      chart.timeScale().fitContent();
+    }
 
     // Responsive resize observer
     let resizeObserver: ResizeObserver | null = null;
@@ -748,6 +791,10 @@ export const TradeExecutionChart: React.FC<TradeExecutionChartProps> = ({
         series.removePriceLine(entryLineRef.current);
         entryLineRef.current = null;
       }
+      if (exitLineRef.current) {
+        series.removePriceLine(exitLineRef.current);
+        exitLineRef.current = null;
+      }
       if (slLineRef.current) {
         series.removePriceLine(slLineRef.current);
         slLineRef.current = null;
@@ -768,8 +815,8 @@ export const TradeExecutionChart: React.FC<TradeExecutionChartProps> = ({
       // ignore line removal edge case
     }
 
-    // 2. Add Price lines if trade has been entered
-    if (entryPrice > 0 && (viewMode === 'overview' || currentLimitIdx >= entryBarIndex)) {
+    // 2. Add Price lines (Entry, Exit, SL, TP are ALWAYS displayed as key trade reference lines)
+    if (entryPrice > 0) {
       entryLineRef.current = series.createPriceLine({
         price: entryPrice,
         color: '#3B82F6',
@@ -778,6 +825,17 @@ export const TradeExecutionChart: React.FC<TradeExecutionChartProps> = ({
         axisLabelVisible: true,
         title: `Entry ${formatPriceNumber(entryPrice)}`,
       });
+
+      if (exitPrice && exitPrice > 0) {
+        exitLineRef.current = series.createPriceLine({
+          price: exitPrice,
+          color: '#F59E0B',
+          lineWidth: 1,
+          lineStyle: LineStyle.Dashed,
+          axisLabelVisible: true,
+          title: `Exit ${formatPriceNumber(exitPrice)}`,
+        });
+      }
 
       if (stopLoss && stopLoss > 0) {
         slLineRef.current = series.createPriceLine({
@@ -824,6 +882,20 @@ export const TradeExecutionChart: React.FC<TradeExecutionChartProps> = ({
             title: `MFE +$${liveStats.mfeAmount.toFixed(0)}`,
           });
         }
+      }
+    }
+
+    // Ensure viewport frames the trade when in overview or advancing replay
+    const chart = chartInstanceRef.current;
+    if (chart) {
+      if (viewMode === 'overview') {
+        const fromIdx = Math.max(0, entryBarIndex - 20);
+        const toIdx = Math.min(formattedData.length - 1, exitBarIndex + 20);
+        if (toIdx > fromIdx && typeof chart.timeScale().setVisibleLogicalRange === 'function') {
+          chart.timeScale().setVisibleLogicalRange({ from: fromIdx, to: toIdx });
+        }
+      } else if (isPlaying && typeof chart.timeScale().scrollToPosition === 'function') {
+        chart.timeScale().scrollToPosition(0, false);
       }
     }
   }, [viewMode, replayIndex, formattedData, entryPrice, exitPrice, stopLoss, takeProfit, entryBarIndex, exitBarIndex, isLong, size, finalProfit, liveStats]);
@@ -968,7 +1040,7 @@ export const TradeExecutionChart: React.FC<TradeExecutionChartProps> = ({
                 <span>●</span>
                 <span>
                   {liveStats.isPreEntry 
-                    ? `入场前观察期 (距入场 ${liveStats.barsToEntry} 根K线)` 
+                    ? `入场前准备期 (距入场 ${liveStats.barsToEntry} 根K线 · 计划入场: ${formatPriceNumber(entryPrice)})` 
                     : liveStats.isInPosition 
                     ? `持仓中 (第 ${liveStats.barsHeld} 根K线)` 
                     : '已结算平仓 (复盘出场推演)'}
@@ -1060,6 +1132,46 @@ export const TradeExecutionChart: React.FC<TradeExecutionChartProps> = ({
               >
                 <FastForward className="w-3.5 h-3.5" />
               </button>
+
+              {/* Quick Jump Buttons */}
+              <div className="flex items-center space-x-1 pl-1">
+                <button
+                  type="button"
+                  onClick={() => { setIsPlaying(false); setReplayIndex(preEntryIndex); }}
+                  className={`px-2 py-0.5 rounded text-[11px] font-mono transition border ${
+                    replayIndex < entryBarIndex
+                      ? 'bg-purple-100 dark:bg-purple-950/70 text-purple-700 dark:text-purple-300 border-purple-300 dark:border-purple-800 font-bold'
+                      : 'bg-white dark:bg-navy-800 text-gray-600 dark:text-gray-400 border-gray-200 dark:border-white/10 hover:bg-gray-100'
+                  }`}
+                  title="跳转到入场前准备期"
+                >
+                  入场前
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setIsPlaying(false); setReplayIndex(entryBarIndex); }}
+                  className={`px-2 py-0.5 rounded text-[11px] font-mono transition border ${
+                    replayIndex === entryBarIndex
+                      ? 'bg-emerald-100 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800 font-bold'
+                      : 'bg-white dark:bg-navy-800 text-gray-600 dark:text-gray-400 border-gray-200 dark:border-white/10 hover:bg-gray-100'
+                  }`}
+                  title="跳转到精准入场点"
+                >
+                  入场点
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setIsPlaying(false); setReplayIndex(exitBarIndex); }}
+                  className={`px-2 py-0.5 rounded text-[11px] font-mono transition border ${
+                    replayIndex >= exitBarIndex
+                      ? 'bg-amber-100 dark:bg-amber-950/70 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-800 font-bold'
+                      : 'bg-white dark:bg-navy-800 text-gray-600 dark:text-gray-400 border-gray-200 dark:border-white/10 hover:bg-gray-100'
+                  }`}
+                  title="跳转到平仓出场点"
+                >
+                  出场点
+                </button>
+              </div>
 
               {/* Playback speed buttons */}
               <div className="flex items-center pl-2 space-x-1">
