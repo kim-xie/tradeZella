@@ -52,10 +52,9 @@ describe('CalendarYearMonthMatrix', () => {
       />
     );
 
-    // Terminal titles
-    expect(screen.getByText('MONTHLY_PERFORMANCE_BREAKDOWN')).toBeDefined();
-    expect(screen.getByText(/2026年度月份复盘/)).toBeDefined();
-    expect(screen.getByText('YEARLY_ARCHIVE_DATA')).toBeDefined();
+    // Section titles
+    expect(screen.getByText('月度总览')).toBeDefined();
+    expect(screen.getByText('年度总览')).toBeDefined();
 
     // Month headers
     expect(screen.getByText('1月')).toBeDefined();
@@ -79,5 +78,32 @@ describe('CalendarYearMonthMatrix', () => {
     const yearCard = screen.getByText('2026年');
     fireEvent.click(yearCard);
     expect(handleSelectYear).toHaveBeenCalledWith(2026);
+  });
+
+  it('prominently highlights month and year cards when low-score days exist in localStorage', () => {
+    localStorage.clear();
+    // Simulate low score journal entry (1 star / 1分) on 2026-11-15 and 2026-11-16
+    localStorage.setItem(
+      'tradezella_daily_notes_2026-11-15',
+      JSON.stringify({ note: 'FOMO追高亏损', tags: ['追高FOMO'], score: 1 })
+    );
+    localStorage.setItem(
+      'tradezella_daily_notes_2026-11-16',
+      JSON.stringify({ note: '重仓扛单', tags: ['重仓抗单'], score: 2 })
+    );
+
+    render(
+      <CalendarYearMonthMatrix
+        trades={mockTrades}
+        currentYear={2026}
+        currentMonth={10} // 11月
+        onSelectMonth={vi.fn()}
+        onSelectYear={vi.fn()}
+      />
+    );
+
+    // Verify month card shows low score highlight badge: "2天低分"
+    const lowScoreBadges = screen.getAllByText('2天低分');
+    expect(lowScoreBadges.length).toBeGreaterThan(0);
   });
 });

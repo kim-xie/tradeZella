@@ -5,6 +5,7 @@ import { createTrade, updateTrade, uploadScreenshot, deleteTrade, CreateTradeDat
 import { X, Upload, Trash2, Star, ChevronLeft, ChevronRight, ChevronDown, Layers, Target, Compass, FileText, Maximize2, Minimize2 } from 'lucide-react';
 import DateTimePicker from './common/DateTimePicker';
 import Select from './common/Select';
+import { calculateMarketSession } from './calendar/calendarUtils';
 interface Trade {
     id: number;
     symbol: string;
@@ -186,11 +187,12 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, o
                 rating: trade.rating || 0,
                 leverage: trade.leverage || 1,
                 manualPnl: (trade as any).manual_pnl,
-                session: (trade as any).session,
+                session: (trade as any).session || calculateMarketSession(trade.entry_time || trade.createdat) || undefined,
                 finalTrigger: (trade as any).final_trigger,
                 sentiment: (trade as any).sentiment,
             });
         } else {
+            const initialEntryTime = nowLocalISO();
             setFormData({
                 symbol: '',
                 direction: 'long',
@@ -198,7 +200,7 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, o
                 entryPrice: 0,
                 exitPrice: undefined,
                 notes: '',
-                entryTime: nowLocalISO(),
+                entryTime: initialEntryTime,
                 exitTime: '',
                 stopLoss: undefined,
                 takeProfit: undefined,
@@ -207,7 +209,7 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, o
                 rating: 0,
                 leverage: 1,
                 manualPnl: undefined,
-                session: undefined,
+                session: calculateMarketSession(initialEntryTime) || undefined,
                 finalTrigger: undefined,
                 sentiment: undefined,
             });
@@ -260,8 +262,9 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, o
         const sl = Number(formData.stopLoss || 0);
         const tp = Number(formData.takeProfit || 0);
         if (ep <= 0 || sl <= 0 || tp <= 0) return null;
-        const risk = Math.abs(ep - sl);
-        const reward = Math.abs(tp - ep);
+        const dir = formData.direction === 'short' || formData.direction === ('sell' as any) ? 'short' : 'long';
+        const risk = dir === 'long' ? ep - sl : sl - ep;
+        const reward = dir === 'long' ? tp - ep : ep - tp;
         if (risk <= 0.0000001 || reward <= 0.0000001) return null;
         const rr = reward / risk;
         return isFinite(rr) && rr > 0 ? rr : null;
@@ -274,7 +277,8 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, o
         const sl = Number(formData.stopLoss || 0);
         const size = Number(formData.size || 0);
         if (!pnl || ep <= 0 || sl <= 0 || size <= 0) return null;
-        const riskPerUnit = Math.abs(ep - sl);
+        const dir = formData.direction === 'short' || formData.direction === ('sell' as any) ? 'short' : 'long';
+        const riskPerUnit = dir === 'long' ? ep - sl : sl - ep;
         if (riskPerUnit <= 0.0000001) return null;
 
         const xp = formData.exitPrice ? Number(formData.exitPrice) : 0;
@@ -337,7 +341,12 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, o
     const nowLocal = nowLocalISO();
 
     const validateEntryTime = (value: string) => {
-        setFormData(prev => ({ ...prev, entryTime: value }));
+        const autoSession = calculateMarketSession(value);
+        setFormData(prev => ({ 
+            ...prev, 
+            entryTime: value,
+            session: autoSession || prev.session,
+        }));
         if (!value) { setEntryTimeError(''); return; }
         const t = new Date(value);
         if (t > now) { setEntryTimeError('入场时间不能晚于当前时间。'); return; }
@@ -974,7 +983,7 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, o
                                             );
                                         })}
                                     </div>
-                                    <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">标记此笔交易发生时的交易时段 (选填)</p>
+                                    <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">已根据开仓时间自动推算交易时段 (支持手动微调切换)</p>
                                 </div>
 
                                 {/* 入场信号与条件 */}

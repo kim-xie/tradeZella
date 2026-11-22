@@ -47,6 +47,9 @@ router.get('/stream', protect, TradeController.streamTrades);
 // Bulk clear all trades for authenticated user
 router.delete('/all', protect, TradeController.deleteAllTrades);
 
+// Auto-evaluate final triggers (TP/SL) for manual trades based on candle data
+router.post('/auto-evaluate-triggers', protect, TradeController.autoEvaluateTriggers);
+
 router.route('/:id')
   .get(protect, TradeController.getTrade)
   .put(protect, updateTradeValidationRules(), validate, TradeController.updateTrade)

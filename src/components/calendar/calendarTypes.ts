@@ -50,6 +50,7 @@ export interface DayStats {
   avgLossDuration: number;
   mistakesCount: number;
   hasNotes: boolean;
+  journalScore: number | null;
 }
 
 export interface MonthStats {

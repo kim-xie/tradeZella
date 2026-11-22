@@ -9,6 +9,8 @@ router.get('/mt5/status', BacktestingController.getMT5Status);
 router.get('/symbols', BacktestingController.getAvailableCandleSymbols);
 router.get('/candles', BacktestingController.getCandles);
 router.post('/candles/sync', BacktestingController.syncCandles);
+router.post('/candles/clear', BacktestingController.clearCandles);
+router.delete('/candles', BacktestingController.clearCandles);
 
 // Protect user-specific backtest results
 router.use(protect);

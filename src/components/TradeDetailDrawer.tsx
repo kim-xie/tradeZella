@@ -17,6 +17,7 @@ import { SERVER_BASE_URL as API_BASE_URL } from '../services/api';
 import {
   getTradeTradingDate,
   isTradeOvernightSession,
+  calculateMarketSession,
 } from './calendar/calendarUtils';
 
 export interface DetailTrade {
@@ -48,6 +49,7 @@ export interface DetailTrade {
 export interface TradeDetailDrawerProps {
   trade: DetailTrade | null;
   onClose: () => void;
+  baseZIndex?: number;
 }
 
 type ExitMethodType = 'takeProfit' | 'stopLoss' | 'manual';
@@ -97,8 +99,9 @@ export const calculateTargetRR = (trade: DetailTrade): number | null => {
   const tp = Number(trade.take_profit ?? (trade as any).takeProfit ?? 0);
 
   if (ep <= 0 || sl <= 0 || tp <= 0) return null;
-  const risk = Math.abs(ep - sl);
-  const reward = Math.abs(tp - ep);
+  const dir = trade.direction === 'short' || trade.direction === ('sell' as any) ? 'short' : 'long';
+  const risk = dir === 'long' ? ep - sl : sl - ep;
+  const reward = dir === 'long' ? tp - ep : ep - tp;
   if (risk <= 0.0000001 || reward <= 0.0000001) return null;
   const rr = reward / risk;
   return isFinite(rr) && rr > 0 ? rr : null;
@@ -110,10 +113,10 @@ export const calculateActualRR = (trade: DetailTrade): number | null => {
   const xp = Number(trade.exitprice ?? (trade as any).exitPrice ?? 0);
 
   if (ep <= 0 || sl <= 0 || xp <= 0) return null;
-  const riskPerUnit = Math.abs(ep - sl);
+  const dir = trade.direction === 'short' || trade.direction === ('sell' as any) ? 'short' : 'long';
+  const riskPerUnit = dir === 'long' ? ep - sl : sl - ep;
   if (riskPerUnit <= 0.0000001) return null;
 
-  const dir = trade.direction === 'short' || trade.direction === ('sell' as any) ? 'short' : 'long';
   const diff = dir === 'long' ? xp - ep : ep - xp;
   const manual = trade.manual_pnl ?? (trade as any).manualPnl;
   const isManual = manual !== undefined && manual !== null && !isNaN(Number(manual));
@@ -209,7 +212,11 @@ export const getTradeSource = (trade: DetailTrade): TradeSourceInfo => {
   return { type: 'manual', label: '手动录入' };
 };
 
-export const TradeDetailDrawer: React.FC<TradeDetailDrawerProps> = ({ trade, onClose }) => {
+export const TradeDetailDrawer: React.FC<TradeDetailDrawerProps> = ({
+  trade,
+  onClose,
+  baseZIndex = 1000,
+}) => {
   const [isMaximized, setIsMaximized] = useState(false);
   const [lightboxImage, setLightboxImage] = useState<{ urls: string[]; index: number } | null>(null);
 
@@ -292,6 +299,7 @@ export const TradeDetailDrawer: React.FC<TradeDetailDrawerProps> = ({ trade, onC
       {/* Backdrop */}
       <div
         className="fixed inset-0 z-[999] bg-black/60 backdrop-blur-xs transition-opacity animate-in fade-in duration-200"
+        style={{ zIndex: baseZIndex - 1 }}
         onClick={onClose}
         onWheel={(e) => e.stopPropagation()}
         onTouchMove={(e) => e.preventDefault()}
@@ -300,6 +308,7 @@ export const TradeDetailDrawer: React.FC<TradeDetailDrawerProps> = ({ trade, onC
       {/* Drawer Panel */}
       <aside
         aria-label="交易复盘详情抽屉"
+        style={{ zIndex: baseZIndex }}
         className={`fixed top-0 right-0 bottom-0 z-[1000] ${
           isMaximized ? 'w-full' : 'w-full md:w-3/5 lg:w-1/2'
         } bg-white dark:bg-[#0f172a] border-l border-gray-200 dark:border-white/10 shadow-2xl flex flex-col overflow-hidden transition-all duration-300 ease-in-out`}
@@ -506,7 +515,18 @@ export const TradeDetailDrawer: React.FC<TradeDetailDrawerProps> = ({ trade, onC
               </div>
               <div>
                 <span className="text-xs text-gray-500 dark:text-gray-400">交易时段:</span>{' '}
-                <span className="text-sm font-medium text-gray-900 dark:text-white">{trade.session ? `${trade.session} 盘` : '-'}</span>
+                <span className="text-sm font-medium text-gray-900 dark:text-white">
+                  {(() => {
+                    const effSession = trade.session || calculateMarketSession(trade.entry_time || trade.createdat);
+                    if (!effSession) return '-';
+                    const names: Record<string, string> = {
+                      Asia: '🌅 亚盘时段 (Asia)',
+                      Europe: '🏛️ 欧盘时段 (Europe)',
+                      US: '🏙️ 美盘时段 (US)'
+                    };
+                    return names[effSession] || `${effSession} 盘`;
+                  })()}
+                </span>
               </div>
               <div>
                 <span className="text-xs text-gray-500 dark:text-gray-400">入场心智/情绪:</span>{' '}
@@ -655,6 +675,7 @@ export const TradeDetailDrawer: React.FC<TradeDetailDrawerProps> = ({ trade, onC
       {lightboxImage && (
         <div
           className="fixed inset-0 z-[1020] flex items-center justify-center bg-black/80 p-4"
+          style={{ zIndex: baseZIndex + 20 }}
           onClick={() => setLightboxImage(null)}
           onWheel={(e) => e.stopPropagation()}
           onTouchMove={(e) => e.preventDefault()}

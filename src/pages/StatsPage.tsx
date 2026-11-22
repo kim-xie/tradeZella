@@ -31,7 +31,8 @@ import {
   ChevronRight,
   LineChart,
   X,
-  Clock,
+  AlertTriangle,
+  Star,
 } from 'lucide-react';
 
 const WEEKDAYS = [
@@ -81,6 +82,20 @@ const StatsPage: React.FC = () => {
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [selectedWeek, setSelectedWeek] = useState<{ index: number; dates: string[] } | null>(null);
   const [chartModalTrade, setChartModalTrade] = useState<Trade | null>(null);
+  const [notesRevision, setNotesRevision] = useState(0);
+
+  // 监听复盘日记打分与笔记更新，实时刷新日历卡片状态
+  useEffect(() => {
+    const handleNotesUpdate = () => {
+      setNotesRevision((v) => v + 1);
+    };
+    window.addEventListener('tradezella_daily_notes_updated', handleNotesUpdate);
+    window.addEventListener('storage', handleNotesUpdate);
+    return () => {
+      window.removeEventListener('tradezella_daily_notes_updated', handleNotesUpdate);
+      window.removeEventListener('storage', handleNotesUpdate);
+    };
+  }, []);
 
   // Prevent background scrolling while standalone chart modal is open
   useEffect(() => {
@@ -265,16 +280,8 @@ const StatsPage: React.FC = () => {
               )}
             </div>
 
-            {/* Right: Cutoff Mode Badge & Next Month Arrow */}
+            {/* Right: Next Month Arrow */}
             <div className="flex items-center space-x-2">
-              <div
-                className="flex items-center bg-gray-100/90 dark:bg-navy-950/70 px-2.5 py-1.5 rounded-xl border border-gray-200/80 dark:border-white/10 text-[11px] font-mono shadow-2xs space-x-1.5 text-purple-700 dark:text-purple-300 font-bold"
-                title="全平台统一以美盘闭市 06:00 为界统计交易日（对齐 MT5 / TradeZella 结算标准）"
-              >
-                <Clock className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
-                <span>美盘交易日 (06:00 切日)</span>
-              </div>
-
               <button
                 onClick={nextMonth}
                 className="w-[38px] h-[38px] flex items-center justify-center rounded-xl border border-gray-200 dark:border-white/10 bg-white dark:bg-[#070a13] text-gray-600 dark:text-gray-300 hover:text-purple-600 dark:hover:text-purple-400 hover:border-purple-400 dark:hover:border-purple-500/80 transition-all shadow-2xs shrink-0"
@@ -327,6 +334,8 @@ const StatsPage: React.FC = () => {
                       const dayNum = parseInt(dateStr.split('-')[2], 10);
                       const isToday = dateStr === todayStr;
                       const hasTrades = dayTrades.length > 0;
+                      const isLowScore = stats.journalScore !== null && stats.journalScore <= 2;
+                      const hasScore = stats.journalScore !== null;
 
                       // Cell Background Style
                       let bgClasses = 'bg-white dark:bg-navy-900/40 border-gray-200/80 dark:border-white/10';
@@ -340,11 +349,16 @@ const StatsPage: React.FC = () => {
                         }
                       }
 
+                      // 分数低的重点突出 (Low Score Prominent Warning Outline & Ring)
+                      const lowScoreClasses = isLowScore
+                        ? 'border-rose-500! dark:border-rose-500! ring-2 ring-rose-500/80 shadow-md shadow-rose-500/20'
+                        : '';
+
                       return (
                         <div
                           key={dateStr}
                           onClick={() => setSelectedDay(dateStr)}
-                          className={`min-h-[135px] p-2.5 rounded-xl border text-xs cursor-pointer transition-all duration-150 hover:scale-[1.02] hover:shadow-md flex flex-col justify-between ${bgClasses} ${
+                          className={`min-h-[135px] p-2.5 rounded-xl border text-xs cursor-pointer transition-all duration-150 hover:scale-[1.02] hover:shadow-md flex flex-col justify-between ${bgClasses} ${lowScoreClasses} ${
                             isToday ? 'border-purple-500 dark:border-purple-400 ring-2 ring-purple-500/25 shadow-md' : ''
                           }`}
                           title="点击查看日内复盘、笔记与每笔交易 K 线打点"
@@ -367,9 +381,26 @@ const StatsPage: React.FC = () => {
                                   TODAY
                                 </span>
                               )}
-                              {stats.hasNotes && (
-                                <span className="text-[10px]" title="包含日记/复盘心得">
-                                  📝
+                              {/* Daily Review Discipline Score Badge (分数低的重点突出) */}
+                              {hasScore && (
+                                <span
+                                  className={`px-1.5 py-0.2 rounded text-[9px] font-mono font-bold flex items-center space-x-0.5 ${
+                                    isLowScore
+                                      ? 'bg-rose-600 text-white shadow-xs animate-pulse ring-1 ring-rose-400'
+                                      : stats.journalScore === 3
+                                      ? 'bg-amber-100 dark:bg-amber-950/80 text-amber-700 dark:text-amber-400 border border-amber-300 dark:border-amber-800'
+                                      : 'bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-800'
+                                  }`}
+                                  title={`日内复盘打分: ${stats.journalScore}分 ${
+                                    isLowScore
+                                      ? '(严重违规/执行欠佳，重点突出复盘)'
+                                      : stats.journalScore === 3
+                                      ? '(基本合格)'
+                                      : '(自律良好/知行合一)'
+                                  }`}
+                                >
+                                  {isLowScore && <span className="text-[8px]">⚠️</span>}
+                                  <span>{stats.journalScore}分</span>
                                 </span>
                               )}
                               {stats.mistakesCount > 0 && (
@@ -403,7 +434,13 @@ const StatsPage: React.FC = () => {
                                 >
                                   {formatCurrency(stats.pnl)}
                                 </div>
+                                {isLowScore && (
+                                  <div className="mt-1 py-0.5 px-1 rounded bg-rose-500/15 dark:bg-rose-950/50 border border-rose-500/40 text-[9px] font-bold text-rose-600 dark:text-rose-400 text-center truncate">
+                                    ⚠️ 重点复盘日 ({stats.journalScore}分)
+                                  </div>
+                                )}
                               </div>
+
 
                               {/* 2. Unified Sub-metrics: 订单胜负, 手数, R倍数 */}
                               <div className="space-y-0.5 text-[10px] font-mono border-t border-black/5 dark:border-white/5 pt-1.5">
@@ -437,8 +474,14 @@ const StatsPage: React.FC = () => {
                               </div>
                             </div>
                           ) : (
-                            <div className="my-auto text-center text-[10px] text-gray-300 dark:text-gray-600">
-                              -
+                            <div className="my-auto text-center">
+                              {isLowScore ? (
+                                <span className="text-[10px] font-bold text-rose-600 dark:text-rose-400 bg-rose-500/15 px-1.5 py-0.5 rounded border border-rose-500/40">
+                                  ⚠️ 重点复盘 ({stats.journalScore}分)
+                                </span>
+                              ) : (
+                                <span className="text-[10px] text-gray-300 dark:text-gray-600">-</span>
+                              )}
                             </div>
                           )}
                         </div>
@@ -455,14 +498,20 @@ const StatsPage: React.FC = () => {
                       className={`min-h-[135px] p-2.5 rounded-xl border text-xs cursor-pointer transition-all duration-150 hover:scale-[1.02] hover:shadow-md flex flex-col justify-between ${
                         weekHasTrades
                           ? weekStats.pnl >= 0
-                            ? 'bg-purple-500/10 dark:bg-purple-950/30 border-purple-300 dark:border-purple-800/60'
-                            : 'bg-rose-500/10 dark:bg-rose-950/30 border-rose-300 dark:border-rose-800/60'
+                            ? 'bg-emerald-500/10 dark:bg-emerald-950/30 border-emerald-500/30 dark:border-emerald-800/60 hover:border-emerald-500 dark:hover:border-emerald-500'
+                            : 'bg-rose-500/10 dark:bg-rose-950/30 border-rose-500/30 dark:border-rose-800/60 hover:border-rose-500 dark:hover:border-rose-500'
                           : 'bg-gray-50 dark:bg-navy-950/40 border-gray-200/80 dark:border-white/5 opacity-60'
                       }`}
                       title="点击查看周度全面汇总复盘"
                     >
                       <div className="flex items-center justify-between">
-                        <span className="text-[11px] font-bold text-purple-700 dark:text-purple-300">
+                        <span className={`text-[11px] font-bold ${
+                          !weekHasTrades 
+                            ? 'text-gray-500 dark:text-gray-400' 
+                            : weekStats.pnl >= 0 
+                              ? 'text-emerald-700 dark:text-emerald-400' 
+                              : 'text-rose-700 dark:text-rose-400'
+                        }`}>
                           第 {rowIdx + 1} 周
                         </span>
                         {weekHasTrades && (
@@ -491,7 +540,7 @@ const StatsPage: React.FC = () => {
                           </div>
 
                           {/* Week Sub-metrics */}
-                          <div className="space-y-0.5 text-[10px] font-mono border-t border-purple-200/40 dark:border-purple-800/40 pt-1.5">
+                          <div className="space-y-0.5 text-[10px] font-mono border-t border-black/5 dark:border-white/5 pt-1.5">
                             <div className="flex items-center justify-between text-gray-600 dark:text-gray-300">
                               <span className="font-sans text-gray-500 dark:text-gray-400">胜负:</span>
                               <span className="font-bold">{weekStats.wins}W - {weekStats.losses}L</span>
@@ -528,6 +577,7 @@ const StatsPage: React.FC = () => {
               trades={trades}
               currentYear={currentDate.getFullYear()}
               currentMonth={currentDate.getMonth()}
+              notesRevision={notesRevision}
               onSelectMonth={(year, month) => {
                 setCurrentDate(new Date(year, month, 1));
                 calendarCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });

@@ -1,5 +1,25 @@
 import { pool } from '../db.js';
 import { types } from 'pg';
+import { CandleService } from './candle.service.js';
+
+// Automatically determine market session from entry time
+export const calculateMarketSession = (entryTime) => {
+  if (!entryTime) return null;
+  let hour;
+  if (entryTime instanceof Date) {
+    hour = entryTime.getHours();
+  } else {
+    const str = String(entryTime).trim();
+    const match = str.match(/[T\s](\d{1,2}):/);
+    if (!match) return null;
+    hour = parseInt(match[1], 10);
+  }
+  if (isNaN(hour)) return null;
+
+  if (hour >= 8 && hour < 15) return 'Asia';
+  if (hour >= 15 && hour < 21) return 'Europe';
+  return 'US';
+};
 
 // 让 PostgreSQL TIMESTAMP (without time zone) 字段返回原始字符串，避免 node-pg 二次转换为 UTC
 types.setTypeParser(types.TIMESTAMP, (val) => val);
@@ -91,6 +111,7 @@ export class TradeService {
       const nowUtc = localNowISO();
       const leverageVal = (!leverage || leverage < 1) ? 1 : leverage;
       const extractedTicket = ticket || extractTradeTicket({ ticket, notes });
+      const derivedSession = session || calculateMarketSession(entryTime || tradeDate);
 
       const result = await client.query(
         `INSERT INTO trades (
@@ -122,7 +143,7 @@ export class TradeService {
           toNull(rating),
           toNull(manualPnl),
           leverageVal,
-          toNull(session),
+          toNull(derivedSession),
           toNull(finalTrigger),
           nowUtc,
           nowUtc,
@@ -143,7 +164,7 @@ export class TradeService {
                 stop_loss, take_profit, entry_conditions, rating, manual_pnl, leverage, session, final_trigger,
                 TO_CHAR(createdat, 'YYYY-MM-DD"T"HH24:MI:SS') AS createdat,
                 TO_CHAR(updatedat, 'YYYY-MM-DD"T"HH24:MI:SS') AS updatedat
-         FROM trades WHERE userId = $1 ORDER BY createdat DESC`;
+         FROM trades WHERE userId = $1 ORDER BY COALESCE(entry_time, createdat) DESC, id DESC`;
       const params = [userId];
 
       if (options.limit && options.limit > 0) {
@@ -212,6 +233,13 @@ export class TradeService {
         session: 'session',
         finalTrigger: 'final_trigger',
       };
+
+      if ((tradeData.entryTime || tradeData.entry_time) && tradeData.session === undefined) {
+        const autoS = calculateMarketSession(tradeData.entryTime || tradeData.entry_time);
+        if (autoS) {
+          tradeData.session = autoS;
+        }
+      }
 
       const fields = [];
       const values = [];
@@ -445,7 +473,7 @@ export class TradeService {
               toNull(rating),
               toNull(manualPnl),
               leverageVal,
-              toNull(session),
+              toNull(session || calculateMarketSession(entryTime || tradeDate)),
               toNull(finalTrigger),
               nowUtc,
               nowUtc
@@ -487,6 +515,93 @@ export class TradeService {
     } catch (error) {
       console.error('Error creating bulk trades with deduplication:', error);
       throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * Automatically evaluate final triggers (takeProfit / stopLoss) for completed manual trades
+   * using historical candle sequences after exit_time.
+   */
+  static async autoEvaluateTriggers(userId, specificTradeIds = null) {
+    const client = await pool.connect();
+    try {
+      let query = `
+        SELECT id, symbol, direction, size, entryprice, exitprice, notes,
+               TO_CHAR(entry_time, 'YYYY-MM-DD"T"HH24:MI:SS') AS entry_time,
+               TO_CHAR(exit_time, 'YYYY-MM-DD"T"HH24:MI:SS') AS exit_time,
+               stop_loss, take_profit, final_trigger
+        FROM trades
+        WHERE userId = $1
+          AND exitprice IS NOT NULL
+          AND exit_time IS NOT NULL
+          AND stop_loss IS NOT NULL
+          AND take_profit IS NOT NULL
+          AND final_trigger IS NULL
+      `;
+      const params = [userId];
+
+      if (Array.isArray(specificTradeIds) && specificTradeIds.length > 0) {
+        query += ` AND id = ANY($2)`;
+        params.push(specificTradeIds);
+      }
+
+      query += ` ORDER BY exit_time DESC LIMIT 50`;
+
+      const res = await client.query(query, params);
+      const tradesToEvaluate = res.rows || [];
+      const updatedTrades = [];
+
+      for (const trade of tradesToEvaluate) {
+        const exit = parseFloat(trade.exitprice);
+        const sl = parseFloat(trade.stop_loss);
+        const tp = parseFloat(trade.take_profit);
+        const dir = String(trade.direction || '').toLowerCase();
+
+        let isManual = true;
+        if (trade.notes) {
+          const notesLower = trade.notes.toLowerCase();
+          if (notesLower.includes('[tp') || notesLower.includes('[sl') || notesLower.includes('take profit') || notesLower.includes('stop loss')) {
+            isManual = false;
+          }
+        }
+        if (dir === 'long' || dir === 'buy') {
+          if (!isNaN(tp) && exit >= tp) isManual = false;
+          if (!isNaN(sl) && exit <= sl) isManual = false;
+        } else {
+          if (!isNaN(tp) && exit <= tp) isManual = false;
+          if (!isNaN(sl) && exit >= sl) isManual = false;
+        }
+
+        if (!isManual) continue;
+
+        const candles = await CandleService.fetchCandlesForTrade(trade);
+        if (candles && candles.length > 0) {
+          const trigger = CandleService.evaluateFinalTriggerFromCandles({
+            direction: trade.direction,
+            stopLoss: sl,
+            takeProfit: tp,
+            exitTime: trade.exit_time,
+            candles,
+          });
+
+          if (trigger === 'takeProfit' || trigger === 'stopLoss') {
+            const updateRes = await client.query(
+              `UPDATE trades SET final_trigger = $1, updatedAt = $2 WHERE id = $3 AND userId = $4 RETURNING *`,
+              [trigger, localNowISO(), trade.id, userId]
+            );
+            if (updateRes.rows && updateRes.rows[0]) {
+              updatedTrades.push(updateRes.rows[0]);
+            }
+          }
+        }
+      }
+
+      return updatedTrades;
+    } catch (err) {
+      console.warn('Auto evaluation of triggers encountered an issue:', err.message);
+      return [];
     } finally {
       client.release();
     }

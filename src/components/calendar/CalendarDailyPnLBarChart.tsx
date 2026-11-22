@@ -39,7 +39,7 @@ export const CalendarDailyPnLBarChart: React.FC<CalendarDailyPnLBarChartProps> =
   const [hoveredDay, setHoveredDay] = useState<DayBarData | null>(null);
 
   // Compute daily stats for every day of current month (按交易日时间统计)
-  const { days, totalPnL, greenDays, redDays, breakevenDays, winDayRate, bestDay, worstDay, maxAbsPnl, activeDaysCount } = useMemo(() => {
+  const { days, totalPnL, greenDays, redDays, breakevenDays, winDayRate, bestDay, worstDay, maxAbsPnl, activeDaysCount, totalTradesCount, avgTradesPerDay } = useMemo(() => {
     const todayStr = getCurrentTradingDate();
     
     // Total days in the current month
@@ -52,6 +52,7 @@ export const CalendarDailyPnLBarChart: React.FC<CalendarDailyPnLBarChartProps> =
     let beCount = 0;
     let best: { dateStr: string; pnl: number } | null = null;
     let worst: { dateStr: string; pnl: number } | null = null;
+    let totalTrades = 0;
 
     for (let d = 1; d <= totalDays; d++) {
       const dateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
@@ -65,6 +66,7 @@ export const CalendarDailyPnLBarChart: React.FC<CalendarDailyPnLBarChartProps> =
 
       if (hasTrades) {
         sumPnL += pnl;
+        totalTrades += stats.count;
         if (pnl > 0) {
           greenCount++;
           if (!best || pnl > best.pnl) best = { dateStr, pnl };
@@ -96,6 +98,7 @@ export const CalendarDailyPnLBarChart: React.FC<CalendarDailyPnLBarChartProps> =
     const maxAbs = Math.max(20, ...dayList.map(item => Math.abs(item.pnl)));
     const active = greenCount + redCount + beCount;
     const dayWinPct = (greenCount + redCount) > 0 ? (greenCount / (greenCount + redCount)) * 100 : 0;
+    const avgTrades = active > 0 ? Number((totalTrades / active).toFixed(1)) : 0;
 
     return {
       days: dayList,
@@ -108,6 +111,8 @@ export const CalendarDailyPnLBarChart: React.FC<CalendarDailyPnLBarChartProps> =
       worstDay: worst,
       maxAbsPnl: maxAbs,
       activeDaysCount: active,
+      totalTradesCount: totalTrades,
+      avgTradesPerDay: avgTrades,
     };
   }, [currentYear, currentMonth, tradesByDay]);
 
@@ -123,18 +128,13 @@ export const CalendarDailyPnLBarChart: React.FC<CalendarDailyPnLBarChartProps> =
           <div className="p-1.5 rounded-lg bg-purple-100 dark:bg-purple-950/80 text-purple-600 dark:text-purple-400 border border-purple-200/80 dark:border-purple-800/40 shadow-2xs">
             <BarChart3 className="w-4 h-4" />
           </div>
-          <div>
-            <div className="flex items-center space-x-2">
-              <h3 className="text-sm font-bold text-gray-900 dark:text-white">
-                当月每日盈亏柱形图 (Daily Net P&L)
-              </h3>
-              <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800/50">
-                {currentYear}年 {currentMonth + 1}月
-              </span>
-            </div>
-            <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
-              以 $0 为基准中轴，动态透视当月单日净收益分布（上绿下红）
-            </p>
+          <div className="flex items-center space-x-2">
+            <h3 className="text-sm font-bold text-gray-900 dark:text-white">
+              月盈亏统计
+            </h3>
+            <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800/50">
+              {currentYear}年 {currentMonth + 1}月
+            </span>
           </div>
         </div>
 
@@ -162,6 +162,25 @@ export const CalendarDailyPnLBarChart: React.FC<CalendarDailyPnLBarChartProps> =
             <span className="text-[10px] text-gray-400">
               ({winDayRate.toFixed(0)}% 胜率)
             </span>
+          </div>
+
+          {/* Total Trades & Avg Trades Per Day */}
+          <div 
+            data-testid="trades-count-kpi"
+            className="px-3 py-1.5 rounded-xl bg-white dark:bg-navy-900 border border-gray-200 dark:border-white/10 shadow-2xs flex items-center space-x-2"
+            title={activeDaysCount > 0 ? `当月交易总笔数: ${totalTradesCount} 笔，在 ${activeDaysCount} 个活跃交易日中平均每天 ${avgTradesPerDay} 笔` : '当月暂无交易'}
+          >
+            <div className="flex items-center space-x-1">
+              <span className="text-[11px] text-gray-500 dark:text-gray-400">交易总笔数:</span>
+              <span className="font-bold text-sm text-gray-900 dark:text-white">{totalTradesCount}</span>
+              <span className="text-[10px] text-gray-400">笔</span>
+            </div>
+            <span className="text-gray-300 dark:text-gray-600">/</span>
+            <div className="flex items-center space-x-1">
+              <span className="text-[11px] text-gray-500 dark:text-gray-400">平均每天:</span>
+              <span className="font-bold text-sm text-purple-600 dark:text-purple-400">{avgTradesPerDay}</span>
+              <span className="text-[10px] text-gray-400">笔</span>
+            </div>
           </div>
 
           {/* Best Day */}

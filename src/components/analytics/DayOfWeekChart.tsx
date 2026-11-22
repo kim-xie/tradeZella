@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { Calendar, TrendingUp, TrendingDown, Clock } from 'lucide-react';
+import { Calendar, TrendingUp, TrendingDown } from 'lucide-react';
 import { getTradeDayOfWeek, calculateTradePnL } from '../calendar/calendarUtils';
 
 interface DayOfWeekChartProps {
@@ -56,21 +56,13 @@ export const DayOfWeekChart: React.FC<DayOfWeekChartProps> = ({ trades, classNam
 
   return (
     <div className={`bg-white/90 dark:bg-[#111827]/90 backdrop-blur-xl rounded-2xl border border-gray-200/80 dark:border-white/10 p-5 shadow-xs ${className}`}>
-      <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
-        <div className="flex items-center space-x-2">
-          <span className="p-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/60">
-            <Calendar className="w-4 h-4" />
-          </span>
-          <h3 className="text-sm font-bold text-gray-900 dark:text-white">
-            星期胜率与盈亏分布 (Day of Week)
-          </h3>
-        </div>
-        <span
-          className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-purple-50 dark:bg-purple-950/60 text-purple-600 dark:text-purple-300 border border-purple-200 dark:border-purple-800/60 font-semibold"
-          title="周五下半夜美盘（周六凌晨 00:00~06:00）成交的订单，全部按交易日时间归属周五统计"
-        >
-          交易日时间统计
+      <div className="flex items-center space-x-2 mb-4">
+        <span className="p-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/60">
+          <Calendar className="w-4 h-4" />
         </span>
+        <h3 className="text-sm font-bold text-gray-900 dark:text-white">
+          星期胜率与盈亏分布 (Day of Week)
+        </h3>
       </div>
 
       <div className="space-y-3">

@@ -10,7 +10,7 @@ import {
   getTradeSize,
   calculateTradePnL,
 } from './calendarUtils';
-import { X, Calendar, TrendingUp, Layers, ChevronRight } from 'lucide-react';
+import { X, Calendar, TrendingUp, Layers, ChevronRight, AlertTriangle } from 'lucide-react';
 
 interface CalendarWeekModalProps {
   weekIndex: number;
@@ -166,11 +166,28 @@ export const CalendarWeekModal: React.FC<CalendarWeekModalProps> = ({
                           )}
                         </td>
                         <td className="py-2.5 px-3">
-                          {hasTrades ? (
-                            <span>{ds.count}单 ({ds.winRate.toFixed(0)}%)</span>
-                          ) : (
-                            <span className="text-gray-400 font-sans">休市/无交易</span>
-                          )}
+                          <div className="flex items-center space-x-1.5">
+                            {hasTrades ? (
+                              <span>{ds.count}单 ({ds.winRate.toFixed(0)}%)</span>
+                            ) : (
+                              <span className="text-gray-400 font-sans">休市/无交易</span>
+                            )}
+                            {ds.journalScore !== null && (
+                              <span
+                                className={`px-1.5 py-0.2 rounded text-[10px] font-mono font-bold inline-flex items-center space-x-0.5 ${
+                                  ds.journalScore <= 2
+                                    ? 'bg-rose-600 text-white shadow-2xs'
+                                    : ds.journalScore === 3
+                                    ? 'bg-amber-100 dark:bg-amber-950/80 text-amber-700 dark:text-amber-400 border border-amber-300 dark:border-amber-800'
+                                    : 'bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-800'
+                                }`}
+                                title={`复盘打分: ${ds.journalScore}分`}
+                              >
+                                {ds.journalScore <= 2 && <AlertTriangle className="w-2.5 h-2.5" />}
+                                <span>{ds.journalScore}分</span>
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td className="py-2.5 px-3 text-right">
                           <button

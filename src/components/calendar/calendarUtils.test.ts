@@ -18,6 +18,8 @@ import {
   getTradeMonthAndYear,
   calculateTradeExitMethod,
   getTradeDurationMinutes,
+  calculateMarketSession,
+  evaluateFinalTriggerFromCandles,
 } from './calendarUtils';
 import { Trade } from './calendarTypes';
 
@@ -81,6 +83,43 @@ describe('calendarUtils', () => {
       exitprice: 120,
     };
     expect(calculateTradeRR(tradeNoSL)).toBeNull();
+
+    // Short trade with valid protective SL (SL above entry)
+    const shortTradeWithValidSL: Trade = {
+      id: 6,
+      symbol: 'EURUSD',
+      direction: 'short',
+      size: 1,
+      entryprice: 100,
+      exitprice: 80,
+      stop_loss: 110, // Risk is 10
+    };
+    expect(calculateTradeRR(shortTradeWithValidSL)).toBe(2);
+
+    // Short trade with SL trailed into profit (SL below entry for short position: e.g. 87.657 < 87.673)
+    // Must return null to prevent absurd distorted R like +49.1R
+    const shortTradeWithTrailedSL: Trade = {
+      id: 7,
+      symbol: 'USOIL',
+      direction: 'short',
+      size: 0.1,
+      entryprice: 87.673,
+      exitprice: 86.888,
+      stop_loss: 87.657, // Trailed SL in profit, not downside protective risk
+    };
+    expect(calculateTradeRR(shortTradeWithTrailedSL)).toBeNull();
+
+    // Long trade with SL trailed into profit (SL above entry for long position: 105 > 100)
+    const longTradeWithTrailedSL: Trade = {
+      id: 8,
+      symbol: 'AAPL',
+      direction: 'long',
+      size: 1,
+      entryprice: 100,
+      exitprice: 120,
+      stop_loss: 105, // Trailed SL in profit
+    };
+    expect(calculateTradeRR(longTradeWithTrailedSL)).toBeNull();
   });
 
   it('identifies discipline mistakes from tags, rating and sentiment', () => {
@@ -417,6 +456,80 @@ describe('calendarUtils', () => {
         exit_time: '2026-11-20 12:30:00',
       };
       expect(getTradeDurationMinutes(trade)).toBe(150); // 2.5 hours = 150 minutes
+    });
+
+    it('automatically determines market session based on entry time (Asia / Europe / US)', () => {
+      // 1. Asia (08:00 - 14:59)
+      expect(calculateMarketSession('2026-11-20 09:30:00')).toBe('Asia');
+      expect(calculateMarketSession('2026-11-20T14:45:00')).toBe('Asia');
+
+      // 2. Europe (15:00 - 20:59)
+      expect(calculateMarketSession('2026-11-20 15:00:00')).toBe('Europe');
+      expect(calculateMarketSession('2026-11-20T20:30:00')).toBe('Europe');
+
+      // 3. US (21:00 - 07:59, including overnight)
+      expect(calculateMarketSession('2026-11-20 21:00:00')).toBe('US');
+      expect(calculateMarketSession('2026-11-20 23:56:00')).toBe('US'); // User's screenshot row!
+      expect(calculateMarketSession('2026-11-21 02:15:00')).toBe('US');
+      expect(calculateMarketSession('2026-11-21 07:30:00')).toBe('US');
+
+      // 4. Edge / Empty
+      expect(calculateMarketSession('')).toBeNull();
+      expect(calculateMarketSession(null)).toBeNull();
+    });
+
+    it('automatically evaluates final trigger (takeProfit / stopLoss) from subsequent candles', () => {
+      // 1. Short trade on XAUUSD (as in user screenshot: entry 23:56, exit 00:01)
+      // Entry: 2650, SL: 2655, TP: 2635
+      // Post-exit candles:
+      const candlesShort = [
+        { time: '2026-11-20 23:58:00', open: 2650, high: 2651, low: 2649, close: 2649 }, // before exit
+        { time: '2026-11-21 00:02:00', open: 2649, high: 2650, low: 2645, close: 2646 }, // post-exit
+        { time: '2026-11-21 00:05:00', open: 2646, high: 2647, low: 2634, close: 2635 }, // hits TP (2634 <= 2635)
+      ];
+
+      const resultShortTP = evaluateFinalTriggerFromCandles({
+        direction: 'short',
+        stopLoss: 2655,
+        takeProfit: 2635,
+        exitTime: '2026-11-21 00:01:00',
+        candles: candlesShort,
+      });
+      expect(resultShortTP).toBe('takeProfit');
+
+      // 2. Short trade that hits Stop Loss first
+      const candlesShortSL = [
+        { time: '2026-11-21 00:02:00', open: 2649, high: 2656, low: 2648, close: 2655 }, // hits SL (2656 >= 2655)
+      ];
+      const resultShortSL = evaluateFinalTriggerFromCandles({
+        direction: 'short',
+        stopLoss: 2655,
+        takeProfit: 2635,
+        exitTime: '2026-11-21 00:01:00',
+        candles: candlesShortSL,
+      });
+      expect(resultShortSL).toBe('stopLoss');
+
+      // 3. Long trade that hits TP first
+      const candlesLongTP = [
+        { time: '2026-11-21 10:05:00', open: 100, high: 110, low: 98, close: 108 }, // hits TP at 105
+      ];
+      const resultLongTP = evaluateFinalTriggerFromCandles({
+        direction: 'long',
+        stopLoss: 95,
+        takeProfit: 105,
+        exitTime: '2026-11-21 10:00:00',
+        candles: candlesLongTP,
+      });
+      expect(resultLongTP).toBe('takeProfit');
+
+      // 4. Incomplete data returns null
+      expect(evaluateFinalTriggerFromCandles({
+        direction: 'long',
+        stopLoss: null,
+        takeProfit: 105,
+        candles: candlesLongTP,
+      })).toBeNull();
     });
   });
 });

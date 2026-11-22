@@ -1,5 +1,13 @@
 import { pool } from '../db.js';
 import { convertToShanghaiTime } from '../parsers/universalTradeParser.js';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
+
+const execFileAsync = promisify(execFile);
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 export function getSymbolAliases(sym) {
   const raw = String(sym || '').trim();
@@ -229,6 +237,37 @@ export class CandleService {
   }
 
   /**
+   * Clear candles from database, optionally filtered by symbol and/or timeframe.
+   */
+  static async clearCandles({ symbol, timeframe } = {}) {
+    let client;
+    try {
+      client = await pool.connect();
+      let queryStr = 'DELETE FROM market_candles';
+      const params = [];
+      const whereClauses = [];
+
+      if (symbol) {
+        const aliases = getSymbolAliases(symbol);
+        params.push(aliases);
+        whereClauses.push(`symbol = ANY($${params.length})`);
+      }
+      if (timeframe) {
+        params.push(String(timeframe).trim().toUpperCase());
+        whereClauses.push(`timeframe = $${params.length}`);
+      }
+      if (whereClauses.length > 0) {
+        queryStr += ' WHERE ' + whereClauses.join(' AND ');
+      }
+
+      const res = await client.query(queryStr, params);
+      return { deletedCount: res.rowCount || 0 };
+    } finally {
+      if (client) client.release();
+    }
+  }
+
+  /**
    * Retrieve historical candles from database.
    * Supports symbol alias lookup, exact start/end window retrieval,
    * and multi-timeframe aggregation from synchronized base candles.
@@ -302,5 +341,104 @@ export class CandleService {
     } finally {
       if (client) client.release();
     }
+  }
+
+  /**
+   * Fetch subsequent M5 candles for a trade, from DB market_candles or fallback to MT5 script
+   */
+  static async fetchCandlesForTrade(trade) {
+    const symbol = trade.symbol;
+    const exitTime = trade.exit_time || trade.exitTime;
+    const entryPrice = trade.entryprice || trade.entryPrice;
+
+    if (!symbol || !exitTime) return [];
+
+    let candles = await this.getCandles({
+      symbol,
+      timeframe: 'M5',
+      count: 288,
+      start: exitTime,
+    });
+
+    if (candles && candles.length > 0) {
+      return candles;
+    }
+
+    try {
+      const scriptPath = path.join(__dirname, '../../scripts/mt5_candles.py');
+      const args = [scriptPath, '--symbol', symbol, '--timeframe', 'M5', '--count', '288', '--start', exitTime];
+      if (entryPrice) args.push('--price', String(entryPrice));
+      const { stdout } = await execFileAsync('python', args, {
+        timeout: 10000,
+        env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
+      });
+      const data = JSON.parse(stdout);
+      if (data && Array.isArray(data.candles)) {
+        return data.candles;
+      }
+    } catch (err) {
+      // Fallback failed or python not configured
+    }
+
+    return [];
+  }
+
+  /**
+   * Evaluate whether post-exit candles hit Take Profit or Stop Loss first
+   */
+  static evaluateFinalTriggerFromCandles({ direction, stopLoss, takeProfit, exitTime, candles }) {
+    if (!candles || candles.length === 0) return null;
+    const sl = parseFloat(stopLoss);
+    const tp = parseFloat(takeProfit);
+    if (isNaN(sl) || isNaN(tp)) return null;
+
+    const isLong = String(direction || '').toLowerCase() === 'long' || String(direction || '').toLowerCase() === 'buy';
+
+    let exitTs = 0;
+    if (exitTime) {
+      const normalized = String(exitTime).replace(' ', 'T');
+      const d = new Date(normalized);
+      if (!isNaN(d.getTime())) {
+        exitTs = d.getTime();
+      }
+    }
+
+    for (const c of candles) {
+      const candleTs = typeof c.timestamp === 'number' && c.timestamp > 0
+        ? (c.timestamp < 1e11 ? c.timestamp * 1000 : c.timestamp)
+        : new Date(String(c.time).replace(' ', 'T')).getTime();
+
+      // Only inspect candles after exitTime
+      if (exitTs > 0 && !isNaN(candleTs) && candleTs < exitTs - 60000) {
+        continue;
+      }
+
+      const high = Number(c.high);
+      const low = Number(c.low);
+      const open = c.open !== undefined ? Number(c.open) : low;
+      const close = c.close !== undefined ? Number(c.close) : high;
+
+      if (isNaN(high) || isNaN(low)) continue;
+
+      if (isLong) {
+        const hitTP = high >= tp;
+        const hitSL = low <= sl;
+        if (hitTP && !hitSL) return 'takeProfit';
+        if (hitSL && !hitTP) return 'stopLoss';
+        if (hitTP && hitSL) {
+          return close >= open ? 'stopLoss' : 'takeProfit';
+        }
+      } else {
+        const hitTP = low <= tp;
+        const hitSL = high >= sl;
+        if (hitTP && !hitSL) return 'takeProfit';
+        if (hitSL && !hitTP) return 'stopLoss';
+        if (hitTP && hitSL) {
+          return close <= open ? 'stopLoss' : 'takeProfit';
+        }
+      }
+    }
+
+    return null;
   }
 }

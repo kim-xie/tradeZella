@@ -383,6 +383,11 @@ export class TradeController {
           skippedCount,
           message,
         });
+
+        // Automatically trigger K-line evaluation for newly synced manual trades with SL/TP
+        TradeService.autoEvaluateTriggers(req.user.id).catch((err) => {
+          console.warn('Auto evaluation after MT5 sync failed:', err.message);
+        });
       }
 
       res.status(200).json({
@@ -505,6 +510,31 @@ export class TradeController {
   static streamTrades(req, res, next) {
     try {
       RealtimeService.addSubscriber(req.user.id, req, res);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Automatically evaluate final triggers (takeProfit / stopLoss) for manual trades
+   */
+  static async autoEvaluateTriggers(req, res, next) {
+    try {
+      const tradeIds = req.body.tradeIds || null;
+      const updated = await TradeService.autoEvaluateTriggers(req.user.id, tradeIds);
+      if (updated && updated.length > 0) {
+        RealtimeService.broadcastTradeUpdate(req.user.id, {
+          action: 'triggers_evaluated',
+          source: '智能K线回溯',
+          count: updated.length,
+          trades: updated,
+        });
+      }
+      res.status(200).json({
+        success: true,
+        count: (updated || []).length,
+        data: updated || [],
+      });
     } catch (error) {
       next(error);
     }

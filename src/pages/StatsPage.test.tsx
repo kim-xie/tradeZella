@@ -60,8 +60,8 @@ describe('StatsPage (Trading Calendar)', () => {
       // In current month/year, "回到今日" should NOT be shown
       expect(screen.queryByText('回到今日')).toBeNull();
       expect(screen.getByText('周汇总')).toBeInTheDocument();
-      expect(screen.getByText('当月每日盈亏柱形图 (Daily Net P&L)')).toBeInTheDocument();
-      expect(screen.getByText('MONTHLY_PERFORMANCE_BREAKDOWN')).toBeInTheDocument();
+      expect(screen.getByText('月盈亏统计')).toBeInTheDocument();
+      expect(screen.getByText('月度总览')).toBeInTheDocument();
     });
 
     // Navigate to previous month: "回到今日" should now appear
@@ -107,5 +107,37 @@ describe('StatsPage (Trading Calendar)', () => {
 
     // Verify month changed: month select button now displays '5月'
     expect(monthSelectBtn).toHaveTextContent('5月');
+  });
+
+  it('prominently highlights low score days on the calendar grid', async () => {
+    const today = new Date().toISOString().split('T')[0];
+    const mockTrades = [
+      {
+        id: 99,
+        symbol: 'BTCUSD',
+        direction: 'long',
+        size: 0.5,
+        entryprice: 60000,
+        exitprice: 59000,
+        entry_time: `${today}T11:00:00`,
+        createdat: `${today}T11:00:00`,
+        manual_pnl: -500,
+      },
+    ];
+    vi.spyOn(api, 'getUserTrades').mockResolvedValue(mockTrades as any);
+    localStorage.setItem('token', 'test-token');
+    // Set a low review score (1 star / 1分) for today
+    localStorage.setItem(
+      `tradezella_daily_notes_${today}`,
+      JSON.stringify({ note: '情绪失控严重违规', tags: ['报复性交易'], score: 1 })
+    );
+
+    renderWithProviders(<StatsPage />);
+
+    // Verify low score highlight badge and warning label
+    await waitFor(() => {
+      expect(screen.getByText('1分')).toBeInTheDocument();
+      expect(screen.getByText(/重点复盘日 \(1分\)/)).toBeInTheDocument();
+    });
   });
 });

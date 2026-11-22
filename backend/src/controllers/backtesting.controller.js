@@ -155,6 +155,25 @@ export class BacktestingController {
     }
   }
 
+  /**
+   * Endpoint to clear historical candles (e.g. remove old M5 candles before syncing 1M)
+   */
+  static async clearCandles(req, res, next) {
+    try {
+      const symbol = req.query.symbol || req.body?.symbol;
+      const timeframe = req.query.timeframe || req.body?.timeframe;
+
+      const result = await CandleService.clearCandles({ symbol, timeframe });
+      res.status(200).json({
+        success: true,
+        message: `成功清空 ${symbol || '全部品种'} ${timeframe || '全部周期'} K线数据 (共 ${result.deletedCount} 条)`,
+        deletedCount: result.deletedCount,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
   static async getMT5Status(req, res, next) {
     try {
       const scriptPath = path.join(__dirname, '../../scripts/mt5_status.py');

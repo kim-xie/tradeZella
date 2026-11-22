@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  Activity, Sun, Moon, RefreshCw, BarChart2, 
+  Activity, Sun, Moon, BarChart2, 
   TrendingUp, BookOpen, Layers, LogOut, Calendar
 } from 'lucide-react';
 import Button from './common/Button';
@@ -19,7 +19,6 @@ const NAV_ITEMS: NavItem[] = [
   { label: '交易明细', href: '/trades', icon: Layers },
   { label: '交易日历', href: '/calendar', icon: Calendar, altMatch: '/stats' },
   { label: 'K线回测', href: '/features/backtesting', icon: TrendingUp },
-  { label: '实盘同步', href: '/features/broker-integration', icon: RefreshCw },
   { label: '新手教程', href: '/tutorial', icon: BookOpen, altMatch: '/guide' },
 ];
 

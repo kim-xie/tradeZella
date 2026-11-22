@@ -2,7 +2,7 @@ import TradeDrawer from '../components/TradeDrawer';
 import TradeDetailDrawer from '../components/TradeDetailDrawer';
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { X, Star, ChevronLeft, ChevronRight, RefreshCw, Upload, Database, CheckCircle2, BarChart2, Calendar, PenLine, Trash2, AlertTriangle, ArrowUpDown, ArrowUp, ArrowDown, Zap } from 'lucide-react';
 import Button from '../components/common/Button';
 import Select from '../components/common/Select';
@@ -13,7 +13,7 @@ import ErrorBoundary from '../components/common/ErrorBoundary';
 import TradeRatingModal from '../components/TradeRatingModal';
 import TradeRatingAnimationOverlay, { RatingAnimationData } from '../components/TradeRatingAnimationOverlay';
 import FinalTriggerModal from '../components/FinalTriggerModal';
-import { getUserTrades, updateTrade, clearAllTrades, SERVER_BASE_URL as API_BASE_URL } from '../services/api';
+import { getUserTrades, updateTrade, clearAllTrades, autoEvaluateTradeTriggers, SERVER_BASE_URL as API_BASE_URL } from '../services/api';
 import { useRealtimeTrades, RealtimeTradeEvent } from '../services/realtime';
 import {
   getTradeTradingDate,
@@ -21,6 +21,7 @@ import {
   getPreviousTradingDate,
   getTradingWeekRange,
   isTradeOvernightSession,
+  calculateMarketSession,
 } from '../components/calendar/calendarUtils';
 
 interface Trade {
@@ -67,7 +68,6 @@ const formatDuration = (entryTime?: string, exitTime?: string): string => {
 
 /**
  * 根据设定的止损点位 (SL) 和止盈点位 (TP) 计算计划目标盈亏比 (Target R/R)
- * 盈亏比 = |设定止盈 - 入场价| / |入场价 - 设定止损|
  */
 export const calculateTargetRR = (trade: Trade): number | null => {
   const ep = Number(trade.entryprice ?? (trade as any).entryPrice ?? 0);
@@ -75,8 +75,9 @@ export const calculateTargetRR = (trade: Trade): number | null => {
   const tp = Number(trade.take_profit ?? (trade as any).takeProfit ?? 0);
 
   if (ep <= 0 || sl <= 0 || tp <= 0) return null;
-  const risk = Math.abs(ep - sl);
-  const reward = Math.abs(tp - ep);
+  const dir = trade.direction === 'short' || trade.direction === ('sell' as any) ? 'short' : 'long';
+  const risk = dir === 'long' ? ep - sl : sl - ep;
+  const reward = dir === 'long' ? tp - ep : ep - tp;
   if (risk <= 0.0000001 || reward <= 0.0000001) return null;
   const rr = reward / risk;
   return isFinite(rr) && rr > 0 ? rr : null;
@@ -91,10 +92,10 @@ export const calculateActualRR = (trade: Trade): number | null => {
   const xp = Number(trade.exitprice ?? (trade as any).exitPrice ?? 0);
 
   if (ep <= 0 || sl <= 0 || xp <= 0) return null;
-  const riskPerUnit = Math.abs(ep - sl);
+  const dir = trade.direction === 'short' || trade.direction === ('sell' as any) ? 'short' : 'long';
+  const riskPerUnit = dir === 'long' ? ep - sl : sl - ep;
   if (riskPerUnit <= 0.0000001) return null;
 
-  const dir = trade.direction === 'short' || trade.direction === ('sell' as any) ? 'short' : 'long';
   const diff = dir === 'long' ? xp - ep : ep - xp;
   const manual = trade.manual_pnl ?? (trade as any).manualPnl;
   const isManual = manual !== undefined && manual !== null && !isNaN(Number(manual));
@@ -358,6 +359,7 @@ const TradesPage: React.FC = () => {
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [pageSize, setPageSize] = useState<number>(50);
   const navigate = useNavigate();
+  const location = useLocation();
 
   // Prevent background scrolling and hide root scrollbar while modals are open
   useEffect(() => {
@@ -559,22 +561,32 @@ const TradesPage: React.FC = () => {
     if (filter === 'week') {
       const weekRange = getTradingWeekRange(currentTradingDay);
       setSearchEntryDateStart(weekRange.start);
-      setSearchEntryDateEnd(currentTradingDay);
+      setSearchEntryDateEnd(weekRange.end);
       setQuickFilter(filter);
       return;
     }
     if (filter === 'month') {
+      const [y, m] = currentTradingDay.split('-').map(Number);
+      const lastDay = new Date(y, m, 0).getDate();
       const monthStart = `${currentTradingDay.substring(0, 7)}-01`;
+      const monthEnd = `${currentTradingDay.substring(0, 7)}-${String(lastDay).padStart(2, '0')}`;
       setSearchEntryDateStart(monthStart);
-      setSearchEntryDateEnd(currentTradingDay);
+      setSearchEntryDateEnd(monthEnd);
       setQuickFilter(filter);
       return;
     }
     if (filter === 'year') {
       const yearStart = `${currentTradingDay.substring(0, 4)}-01-01`;
+      const yearEnd = `${currentTradingDay.substring(0, 4)}-12-31`;
       setSearchEntryDateStart(yearStart);
-      setSearchEntryDateEnd(currentTradingDay);
+      setSearchEntryDateEnd(yearEnd);
       setQuickFilter(filter);
+      return;
+    }
+    if (filter === 'all') {
+      setSearchEntryDateStart('');
+      setSearchEntryDateEnd('');
+      setQuickFilter('');
       return;
     }
   };
@@ -593,6 +605,25 @@ const TradesPage: React.FC = () => {
       const data = await getUserTrades(token);
       setTrades([...data].sort(sortByEntryTimeDesc));
       setError(null);
+
+      // Automatically evaluate final triggers for manual trades with SL/TP
+      const hasUnresolvedManual = data.some(
+        (t) => !t.final_trigger && t.exitprice && t.stop_loss && t.take_profit
+      );
+      if (hasUnresolvedManual) {
+        autoEvaluateTradeTriggers(token)
+          .then((res) => {
+            if (res && res.data && res.data.length > 0) {
+              const updatedMap = new Map(res.data.map((u: Trade) => [u.id, u.final_trigger]));
+              setTrades((prev) =>
+                prev.map((t) =>
+                  updatedMap.has(t.id) ? { ...t, final_trigger: updatedMap.get(t.id) } : t
+                )
+              );
+            }
+          })
+          .catch(() => {});
+      }
     } catch (err) {
       setError((err as Error).message || 'Failed to fetch trades.');
     } finally {
@@ -601,25 +632,47 @@ const TradesPage: React.FC = () => {
   }
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
+    const params = new URLSearchParams(location.search || window.location.search);
     const start = params.get('start');
     const end = params.get('end');
     const quick = params.get('quick');
+    const exitMethod = params.get('exitMethod') || params.get('exit_method');
+    const result = params.get('result');
+    const symbol = params.get('symbol');
+    const direction = params.get('direction');
+    const source = params.get('source');
+
+    if (exitMethod) {
+      setSearchExitMethod(exitMethod);
+    }
+    if (result) {
+      setSearchResult(result);
+    }
+    if (symbol) {
+      setSearchSymbol(symbol);
+    }
+    if (direction) {
+      setSearchDirection(direction);
+    }
+    if (source) {
+      setSearchSource(source);
+    }
+
     if (start && end) {
       setSearchEntryDateStart(start);
       setSearchEntryDateEnd(end);
-      setQuickFilter('');
-    } else if (quick === 'month' || quick === 'year') {
-      handleQuickFilter(quick);
+      setQuickFilter('custom');
     } else if (quick === 'all') {
       setSearchEntryDateStart('');
       setSearchEntryDateEnd('');
       setQuickFilter('');
-    } else {
-      handleQuickFilter(quickFilter);
+    } else if (quick && ['today', 'yesterday', 'week', 'month', 'year'].includes(quick)) {
+      handleQuickFilter(quick);
+    } else if (!quick && !start && !end) {
+      handleQuickFilter(quickFilter || 'today');
     }
     fetchTrades();
-  }, []);
+  }, [location.search]);
 
   useEffect(() => {
     if (!lightboxImage) return;
@@ -660,8 +713,8 @@ const TradesPage: React.FC = () => {
         if (searchSource !== src) return false;
       }
       if (searchResult) {
-        if (!trade.exitprice) return false;
-        const pnlValue = calculateTradePnL(trade)?.pnl || 0;
+        const pnlValue = getTradePnlValue(trade);
+        if (pnlValue === null) return false;
         if (searchResult === 'profit' && pnlValue <= 0) return false;
         if (searchResult === 'loss' && pnlValue >= 0) return false;
         if (searchResult === 'breakeven' && pnlValue !== 0) return false;
@@ -1016,35 +1069,10 @@ const TradesPage: React.FC = () => {
                 setQuickFilter('');
               }}
             />
-
-            <span
-              className="hidden lg:inline-flex items-center space-x-1 text-xs font-mono text-purple-600 dark:text-purple-400 bg-purple-50/80 dark:bg-purple-950/40 px-2.5 py-2 rounded-xl border border-purple-200/60 dark:border-purple-800/50 shrink-0"
-              title="所有时间过滤与查询均基于美盘闭市 06:00 交易日时间统计"
-            >
-              <span>交易日时间统计</span>
-            </span>
           </div>
 
           {/* Action Buttons: FIXED TO THE RIGHT (固定靠右) */}
           <div className="flex items-center gap-2.5 ml-auto">
-            {/* Realtime Push Stream Status Badge */}
-            <div 
-              className={`hidden md:inline-flex items-center space-x-1.5 px-3 py-2 rounded-xl text-xs font-semibold border transition-all ${
-                isRealtimeConnected
-                  ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-300/80 dark:border-emerald-700/80 shadow-2xs'
-                  : 'bg-gray-50 dark:bg-navy-900/40 text-gray-400 border-gray-200 dark:border-gray-700'
-              }`}
-              title={isRealtimeConnected ? '实时推送在线：EA 或终端有新订单平仓时，系统将通过 SSE 长连接即时自动推送到页面刷新，无需手工点击' : '实时推送通道连接中...'}
-            >
-              <span className="flex h-2 w-2 relative">
-                {isRealtimeConnected && (
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                )}
-                <span className={`relative inline-flex rounded-full h-2 w-2 ${isRealtimeConnected ? 'bg-emerald-500' : 'bg-gray-400'}`}></span>
-              </span>
-              <span>{isRealtimeConnected ? '实时推送到屏: 在线' : '实时通道: 连接中'}</span>
-            </div>
-
             <Button
               variant="outline"
               onClick={handleReset}
@@ -1057,7 +1085,7 @@ const TradesPage: React.FC = () => {
               onClick={handleAddClick}
               className="h-[38px] px-4 rounded-xl text-sm font-medium"
             >
-              + 新建交易
+              + 记录交易
             </Button>
             <Button 
               variant="primary"
@@ -1250,6 +1278,28 @@ const TradesPage: React.FC = () => {
                         <td className="px-3.5 py-3 text-xs font-mono text-gray-600 dark:text-gray-400">
                           <div className="flex items-center space-x-1.5">
                             <span>{formatLocalTime(trade.entry_time)}</span>
+                            {(() => {
+                              const effSession = trade.session || calculateMarketSession(trade.entry_time || trade.createdat);
+                              if (!effSession) return null;
+                              const badgeStyles: Record<string, string> = {
+                                Asia: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20',
+                                Europe: 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20',
+                                US: 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20',
+                              };
+                              const badgeLabels: Record<string, string> = {
+                                Asia: '亚盘',
+                                Europe: '欧盘',
+                                US: '美盘',
+                              };
+                              return (
+                                <span
+                                  className={`px-1.5 py-0.5 rounded text-[9px] font-medium border shrink-0 ${badgeStyles[effSession] || ''}`}
+                                  title={`交易时段: ${badgeLabels[effSession]} (${effSession})`}
+                                >
+                                  {badgeLabels[effSession]}
+                                </span>
+                              );
+                            })()}
                             {isTradeOvernightSession(trade as any) && (
                               <span
                                 className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-purple-50 dark:bg-purple-950/60 text-purple-600 dark:text-purple-300 border border-purple-200 dark:border-purple-800/60 shrink-0"
@@ -1417,7 +1467,7 @@ const TradesPage: React.FC = () => {
                       {loading ? '正在加载交易数据...' : (
                         <div className="flex flex-col items-center justify-center space-y-2.5">
                           <p className="text-sm font-semibold text-gray-700 dark:text-gray-200">暂无交易记录</p>
-                          <p className="text-xs text-gray-400 max-w-md">
+                          <p className="text-xs text-gray-400 whitespace-nowrap">
                             当前筛选条件下暂无交易数据，您可以通过 MQL EA 插件自动推送，或上传 MT5 / MT4 报表文件。
                           </p>
                           <button
@@ -1426,7 +1476,7 @@ const TradesPage: React.FC = () => {
                             className="mt-1 px-4 py-2 text-xs font-semibold text-white bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 rounded-xl shadow-sm transition flex items-center space-x-1.5"
                           >
                             <RefreshCw className="w-3.5 h-3.5" />
-                            <span>立即同步实盘订单 / 导入 CSV 报表</span>
+                            <span>立即同步</span>
                           </button>
                         </div>
                       )}

@@ -203,6 +203,122 @@ export const getTradeMonthAndYear = (
   return { year, month };
 };
 
+/**
+ * 根据开仓入场时间（entry_time）自动推算所属交易时段 (Market Session)
+ * 
+ * 国际通用三大交易时段划分 (以北京时间 UTC+8 为准)：
+ * 1. 亚盘时段 (Asia): 08:00:00 ~ 14:59:59 (东京/新加坡/香港盘)
+ * 2. 欧盘时段 (Europe): 15:00:00 ~ 20:59:59 (伦敦盘为主，欧系货币流动性爆发)
+ * 3. 美盘时段 (US): 21:00:00 ~ 次日 07:59:59 (纽约盘主行情与跨夜美盘)
+ *
+ * @param dateStr 入场时间字符串或 Date
+ * @returns 'Asia' | 'Europe' | 'US' | null
+ */
+export const calculateMarketSession = (dateStr?: string | Date | null): 'Asia' | 'Europe' | 'US' | null => {
+  if (!dateStr) return null;
+  let hour: number;
+  if (dateStr instanceof Date) {
+    hour = dateStr.getHours();
+  } else {
+    const str = String(dateStr).trim();
+    const match = str.match(/[T\s](\d{1,2}):/);
+    if (!match) return null;
+    hour = parseInt(match[1], 10);
+  }
+  if (isNaN(hour)) return null;
+
+  if (hour >= 8 && hour < 15) {
+    return 'Asia';
+  }
+  if (hour >= 15 && hour < 21) {
+    return 'Europe';
+  }
+  return 'US';
+};
+
+/**
+ * 根据平仓出场后的 K 线序列 (Candles) 自动推算手动平仓订单的最终走势 (Final Trigger)
+ * 判定行情后续是先触碰了止盈目标 (takeProfit / 打止盈)，还是先触碰了止损目标 (stopLoss / 打止损)
+ *
+ * @param params
+ * @param params.direction 开仓方向 ('long' | 'short' | 'buy' | 'sell')
+ * @param params.stopLoss 止损价 (SL)
+ * @param params.takeProfit 止盈价 (TP)
+ * @param params.exitTime 平仓时间 (ISO 或时间字符串)
+ * @param params.candles K 线序列 (按时间升序)
+ * @returns 'takeProfit' | 'stopLoss' | null
+ */
+export const evaluateFinalTriggerFromCandles = ({
+  direction,
+  stopLoss,
+  takeProfit,
+  exitTime,
+  candles,
+}: {
+  direction?: string;
+  stopLoss?: number | null;
+  takeProfit?: number | null;
+  exitTime?: string | null;
+  candles: Array<{ time: string; timestamp?: number; open?: number; high: number; low: number; close?: number }>;
+}): 'takeProfit' | 'stopLoss' | null => {
+  if (!candles || candles.length === 0) return null;
+  if (stopLoss == null || takeProfit == null || isNaN(stopLoss) || isNaN(takeProfit)) return null;
+
+  const isLong = String(direction || '').toLowerCase() === 'long' || String(direction || '').toLowerCase() === 'buy';
+
+  let exitTs = 0;
+  if (exitTime) {
+    const normalized = String(exitTime).replace(' ', 'T');
+    const d = new Date(normalized);
+    if (!isNaN(d.getTime())) {
+      exitTs = d.getTime();
+    }
+  }
+
+  for (const c of candles) {
+    const candleTs = typeof c.timestamp === 'number' && c.timestamp > 0
+      ? (c.timestamp < 1e11 ? c.timestamp * 1000 : c.timestamp)
+      : new Date(String(c.time).replace(' ', 'T')).getTime();
+
+    // 只检查平仓时间之后的 K 线 (如果 exitTs 存在，允许 1 分钟内的微小误差)
+    if (exitTs > 0 && !isNaN(candleTs) && candleTs < exitTs - 60000) {
+      continue;
+    }
+
+    const high = Number(c.high);
+    const low = Number(c.low);
+    const open = c.open !== undefined ? Number(c.open) : low;
+    const close = c.close !== undefined ? Number(c.close) : high;
+
+    if (isNaN(high) || isNaN(low)) continue;
+
+    if (isLong) {
+      const hitTP = high >= takeProfit;
+      const hitSL = low <= stopLoss;
+
+      if (hitTP && !hitSL) return 'takeProfit';
+      if (hitSL && !hitTP) return 'stopLoss';
+      if (hitTP && hitSL) {
+        // 同一根 K 线双向触及：阳线开盘低、收盘高，通常先下探后冲高；阴线先冲高后回落
+        return close >= open ? 'stopLoss' : 'takeProfit';
+      }
+    } else {
+      // 做空 Short：向下触及 takeProfit 为打止盈，向上触及 stopLoss 为打止损
+      const hitTP = low <= takeProfit;
+      const hitSL = high >= stopLoss;
+
+      if (hitTP && !hitSL) return 'takeProfit';
+      if (hitSL && !hitTP) return 'stopLoss';
+      if (hitTP && hitSL) {
+        // 做空同一根 K 线双向触及：阴线开盘高、收盘低，通常先冲高（触SL）后跌下（触TP）；阳线先探底后回升
+        return close <= open ? 'stopLoss' : 'takeProfit';
+      }
+    }
+  }
+
+  return null;
+};
+
 export const getTradeStopLoss = (t: Trade): number | undefined => {
   const sl = t.stop_loss ?? t.stopLoss;
   return sl !== undefined && sl !== null ? Number(sl) : undefined;
@@ -247,8 +363,14 @@ export const calculateTradeTargetRR = (trade: Trade): number | null => {
   const sl = getTradeStopLoss(trade);
   const tp = getTradeTakeProfit(trade);
   if (!entry || !sl || !tp || entry <= 0 || sl <= 0 || tp <= 0) return null;
-  const risk = Math.abs(entry - sl);
-  const reward = Math.abs(tp - entry);
+
+  const dir = getTradeDirection(trade);
+  // 止损必须在开仓方向的真实亏损侧 (Protective Stop Loss)
+  // 多单 (long): 止损必须严格低于开仓价 (sl < entry)
+  // 空单 (short): 止损必须严格高于开仓价 (sl > entry)
+  const risk = dir === 'long' ? entry - sl : sl - entry;
+  const reward = dir === 'long' ? tp - entry : entry - tp;
+
   if (risk <= 0.0000001 || reward <= 0.0000001) return null;
   const rr = reward / risk;
   return isFinite(rr) && rr > 0 ? rr : null;
@@ -260,10 +382,16 @@ export const calculateTradeRR = (trade: Trade): number | null => {
   const sl = getTradeStopLoss(trade);
   const size = getTradeSize(trade);
   if (!exit || !sl || !entry || size <= 0) return null;
-  const riskPerUnit = Math.abs(entry - sl);
-  if (riskPerUnit === 0) return null;
 
   const dir = getTradeDirection(trade);
+  // 止损必须在开仓方向的真实亏损侧 (Protective Stop Loss):
+  // 多单 (long): 止损必须严格低于开仓价 (sl < entry)
+  // 空单 (short): 止损必须严格高于开仓价 (sl > entry)
+  // 若止损在盈利侧或保本位 (如空单 sl <= entry 或 多单 sl >= entry)，
+  // 说明为移动止损/保本锁利，不能作为初始下行风险(1R)的分母，否则会导致盈亏比失真暴涨(如 +49.1R)
+  const riskPerUnit = dir === 'long' ? entry - sl : sl - entry;
+  if (riskPerUnit <= 0.0000001) return null;
+
   const diff = dir === 'long' ? exit - entry : entry - exit;
   const manual = trade.manual_pnl ?? trade.manualPnl;
   const hasManual = manual !== undefined && manual !== null && !isNaN(Number(manual));
@@ -352,13 +480,33 @@ export const computeDayStats = (trades: Trade[], dateStr: string = ''): DayStats
     if (t.notes && t.notes.trim().length > 0) hasNotes = true;
   });
 
-  // Also check localStorage daily notes
+  // Also check localStorage daily notes & journal discipline score
+  let journalScore: number | null = null;
   if (dateStr) {
     try {
       const storedNote = localStorage.getItem(`tradezella_daily_notes_${dateStr}`);
-      if (storedNote && storedNote.trim().length > 0) hasNotes = true;
+      if (storedNote && storedNote.trim().length > 0) {
+        hasNotes = true;
+        try {
+          const parsed = JSON.parse(storedNote);
+          if (typeof parsed === 'object' && parsed !== null && typeof parsed.score === 'number' && parsed.score > 0) {
+            journalScore = parsed.score;
+          }
+        } catch {
+          // ignore
+        }
+      }
     } catch {
       // ignore
+    }
+  }
+
+  // Fallback to average trade rating on this day if journal score not explicitly set
+  if (journalScore === null) {
+    const ratedTrades = trades.filter((t) => typeof t.rating === 'number' && t.rating > 0);
+    if (ratedTrades.length > 0) {
+      const avg = Math.round(ratedTrades.reduce((acc, t) => acc + (t.rating || 0), 0) / ratedTrades.length);
+      journalScore = avg;
     }
   }
 
@@ -408,7 +556,60 @@ export const computeDayStats = (trades: Trade[], dateStr: string = ''): DayStats
     avgLossDuration: lossDurations.length > 0 ? lossDurations.reduce((a, b) => a + b, 0) / lossDurations.length : 0,
     mistakesCount,
     hasNotes,
+    journalScore,
   };
+};
+
+/**
+ * 获取所有日内复盘日记的评分数据 (用于月度、半年度与年度卡片聚合突出)
+ */
+export const getAllDailyJournalScores = (): Record<string, number> => {
+  const scores: Record<string, number> = {};
+  if (typeof localStorage === 'undefined') return scores;
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith('tradezella_daily_notes_')) {
+        const dateStr = key.replace('tradezella_daily_notes_', '');
+        const val = localStorage.getItem(key);
+        if (val) {
+          try {
+            const parsed = JSON.parse(val);
+            if (typeof parsed === 'object' && parsed !== null && typeof parsed.score === 'number' && parsed.score > 0) {
+              scores[dateStr] = parsed.score;
+            }
+          } catch {}
+        }
+      }
+    }
+  } catch {}
+  return scores;
+};
+
+/**
+ * 获取指定日期的日内复盘日记详情
+ */
+export const getDailyJournalData = (
+  dateStr: string
+): { note: string; tags: string[]; score: number | null } => {
+  if (!dateStr || typeof localStorage === 'undefined') return { note: '', tags: [], score: null };
+  try {
+    const stored = localStorage.getItem(`tradezella_daily_notes_${dateStr}`);
+    if (!stored) return { note: '', tags: [], score: null };
+    try {
+      const parsed = JSON.parse(stored);
+      if (typeof parsed === 'object' && parsed !== null) {
+        return {
+          note: parsed.note || '',
+          tags: parsed.tags || [],
+          score: typeof parsed.score === 'number' && parsed.score > 0 ? parsed.score : null,
+        };
+      }
+    } catch {
+      return { note: stored, tags: [], score: null };
+    }
+  } catch {}
+  return { note: '', tags: [], score: null };
 };
 
 export const computeTradeSummaryStatsFromDailyMap = (

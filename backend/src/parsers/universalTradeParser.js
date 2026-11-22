@@ -33,6 +33,27 @@ export function parseDirection(val) {
 }
 
 /**
+ * Automatically derive market session from entry time (Asia / Europe / US)
+ */
+export function calculateMarketSession(entryTime) {
+  if (!entryTime) return null;
+  let hour;
+  if (entryTime instanceof Date) {
+    hour = entryTime.getHours();
+  } else {
+    const str = String(entryTime).trim();
+    const match = str.match(/[T\s](\d{1,2}):/);
+    if (!match) return null;
+    hour = parseInt(match[1], 10);
+  }
+  if (isNaN(hour)) return null;
+
+  if (hour >= 8 && hour < 15) return 'Asia';
+  if (hour >= 15 && hour < 21) return 'Europe';
+  return 'US';
+}
+
+/**
  * Checks if a given year, month (1-12), day, hour falls within US Daylight Saving Time (DST).
  * Standard MT4/MT5 Forex/CFD brokers follow US DST calendar:
  * Starts on the second Sunday of March at 02:00,
@@ -714,6 +735,7 @@ export function normalizeRowsToTrades(rows, detectedFormat = 'UNKNOWN', original
       takeProfit,
       notes: notes || `${platform} 导入交易记录`,
       tags: [platform, symbolRaw.toUpperCase()],
+      session: calculateMarketSession(entryTime),
       finalTrigger,
     });
   }

@@ -3,6 +3,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 import TradesPage from './TradesPage';
 import * as api from '../services/api';
+import { getCurrentTradingDate } from '../components/calendar/calendarUtils';
 
 vi.mock('../services/api');
 
@@ -19,9 +20,7 @@ describe('TradesPage', () => {
   });
 
   it('renders trades after successful fetch', async () => {
-    const pad = (n: number) => String(n).padStart(2, '0');
-    const now = new Date();
-    const today = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+    const today = getCurrentTradingDate();
     const mockTrades = [
       { id: 1, symbol: 'AAPL', direction: 'long', size: 10, entryprice: 150, entry_time: `${today}T10:00:00`, createdat: `${today}T10:00:00` },
       { id: 2, symbol: 'GOOG', direction: 'short', size: 5, entryprice: 2800, entry_time: `${today}T10:00:00`, createdat: `${today}T10:00:00` },
@@ -241,9 +240,7 @@ describe('TradesPage', () => {
   });
 
   it('renders "清空全部订单" button, opens confirmation modal and clears all trades', async () => {
-    const pad = (n: number) => String(n).padStart(2, '0');
-    const now = new Date();
-    const today = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+    const today = getCurrentTradingDate();
     const mockTrades = [
       { id: 1, symbol: 'BTCUSD', direction: 'long', size: 1, entryprice: 60000, entry_time: `${today}T10:00:00`, createdat: `${today}T10:00:00` },
     ];
@@ -297,9 +294,7 @@ describe('TradesPage', () => {
   }, 15000);
 
   it('supports pagination with default 50 items per page and page controls', async () => {
-    const pad = (n: number) => String(n).padStart(2, '0');
-    const now = new Date();
-    const today = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+    const today = getCurrentTradingDate();
 
     // Create 60 mock trades
     const mockTrades = Array.from({ length: 60 }, (_, i) => ({
@@ -355,9 +350,7 @@ describe('TradesPage', () => {
   }, 30000);
 
   it('supports sorting by net P&L (平仓净盈亏), duration (持仓时长), and rating (纪律评分)', async () => {
-    const pad = (n: number) => String(n).padStart(2, '0');
-    const now = new Date();
-    const today = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+    const today = getCurrentTradingDate();
 
     const mockTrades = [
       {
@@ -508,9 +501,7 @@ describe('TradesPage', () => {
   });
 
   it('supports sorting by lot size (手数) and risk-reward ratio (盈亏比)', async () => {
-    const pad = (n: number) => String(n).padStart(2, '0');
-    const now = new Date();
-    const today = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+    const today = getCurrentTradingDate();
 
     const mockTrades = [
       {
@@ -882,5 +873,101 @@ describe('TradesPage', () => {
     expect(screen.getByText('最终价格打止盈')).toBeInTheDocument();
     expect(screen.getByText('最终价格打止损')).toBeInTheDocument();
     expect(screen.getByText(/仅手动平仓 \(清除标记\)/)).toBeInTheDocument();
+  });
+
+  it('reads URL query params (?quick=week&exitMethod=takeProfit) and carries time and conditions into filter', async () => {
+    const today = getCurrentTradingDate();
+    const mockTrades = [
+      {
+        id: 1,
+        symbol: 'TP_TRADE',
+        direction: 'long',
+        size: 1,
+        entryprice: 100,
+        exitprice: 120,
+        take_profit: 120,
+        entry_time: `${today}T10:00:00`,
+        createdat: `${today}T10:00:00`,
+      },
+      {
+        id: 2,
+        symbol: 'SL_TRADE',
+        direction: 'long',
+        size: 1,
+        entryprice: 100,
+        exitprice: 90,
+        stop_loss: 90,
+        entry_time: `${today}T10:00:00`,
+        createdat: `${today}T10:00:00`,
+      },
+      {
+        id: 3,
+        symbol: 'MANUAL_TRADE',
+        direction: 'long',
+        size: 1,
+        entryprice: 100,
+        exitprice: 105,
+        entry_time: `${today}T10:00:00`,
+        createdat: `${today}T10:00:00`,
+      },
+    ];
+    vi.spyOn(api, 'getUserTrades').mockResolvedValue(mockTrades);
+    localStorage.setItem('token', 'test-token');
+
+    render(
+      <MemoryRouter initialEntries={['/trades?quick=week&exitMethod=takeProfit']}>
+        <TradesPage />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('TP_TRADE')).toBeInTheDocument();
+      expect(screen.queryByText('SL_TRADE')).not.toBeInTheDocument();
+      expect(screen.queryByText('MANUAL_TRADE')).not.toBeInTheDocument();
+    });
+
+    // Check exit method dropdown and row badge reflect "止盈触发"
+    expect(screen.getAllByText('止盈触发').length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('reads URL query params (?quick=all&exitMethod=manual&result=profit) and filters manual winning trades', async () => {
+    const mockTrades = [
+      {
+        id: 1,
+        symbol: 'MANUAL_WIN',
+        direction: 'long',
+        size: 1,
+        entryprice: 100,
+        exitprice: 110, // profit
+        entry_time: '2026-10-01T10:00:00',
+        createdat: '2026-10-01T10:00:00',
+      },
+      {
+        id: 2,
+        symbol: 'MANUAL_LOSS',
+        direction: 'long',
+        size: 1,
+        entryprice: 100,
+        exitprice: 95, // loss
+        entry_time: '2026-10-02T10:00:00',
+        createdat: '2026-10-02T10:00:00',
+      },
+    ];
+    vi.spyOn(api, 'getUserTrades').mockResolvedValue(mockTrades);
+    localStorage.setItem('token', 'test-token');
+
+    render(
+      <MemoryRouter initialEntries={['/trades?quick=all&exitMethod=manual&result=profit']}>
+        <TradesPage />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('MANUAL_WIN')).toBeInTheDocument();
+      expect(screen.queryByText('MANUAL_LOSS')).not.toBeInTheDocument();
+    });
+
+    expect(screen.getByText('全部手动平仓')).toBeInTheDocument();
+    expect(screen.getByText('盈利')).toBeInTheDocument();
   });
 });

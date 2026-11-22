@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
 import { CalendarDailyPnLBarChart } from './CalendarDailyPnLBarChart';
 import { Trade } from './calendarTypes';
@@ -45,7 +45,7 @@ describe('CalendarDailyPnLBarChart', () => {
     );
 
     // Title and badge
-    expect(screen.getByText('当月每日盈亏柱形图 (Daily Net P&L)')).toBeDefined();
+    expect(screen.getByText('月盈亏统计')).toBeDefined();
     expect(screen.getByText('2026年 11月')).toBeDefined();
 
     // Total net P&L = 150 - 80 = +$70.00
@@ -54,6 +54,12 @@ describe('CalendarDailyPnLBarChart', () => {
     // 1 Green / 1 Red
     expect(screen.getByText('1绿')).toBeDefined();
     expect(screen.getByText('1红')).toBeDefined();
+
+    // Total Trades & Avg Trades Per Day
+    const tradesKpi = screen.getByTestId('trades-count-kpi');
+    expect(tradesKpi).toBeDefined();
+    expect(tradesKpi.textContent).toContain('交易总笔数:2笔');
+    expect(tradesKpi.textContent).toContain('平均每天:1笔');
 
     // Days 1 to 30 should exist in the chart
     expect(screen.getByText('4')).toBeDefined();
@@ -64,5 +70,31 @@ describe('CalendarDailyPnLBarChart', () => {
     const day4 = screen.getByText('4');
     fireEvent.click(day4);
     expect(handleSelectDay).toHaveBeenCalledWith('2026-11-04');
+  });
+
+  it('correctly calculates total trades and fractional average trades per day', () => {
+    const multiTradesByDay: Record<string, Trade[]> = {
+      '2026-11-04': [
+        { id: 1, symbol: 'EURUSD', direction: 'long', size: 1, entryprice: 1.08, exitprice: 1.09, entry_time: '2026-11-04T10:00:00', manual_pnl: 100 },
+        { id: 2, symbol: 'GBPUSD', direction: 'short', size: 1, entryprice: 1.25, exitprice: 1.24, entry_time: '2026-11-04T14:00:00', manual_pnl: 50 },
+      ],
+      '2026-11-05': [
+        { id: 3, symbol: 'XAUUSD', direction: 'short', size: 1, entryprice: 2000, exitprice: 2010, entry_time: '2026-11-05T14:00:00', manual_pnl: -50 },
+      ],
+    };
+
+    render(
+      <CalendarDailyPnLBarChart
+        currentYear={2026}
+        currentMonth={10}
+        tradesByDay={multiTradesByDay}
+      />
+    );
+
+    // 3 total trades across 2 active trading days = 1.5 avg trades/day
+    const tradesKpi = screen.getByTestId('trades-count-kpi');
+    expect(tradesKpi).toBeDefined();
+    expect(tradesKpi.textContent).toContain('交易总笔数:3笔');
+    expect(tradesKpi.textContent).toContain('平均每天:1.5笔');
   });
 });

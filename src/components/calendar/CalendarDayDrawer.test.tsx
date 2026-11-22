@@ -22,16 +22,16 @@ describe('CalendarDayDrawer', () => {
     },
   ];
 
-  it('renders day summary and trade list correctly', () => {
+  it('renders day summary and trade list correctly, removes K-line button, and opens trade detail drawer on click', () => {
     const handleClose = vi.fn();
-    const handleOpenChart = vi.fn();
+    const handleSelectTrade = vi.fn();
 
     render(
       <CalendarDayDrawer
         dateStr="2026-11-15"
         trades={mockTrades}
         onClose={handleClose}
-        onOpenChart={handleOpenChart}
+        onSelectTrade={handleSelectTrade}
       />
     );
 
@@ -40,13 +40,23 @@ describe('CalendarDayDrawer', () => {
     expect(screen.getAllByText('+$105.00').length).toBeGreaterThan(0);
     expect(screen.getByText('#London')).toBeDefined();
 
-    // Trigger K-line chart preview
-    const chartBtn = screen.getByText('K线打点');
-    fireEvent.click(chartBtn);
-    expect(handleOpenChart).toHaveBeenCalledWith(mockTrades[0]);
+    // Verify K-line marker button is removed and new hint is present
+    expect(screen.queryByText('K线打点')).toBeNull();
+    expect(screen.getByText('点击订单查看详情')).toBeDefined();
 
-    // Close button
-    const closeBtn = screen.getByTitle('Close drawer');
+    // Click order item to open TradeDetailDrawer
+    const orderBtn = screen.getByRole('button', { name: '查看订单详情' });
+    fireEvent.click(orderBtn);
+    expect(handleSelectTrade).toHaveBeenCalledWith(mockTrades[0]);
+    expect(screen.getByText('交易复盘详情')).toBeDefined();
+
+    // Close detail drawer returns to day drawer
+    const closeDetailBtn = screen.getByLabelText('关闭详情抽屉');
+    fireEvent.click(closeDetailBtn);
+    expect(screen.queryByText('交易复盘详情')).toBeNull();
+
+    // Close day drawer
+    const closeBtn = screen.getByLabelText('关闭抽屉');
     fireEvent.click(closeBtn);
     expect(handleClose).toHaveBeenCalled();
   });
@@ -111,6 +121,41 @@ describe('CalendarDayDrawer', () => {
     unmount();
     expect(document.body.style.overflow).toBe('');
     expect(document.documentElement.style.overflow).toBe('');
+  });
+
+  it('allows rating daily journal score, highlights low score with alert banner, and saves to localStorage', () => {
+    localStorage.clear();
+    const handleClose = vi.fn();
+    const handleOpenChart = vi.fn();
+
+    render(
+      <CalendarDayDrawer
+        dateStr="2026-11-15"
+        trades={mockTrades}
+        onClose={handleClose}
+        onOpenChart={handleOpenChart}
+      />
+    );
+
+    // Initial state:未打分
+    expect(screen.getByText(/日内复盘执行打分/)).toBeDefined();
+
+    // Click 1 star / 1分 (严重违规)
+    const score1Btn = screen.getByTitle(/1分 · 严重违规/);
+    fireEvent.click(score1Btn);
+
+    // Verify low score warning banner appears
+    expect(screen.getByText(/严重违纪低分预警（重点突出复盘日）/)).toBeDefined();
+
+    // Click 保存日记
+    const saveBtn = screen.getByText('保存日记');
+    fireEvent.click(saveBtn);
+
+    // Verify persisted into localStorage with score = 1
+    const stored = localStorage.getItem('tradezella_daily_notes_2026-11-15');
+    expect(stored).not.toBeNull();
+    const parsed = JSON.parse(stored!);
+    expect(parsed.score).toBe(1);
   });
 });
 

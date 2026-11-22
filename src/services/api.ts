@@ -182,6 +182,20 @@ export const updateTrade = async (token: string, tradeId: number, tradeData: Par
   }
 };
 
+export const autoEvaluateTradeTriggers = async (token: string, tradeIds?: number[]) => {
+  try {
+    const response = await apiClient.post('/trades/auto-evaluate-triggers', { tradeIds }, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    return response.data;
+  } catch (error) {
+    console.error('Error auto-evaluating trade triggers:', error);
+    throw error;
+  }
+};
+
 export const deleteTrade = async (token: string, tradeId: number) => {
   try {
     const response = await apiClient.delete(`/trades/${tradeId}`, {

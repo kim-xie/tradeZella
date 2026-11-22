@@ -15,14 +15,14 @@ describe('Navbar', () => {
     );
   };
 
-  it('renders all 6 consistent navigation items', () => {
+  it('renders consistent navigation items without 实盘同步', () => {
     renderNavbar();
 
     expect(screen.getByText('仪表盘')).toBeInTheDocument();
     expect(screen.getByText('交易明细')).toBeInTheDocument();
     expect(screen.getByText('交易日历')).toBeInTheDocument();
     expect(screen.getByText('K线回测')).toBeInTheDocument();
-    expect(screen.getByText('实盘同步')).toBeInTheDocument();
+    expect(screen.queryByText('实盘同步')).not.toBeInTheDocument();
     expect(screen.getByText('新手教程')).toBeInTheDocument();
   });
 

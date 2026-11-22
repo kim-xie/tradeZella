@@ -390,7 +390,7 @@ const CSVUploader: React.FC<CSVUploaderProps> = ({ onUploadSuccess }) => {
                 <div className="p-2.5 bg-gray-50 dark:bg-navy-900/40 rounded border border-gray-200 dark:border-gray-700">
                   <div className="font-semibold text-indigo-600 dark:text-indigo-400">第二步：开启 WebRequest</div>
                   <p className="mt-1 text-gray-500 dark:text-gray-400">
-                    在客户端「工具」 $\to$ 「选项」 $\to$ 「EA交易」中勾选 <b>“允许 WebRequest 到所列的 URL”</b>，并将上方 API 网址添加到列表中。
+                    在客户端「工具」 → 「选项」 → 「EA交易」中勾选 <b>“允许 WebRequest 到所列的 URL”</b>，并将上方 API 网址添加到列表中。
                   </p>
                 </div>
                 <div className="p-2.5 bg-gray-50 dark:bg-navy-900/40 rounded border border-gray-200 dark:border-gray-700">

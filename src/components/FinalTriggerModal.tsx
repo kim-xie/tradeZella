@@ -1,5 +1,7 @@
-import React, { useEffect } from 'react';
-import { X, Target, ShieldAlert, RotateCcw } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { X, Target, ShieldAlert, RotateCcw, Sparkles, Loader2, ArrowRight } from 'lucide-react';
+import { fetchCandles } from '../services/api';
+import { evaluateFinalTriggerFromCandles } from './calendar/calendarUtils';
 
 export interface FinalTriggerModalProps {
   isOpen: boolean;
@@ -14,6 +16,8 @@ export interface FinalTriggerModalProps {
     exitprice?: number;
     take_profit?: number;
     stop_loss?: number;
+    entry_time?: string;
+    exit_time?: string;
   } | null;
   onSelect: (tradeId: number, trigger?: 'takeProfit' | 'stopLoss') => Promise<void> | void;
 }
@@ -24,6 +28,10 @@ export default function FinalTriggerModal({
   trade,
   onSelect,
 }: FinalTriggerModalProps) {
+  const [analyzing, setAnalyzing] = useState(false);
+  const [autoResult, setAutoResult] = useState<'takeProfit' | 'stopLoss' | 'none' | null>(null);
+  const [analyzeError, setAnalyzeError] = useState<string | null>(null);
+
   useEffect(() => {
     if (!isOpen) return;
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -32,6 +40,67 @@ export default function FinalTriggerModal({
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
+
+  // Automatic K-line evaluation on modal open
+  useEffect(() => {
+    if (!isOpen || !trade) {
+      setAutoResult(null);
+      setAnalyzeError(null);
+      return;
+    }
+
+    const sl = trade.stop_loss;
+    const tp = trade.take_profit;
+    const exitTime = trade.exit_time || (trade as any).exitTime;
+
+    if (sl == null || tp == null || !exitTime) {
+      setAutoResult(null);
+      return;
+    }
+
+    let isMounted = true;
+    setAnalyzing(true);
+    setAnalyzeError(null);
+
+    const candleReq = fetchCandles({
+      symbol: trade.symbol,
+      timeframe: 'M5',
+      count: 288,
+      start: exitTime,
+      price: trade.entryprice,
+    });
+    if (!candleReq || typeof candleReq.then !== 'function') {
+      setAnalyzing(false);
+      return;
+    }
+    candleReq
+      .then((res) => {
+        if (!isMounted) return;
+        if (res && Array.isArray(res.candles) && res.candles.length > 0) {
+          const evalResult = evaluateFinalTriggerFromCandles({
+            direction: trade.direction,
+            stopLoss: sl,
+            takeProfit: tp,
+            exitTime,
+            candles: res.candles,
+          });
+          setAutoResult(evalResult || 'none');
+        } else {
+          setAutoResult('none');
+        }
+      })
+      .catch((err) => {
+        if (!isMounted) return;
+        setAnalyzeError(err?.message || 'K线计算异常');
+      })
+      .finally(() => {
+        if (isMounted) setAnalyzing(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [isOpen, trade?.id]);
 
   if (!isOpen || !trade) return null;
 
@@ -82,6 +151,76 @@ export default function FinalTriggerModal({
         <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">
           手动提前离场后，后续行情的最终价格是否触碰了设定的止盈或止损目标？
         </p>
+
+        {/* K-line Automatic Detection Banner */}
+        <div className="mt-3 p-3 rounded-xl border border-purple-500/20 bg-purple-50/40 dark:bg-purple-950/20">
+          <div className="flex items-center justify-between mb-1">
+            <div className="flex items-center gap-1.5 text-xs font-bold text-purple-700 dark:text-purple-300">
+              <Sparkles className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
+              <span>K线数据智能自动计算</span>
+            </div>
+            {analyzing && (
+              <span className="inline-flex items-center gap-1 text-[11px] font-medium text-purple-600 dark:text-purple-400 animate-pulse">
+                <Loader2 className="w-3 h-3 animate-spin" />
+                正在回溯K线...
+              </span>
+            )}
+          </div>
+
+          {analyzing ? (
+            <p className="text-[11px] text-gray-500 dark:text-gray-400">
+              正在从平仓时间之后的连续K线中回溯检测是否触碰止盈或止损目标位...
+            </p>
+          ) : autoResult === 'takeProfit' ? (
+            <div className="flex items-center justify-between gap-2 pt-0.5">
+              <div className="text-[11px] text-emerald-700 dark:text-emerald-300">
+                <p className="font-semibold">🎯 智能检测：行情后续已触及目标止盈位 (打止盈)</p>
+                <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">平仓后价格继续按原计划运行达到预设止盈价</p>
+              </div>
+              <button
+                type="button"
+                onClick={async () => {
+                  await onSelect(trade.id, 'takeProfit');
+                  onClose();
+                }}
+                className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-bold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition shrink-0 cursor-pointer"
+              >
+                <span>一键应用</span>
+                <ArrowRight className="w-3 h-3" />
+              </button>
+            </div>
+          ) : autoResult === 'stopLoss' ? (
+            <div className="flex items-center justify-between gap-2 pt-0.5">
+              <div className="text-[11px] text-rose-700 dark:text-rose-300">
+                <p className="font-semibold">🛡️ 智能检测：行情后续已触及保护止损位 (打止损)</p>
+                <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">平仓后价格反向回调跌破了预设止损价</p>
+              </div>
+              <button
+                type="button"
+                onClick={async () => {
+                  await onSelect(trade.id, 'stopLoss');
+                  onClose();
+                }}
+                className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-bold rounded-lg bg-rose-600 hover:bg-rose-700 text-white shadow-xs transition shrink-0 cursor-pointer"
+              >
+                <span>一键应用</span>
+                <ArrowRight className="w-3 h-3" />
+              </button>
+            </div>
+          ) : autoResult === 'none' ? (
+            <p className="text-[11px] text-gray-500 dark:text-gray-400">
+              📊 经平仓后K线回溯比对：在后续观察窗口内价格均未触碰设定的止盈或止损位。
+            </p>
+          ) : (!trade.stop_loss || !trade.take_profit) ? (
+            <p className="text-[11px] text-gray-400 dark:text-gray-500">
+              ℹ️ 该订单未设置止损或止盈价，无法基于目标价位自动回溯K线。
+            </p>
+          ) : (
+            <p className="text-[11px] text-gray-500 dark:text-gray-400">
+              可根据下方选项手动选择，或查看K线图表核实。
+            </p>
+          )}
+        </div>
 
         {/* Action Options */}
         <div className="mt-4 space-y-2.5">

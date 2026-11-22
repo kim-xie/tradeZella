@@ -31,15 +31,55 @@ import {
   LineChart,
   Maximize2,
   Minimize2,
+  Star,
+  ChevronRight,
 } from 'lucide-react';
+import TradeDetailDrawer, { DetailTrade } from '../TradeDetailDrawer';
 
 interface CalendarDayDrawerProps {
   dateStr: string | null;
   trades: Trade[];
   onClose: () => void;
-  onOpenChart: (trade: Trade) => void;
+  onOpenChart?: (trade: Trade) => void;
+  onSelectTrade?: (trade: Trade) => void;
   cutoffMode?: 'trading' | 'natural';
 }
+
+const convertTradeToDetailTrade = (t: Trade): DetailTrade => {
+  const dir = getTradeDirection(t);
+  const ep = Number(t.entryprice ?? (t as any).entryPrice ?? 0);
+  const xp = t.exitprice !== undefined ? Number(t.exitprice) : (t as any).exitPrice !== undefined ? Number((t as any).exitPrice) : undefined;
+  const mpnl = t.manual_pnl !== undefined && t.manual_pnl !== null
+    ? Number(t.manual_pnl)
+    : (t as any).manualPnl !== undefined && (t as any).manualPnl !== null
+    ? Number((t as any).manualPnl)
+    : undefined;
+
+  return {
+    id: t.id,
+    symbol: t.symbol,
+    direction: dir,
+    size: Number(t.size) || 0,
+    entryprice: ep,
+    exitprice: xp,
+    manual_pnl: mpnl,
+    createdat: t.createdat || (t as any).createdAt || t.entry_time || (t as any).entryTime || new Date().toISOString(),
+    entry_time: t.entry_time || (t as any).entryTime,
+    exit_time: t.exit_time || (t as any).exitTime,
+    stop_loss: t.stop_loss !== undefined ? Number(t.stop_loss) : (t as any).stopLoss !== undefined ? Number((t as any).stopLoss) : undefined,
+    take_profit: t.take_profit !== undefined ? Number(t.take_profit) : (t as any).takeProfit !== undefined ? Number((t as any).takeProfit) : undefined,
+    notes: t.notes,
+    tags: t.tags,
+    sentiment: t.sentiment,
+    rating: t.rating,
+    leverage: t.leverage,
+    session: (t as any).session,
+    final_trigger: t.final_trigger || (t as any).finalTrigger,
+    screenshots: (t as any).screenshots,
+    trade_date: (t as any).trade_date,
+    entry_conditions: (t as any).entry_conditions,
+  };
+};
 
 const QUICK_TAGS = [
   '遵守风控计划',
@@ -52,17 +92,68 @@ const QUICK_TAGS = [
   '移动止损保本',
 ];
 
+export const SCORE_OPTIONS = [
+  {
+    score: 1,
+    title: '1分 · 严重违规',
+    tag: '重度失常',
+    desc: '冲动追单/重仓抗单/情绪失控，触碰红线',
+    activeBg: 'bg-rose-600 text-white border-rose-700 shadow-rose-500/30',
+    inactiveBg: 'bg-white dark:bg-navy-950 text-rose-600 dark:text-rose-400 border-rose-200 dark:border-rose-900/50 hover:bg-rose-50 dark:hover:bg-rose-950/40',
+  },
+  {
+    score: 2,
+    title: '2分 · 执行欠佳',
+    tag: '执行偏离',
+    desc: '仓促入场/偏离计划/侥幸未设止损',
+    activeBg: 'bg-orange-500 text-white border-orange-600 shadow-orange-500/30',
+    inactiveBg: 'bg-white dark:bg-navy-950 text-orange-600 dark:text-orange-400 border-orange-200 dark:border-orange-900/50 hover:bg-orange-50 dark:hover:bg-orange-950/40',
+  },
+  {
+    score: 3,
+    title: '3分 · 基本合格',
+    tag: '守住底线',
+    desc: '守住纪律底线/按部就班/无严重违纪',
+    activeBg: 'bg-amber-500 text-white border-amber-600 shadow-amber-500/30',
+    inactiveBg: 'bg-white dark:bg-navy-950 text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-900/50 hover:bg-amber-50 dark:hover:bg-amber-950/40',
+  },
+  {
+    score: 4,
+    title: '4分 · 良好自律',
+    tag: '严格执行',
+    desc: '专注理性/开平仓纪律严明/规则到位',
+    activeBg: 'bg-emerald-600 text-white border-emerald-700 shadow-emerald-500/30',
+    inactiveBg: 'bg-white dark:bg-navy-950 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-900/50 hover:bg-emerald-50 dark:hover:bg-emerald-950/40',
+  },
+  {
+    score: 5,
+    title: '5分 · 知行合一',
+    tag: '典范执行',
+    desc: '心如止水/完美契合交易系统/自律典范',
+    activeBg: 'bg-purple-600 text-white border-purple-700 shadow-purple-500/30',
+    inactiveBg: 'bg-white dark:bg-navy-950 text-purple-600 dark:text-purple-400 border-purple-200 dark:border-purple-900/50 hover:bg-purple-50 dark:hover:bg-purple-950/40',
+  },
+];
+
 export const CalendarDayDrawer: React.FC<CalendarDayDrawerProps> = ({
   dateStr,
   trades,
   onClose,
   onOpenChart,
+  onSelectTrade,
   cutoffMode = 'trading',
 }) => {
   const [dailyNote, setDailyNote] = useState('');
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [dailyScore, setDailyScore] = useState<number | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [isMaximized, setIsMaximized] = useState(false);
+  const [viewingTrade, setViewingTrade] = useState<Trade | null>(null);
+
+  // Reset selected trade when dateStr changes
+  useEffect(() => {
+    setViewingTrade(null);
+  }, [dateStr]);
 
   // Prevent background scrolling and hide page scrollbars while drawer is active
   useEffect(() => {
@@ -78,24 +169,41 @@ export const CalendarDayDrawer: React.FC<CalendarDayDrawerProps> = ({
     }
   }, [dateStr]);
 
-  // Load existing notes for this day
+  // Load existing notes and score for this day
   useEffect(() => {
     if (!dateStr) return;
     try {
       const stored = localStorage.getItem(`tradezella_daily_notes_${dateStr}`);
       if (stored) {
-        const parsed = JSON.parse(stored);
-        setDailyNote(parsed.note || '');
-        setSelectedTags(parsed.tags || []);
+        try {
+          const parsed = JSON.parse(stored);
+          if (typeof parsed === 'object' && parsed !== null) {
+            setDailyNote(parsed.note || '');
+            setSelectedTags(parsed.tags || []);
+            setDailyScore(typeof parsed.score === 'number' && parsed.score > 0 ? parsed.score : null);
+          } else {
+            setDailyNote(String(stored));
+            setSelectedTags([]);
+            setDailyScore(null);
+          }
+        } catch {
+          setDailyNote(stored);
+          setSelectedTags([]);
+          setDailyScore(null);
+        }
       } else {
         // Fallback to first trade's notes if available
         const firstWithNote = trades.find((t) => t.notes && t.notes.trim().length > 0);
         setDailyNote(firstWithNote?.notes || '');
         setSelectedTags([]);
+        // Check if any trade has rating
+        const firstWithRating = trades.find((t) => typeof t.rating === 'number' && t.rating > 0);
+        setDailyScore(firstWithRating?.rating || null);
       }
     } catch {
       setDailyNote('');
       setSelectedTags([]);
+      setDailyScore(null);
     }
   }, [dateStr, trades]);
 
@@ -103,13 +211,14 @@ export const CalendarDayDrawer: React.FC<CalendarDayDrawerProps> = ({
   useEffect(() => {
     if (!dateStr) return;
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (viewingTrade) return;
       if (e.key === 'Escape') {
         onClose();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [dateStr, onClose]);
+  }, [dateStr, viewingTrade, onClose]);
 
   if (!dateStr) return null;
 
@@ -123,9 +232,18 @@ export const CalendarDayDrawer: React.FC<CalendarDayDrawerProps> = ({
         JSON.stringify({
           note: dailyNote,
           tags: selectedTags,
+          score: dailyScore,
           updatedAt: new Date().toISOString(),
         })
       );
+      // Dispatch custom event to notify parent components (StatsPage, CalendarYearMonthMatrix)
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent('tradezella_daily_notes_updated', {
+            detail: { dateStr, score: dailyScore },
+          })
+        );
+      }
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 2500);
     } catch (e) {
@@ -280,6 +398,91 @@ export const CalendarDayDrawer: React.FC<CalendarDayDrawerProps> = ({
               )}
             </div>
 
+            {/* Daily Review Discipline Rating (日内复盘执行打分) */}
+            <div className="space-y-2 pt-1 border-b border-gray-200/80 dark:border-white/5 pb-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-1.5 text-xs font-bold text-gray-800 dark:text-gray-200">
+                  <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
+                  <span>日内复盘执行打分 (Journal Discipline Score):</span>
+                  {dailyScore !== null ? (
+                    <span
+                      className={`font-mono font-black px-1.5 py-0.5 rounded text-[11px] ${
+                        dailyScore <= 2
+                          ? 'bg-rose-100 dark:bg-rose-950/80 text-rose-700 dark:text-rose-400 border border-rose-300 dark:border-rose-800'
+                          : dailyScore === 3
+                          ? 'bg-amber-100 dark:bg-amber-950/80 text-amber-700 dark:text-amber-400 border border-amber-300 dark:border-amber-800'
+                          : 'bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-800'
+                      }`}
+                    >
+                      {dailyScore} 分 · {SCORE_OPTIONS.find((s) => s.score === dailyScore)?.tag}
+                    </span>
+                  ) : (
+                    <span className="text-[11px] font-normal text-gray-400">（未打分，点击下方星级评分）</span>
+                  )}
+                </div>
+
+                {dailyScore !== null && (
+                  <button
+                    type="button"
+                    onClick={() => setDailyScore(null)}
+                    className="text-[11px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 underline"
+                  >
+                    重置打分
+                  </button>
+                )}
+              </div>
+
+              {/* 5 Score Buttons */}
+              <div className="grid grid-cols-5 gap-1.5">
+                {SCORE_OPTIONS.map((opt) => {
+                  const isSelected = dailyScore === opt.score;
+                  return (
+                    <button
+                      key={opt.score}
+                      type="button"
+                      onClick={() => setDailyScore(isSelected ? null : opt.score)}
+                      className={`py-2 px-1.5 rounded-xl border text-center transition-all duration-150 flex flex-col items-center justify-center cursor-pointer ${
+                        isSelected
+                          ? `${opt.activeBg} font-bold shadow-md scale-[1.02] ring-2 ring-purple-500/30`
+                          : `${opt.inactiveBg} font-medium`
+                      }`}
+                      title={`${opt.title}：${opt.desc}`}
+                    >
+                      <div className="flex items-center space-x-1">
+                        <span className="text-xs font-bold font-mono">{opt.score}</span>
+                        <Star className={`w-3 h-3 ${isSelected ? 'fill-current' : 'text-current opacity-70'}`} />
+                      </div>
+                      <span className="text-[10px] truncate max-w-full block mt-0.5 font-sans">
+                        {opt.tag}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Low Score Prominent Warning Banner (分数低的要重点突出) */}
+              {dailyScore !== null && dailyScore <= 2 && (
+                <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border-2 border-rose-500/80 dark:border-rose-600 text-xs text-rose-800 dark:text-rose-200 flex items-start space-x-2.5 animate-in fade-in duration-200 shadow-xs">
+                  <div className="p-1 rounded-md bg-rose-600 text-white shrink-0 mt-0.5">
+                    <AlertTriangle className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="flex items-center space-x-2">
+                      <span className="font-bold text-rose-700 dark:text-rose-300">
+                        ⚠️ 严重违纪低分预警（重点突出复盘日）
+                      </span>
+                      <span className="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-rose-600 text-white shadow-2xs">
+                        LOW_SCORE_ALERT
+                      </span>
+                    </div>
+                    <p className="mt-1 text-rose-600/90 dark:text-rose-400/90 leading-relaxed text-[11px]">
+                      当日知行合一评分仅为 <strong>{dailyScore} 分</strong>。系统已在日历单元格、当月与年度复盘卡片中全面红框高亮突出。请深入反省开仓动机、情绪失控点与防范预案！
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+
             {/* Quick Tags Selection */}
             <div className="flex flex-wrap gap-1.5 pt-1">
               {QUICK_TAGS.map((tag) => {
@@ -332,7 +535,7 @@ export const CalendarDayDrawer: React.FC<CalendarDayDrawerProps> = ({
                   {cutoffMode === 'natural' ? '00:00 自然日' : '06:00 美盘交易日'}
                 </span>
               </h3>
-              <span className="text-[11px] text-gray-400">点击「K线打点」查看入出场位置</span>
+              <span className="text-[11px] text-gray-400">点击订单查看详情</span>
             </div>
 
             {trades.length === 0 ? (
@@ -353,11 +556,26 @@ export const CalendarDayDrawer: React.FC<CalendarDayDrawerProps> = ({
                   return (
                     <div
                       key={t.id || `trade-${idx}`}
-                      className="p-3 rounded-xl bg-white dark:bg-navy-900/60 border border-gray-200 dark:border-white/10 hover:border-purple-300 dark:hover:border-purple-600/50 transition-all shadow-2xs space-y-2"
+                      role="button"
+                      tabIndex={0}
+                      aria-label="查看订单详情"
+                      onClick={() => {
+                        setViewingTrade(t);
+                        onSelectTrade?.(t);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          setViewingTrade(t);
+                          onSelectTrade?.(t);
+                        }
+                      }}
+                      className="group p-3 rounded-xl bg-white dark:bg-navy-900/60 border border-gray-200 dark:border-white/10 hover:border-purple-400 dark:hover:border-purple-500/80 hover:shadow-md transition-all shadow-2xs space-y-2 cursor-pointer select-none active:scale-[0.995]"
+                      title="点击查看订单详情抽屉"
                     >
                       <div className="flex items-center justify-between">
                         <div className="flex items-center space-x-2">
-                          <span className="font-mono font-bold text-sm text-gray-900 dark:text-white">
+                          <span className="font-mono font-bold text-sm text-gray-900 dark:text-white group-hover:text-purple-600 dark:group-hover:text-purple-400 transition-colors">
                             {t.symbol}
                           </span>
                           <span
@@ -380,7 +598,7 @@ export const CalendarDayDrawer: React.FC<CalendarDayDrawerProps> = ({
                           )}
                         </div>
 
-                        <div className="flex items-center space-x-2">
+                        <div className="flex items-center space-x-1.5">
                           <span
                             className={`font-mono font-bold text-sm ${
                               pnl >= 0
@@ -390,15 +608,7 @@ export const CalendarDayDrawer: React.FC<CalendarDayDrawerProps> = ({
                           >
                             {formatCurrency(pnl)}
                           </span>
-                          <button
-                            type="button"
-                            onClick={() => onOpenChart(t)}
-                            className="px-2 py-1 rounded bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/40 dark:hover:bg-purple-900/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800/60 text-[11px] font-semibold flex items-center space-x-1 transition active:scale-95"
-                            title="在 TradingView K 线上回放买卖打点"
-                          >
-                            <LineChart className="w-3 h-3 text-purple-500" />
-                            <span>K线打点</span>
-                          </button>
+                          <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-purple-500 group-hover:translate-x-0.5 transition-all shrink-0" />
                         </div>
                       </div>
 
@@ -440,6 +650,15 @@ export const CalendarDayDrawer: React.FC<CalendarDayDrawerProps> = ({
           </div>
         </div>
       </aside>
+
+      {/* Trade Detail Drawer */}
+      {viewingTrade && (
+        <TradeDetailDrawer
+          trade={convertTradeToDetailTrade(viewingTrade)}
+          onClose={() => setViewingTrade(null)}
+          baseZIndex={1050}
+        />
+      )}
     </>,
     document.body
   );

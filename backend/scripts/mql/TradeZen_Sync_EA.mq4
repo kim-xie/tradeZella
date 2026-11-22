@@ -38,12 +38,14 @@ input int    InpSyncHistoryDays    = 30;                          // 固定天�
 input int    InpSyncIntervalSec    = 30;                          // 周期轮询检查间隔(秒)
 
 input bool   InpSyncCandles        = true;                        // 启用K线自动同步
-input int    InpCandleTf           = PERIOD_M5;                   // 同步K线周期 (5=M5, 15=M15, 60=H1)
+//--- K线周期固定为 1M (原子基准周期，用户不可更改；云端将自动向上聚合 M5/M15/H1/H4/D1 等所有更高周期)
+const int    InpCandleTf           = PERIOD_M1;
 input ENUM_CANDLE_SYNC_MODE InpCandleSyncMode = CANDLE_SYNC_RECENT_BARS; // 初始K线同步模式
 input datetime InpCandleStartTime  = D'2026.01.01 00:00:00';       // 自定义起始时间 (自定义模式生效)
 input datetime InpCandleStopTime   = 0;                           // 自定义结束时间 (0表示当前最新时间)
-input int    InpCandleBars         = 300;                         // 固定根数模式根数 (默认 300 根)
+input int    InpCandleBars         = 1500;                        // 固定根数模式根数 (默认 1500 根 1M K线，约覆盖 25 小时)
 input int    InpCandleSyncInterval = 120;                         // 初始全量同步重试/更新间隔(秒)
+input bool   InpClearOldM5         = true;                        // 首次同步前清空云端该品种旧M5数据 (确保1M全新纯净)
 
 input bool   InpLiveCandleSync     = true;                        // 历史同步完成后，保持实时增量同步最新K线
 input int    InpLiveSyncInterval   = 15;                          // 实时增量同步心跳间隔(秒，默认15秒更新当前跳动柱)
@@ -315,6 +317,15 @@ void SyncCandles()
    int totalBars = startBar - endBar + 1;
    if(totalBars <= 0) return;
 
+   // 首次全量同步前，自动清理云端此品种的旧 M5 数据
+   if(!g_initial_candle_sync_done && InpClearOldM5)
+   {
+      string clearPayload = StringFormat("{\"symbol\":\"%s\",\"timeframe\":\"M5\"}", _Symbol);
+      string clearResp;
+      PrintFormat("[TradeZen EA MT4] 正在清空云端品种 %s 原有 M5 K线数据...", _Symbol);
+      SendJsonRequest("/backtesting/candles/clear", clearPayload, clearResp);
+   }
+
    string tfStr = TimeframeToStr(InpCandleTf);
    int batchSize = 1000;
    int currentFrom = startBar;
@@ -433,7 +444,7 @@ int OnInit()
    Print("==================================================");
    Print("[TradeZen EA MT4] 正在启动 (v1.20 实时增量流同步版)...");
    PrintFormat("[TradeZen EA MT4] 远程目标: %s", InpServerUrl);
-   PrintFormat("[TradeZen EA MT4] 品种: %s | 周期: %s", _Symbol, TimeframeToStr(InpCandleTf));
+   PrintFormat("[TradeZen EA MT4] 品种: %s | 周期: %s (已锁定为 1M 基础原子周期，服务端自动向上聚合多周期)", _Symbol, TimeframeToStr(InpCandleTf));
    if(InpLiveCandleSync)
    {
       PrintFormat("[TradeZen EA MT4] 实时增量流同步已开启 (心跳: %d秒 | 新K线事件: %s)",

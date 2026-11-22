@@ -1,8 +1,17 @@
-import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
-import { describe, it, expect, vi } from 'vitest';
+import { render, screen, waitFor, fireEvent, act, within } from '@testing-library/react';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
-import DashboardPage from './DashboardPage';
+import DashboardPage, { TIME_RANGE_STORAGE_KEY } from './DashboardPage';
 import * as api from '../services/api';
+
+const mockNavigate = vi.fn();
+vi.mock('react-router-dom', async () => {
+  const actual = await vi.importActual('react-router-dom');
+  return {
+    ...actual,
+    useNavigate: () => mockNavigate,
+  };
+});
 
 vi.mock('../services/api');
 vi.mock('../components/common/SEO', () => ({
@@ -347,5 +356,187 @@ describe('DashboardPage (TradeZella & TradeSync Style)', () => {
     // Loss duration: 30m & 50m -> 40m
     expect(screen.getAllByText('2h').length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText('40m').length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('navigates to /trades with timeframe and conditions when clicking exit method cards', async () => {
+    const today = new Date().toISOString().split('T')[0];
+    const mockTrades = [
+      {
+        id: 1,
+        symbol: 'EURUSD',
+        direction: 'long',
+        size: 1.0,
+        entryprice: 1.1000,
+        exitprice: 1.1050,
+        take_profit: 1.1050,
+        entry_time: `${today}T10:00:00`,
+        exit_time: `${today}T12:00:00`,
+        createdat: `${today}T10:00:00`,
+      },
+    ];
+
+    vi.spyOn(api, 'getUserTrades').mockResolvedValue(mockTrades);
+    localStorage.setItem('token', 'test-token');
+    mockNavigate.mockClear();
+
+    renderWithProviders(<DashboardPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('平仓执行方式透视')).toBeInTheDocument();
+    });
+
+    // 1. Click "本周" timeframe button first to switch time range to week
+    const weekBtn = screen.getByText('本周');
+    fireEvent.click(weekBtn);
+
+    // 2. Click "触发止盈" card
+    const tpCard = screen.getByTitle('点击在交易明细中查看触发止盈订单');
+    fireEvent.click(tpCard);
+    expect(mockNavigate).toHaveBeenCalledWith('/trades?quick=week&exitMethod=takeProfit');
+
+    // 3. Click "触发止损" card
+    const slCard = screen.getByTitle('点击在交易明细中查看触发止损订单');
+    fireEvent.click(slCard);
+    expect(mockNavigate).toHaveBeenCalledWith('/trades?quick=week&exitMethod=stopLoss');
+
+    // 4. Click "手动平仓" card
+    const manualCard = screen.getByTitle('点击在交易明细中查看手动平仓订单');
+    fireEvent.click(manualCard);
+    expect(mockNavigate).toHaveBeenCalledWith('/trades?quick=week&exitMethod=manual');
+
+    // 5. Click "手动盈利"
+    const manualWinBtn = screen.getByTitle('点击在交易明细中查看手动盈利订单');
+    fireEvent.click(manualWinBtn);
+    expect(mockNavigate).toHaveBeenCalledWith('/trades?quick=week&exitMethod=manual&result=profit');
+
+    // 6. Click "手动亏损"
+    const manualLossBtn = screen.getByTitle('点击在交易明细中查看手动亏损订单');
+    fireEvent.click(manualLossBtn);
+    expect(mockNavigate).toHaveBeenCalledWith('/trades?quick=week&exitMethod=manual&result=loss');
+  });
+
+  describe('TimeRange localStorage caching', () => {
+    afterEach(() => {
+      localStorage.removeItem(TIME_RANGE_STORAGE_KEY);
+    });
+
+    it('defaults to "month" (本月) when localStorage is empty', async () => {
+      vi.spyOn(api, 'getUserTrades').mockResolvedValue([]);
+      localStorage.setItem('token', 'test-token');
+      localStorage.removeItem(TIME_RANGE_STORAGE_KEY);
+
+      renderWithProviders(<DashboardPage />);
+
+      await waitFor(() => {
+        expect(screen.getByText('本月')).toBeInTheDocument();
+      });
+
+      const monthBtn = screen.getByText('本月');
+      expect(monthBtn).toHaveClass('dark:bg-purple-600');
+    });
+
+    it('loads cached time range from localStorage if present', async () => {
+      vi.spyOn(api, 'getUserTrades').mockResolvedValue([]);
+      localStorage.setItem('token', 'test-token');
+      localStorage.setItem(TIME_RANGE_STORAGE_KEY, 'week');
+
+      renderWithProviders(<DashboardPage />);
+
+      await waitFor(() => {
+        expect(screen.getByText('本周')).toBeInTheDocument();
+      });
+
+      const weekBtn = screen.getByText('本周');
+      expect(weekBtn).toHaveClass('dark:bg-purple-600');
+      const monthBtn = screen.getByText('本月');
+      expect(monthBtn).not.toHaveClass('dark:bg-purple-600');
+    });
+
+    it('falls back to "month" (本月) if cached value is invalid', async () => {
+      vi.spyOn(api, 'getUserTrades').mockResolvedValue([]);
+      localStorage.setItem('token', 'test-token');
+      localStorage.setItem(TIME_RANGE_STORAGE_KEY, 'invalid_range');
+
+      renderWithProviders(<DashboardPage />);
+
+      await waitFor(() => {
+        expect(screen.getByText('本月')).toBeInTheDocument();
+      });
+
+      const monthBtn = screen.getByText('本月');
+      expect(monthBtn).toHaveClass('dark:bg-purple-600');
+    });
+
+    it('saves newly selected time range into localStorage upon clicking', async () => {
+      vi.spyOn(api, 'getUserTrades').mockResolvedValue([]);
+      localStorage.setItem('token', 'test-token');
+      localStorage.removeItem(TIME_RANGE_STORAGE_KEY);
+
+      renderWithProviders(<DashboardPage />);
+
+      await waitFor(() => {
+        expect(screen.getByText('今年')).toBeInTheDocument();
+      });
+
+      const yearBtn = screen.getByText('今年');
+      await act(async () => {
+        fireEvent.click(yearBtn);
+      });
+
+      expect(yearBtn).toHaveClass('dark:bg-purple-600');
+      expect(localStorage.getItem(TIME_RANGE_STORAGE_KEY)).toBe('year');
+    });
+
+    it('sorts recent trades feed by entry time descending and handles trailed SL correctly', async () => {
+      const mockTrades = [
+        {
+          id: 1,
+          symbol: 'OLD_TRADE',
+          direction: 'short' as const,
+          size: 0.1,
+          entryprice: 87.673,
+          exitprice: 86.888,
+          stop_loss: 87.657, // Trailed SL in profit for short -> should NOT be +49.1R, should be '-'
+          entry_time: '2026-11-14T01:06:00',
+          exit_time: '2026-11-16T13:54:00',
+          manual_pnl: 7.85,
+        },
+        {
+          id: 2,
+          symbol: 'NEW_TRADE',
+          direction: 'short' as const,
+          size: 1,
+          entryprice: 3548.63,
+          exitprice: 3544.91,
+          stop_loss: 3557.93, // Valid protective SL
+          entry_time: '2026-11-20T23:56:00',
+          exit_time: '2026-11-21T00:10:00',
+          manual_pnl: 3.72,
+        },
+      ];
+
+      vi.spyOn(api, 'getUserTrades').mockResolvedValue(mockTrades);
+      localStorage.setItem('token', 'test-token');
+      localStorage.setItem(TIME_RANGE_STORAGE_KEY, 'all');
+
+      renderWithProviders(<DashboardPage />);
+
+      await waitFor(() => {
+        expect(screen.getByText('最新实盘交易动态')).toBeInTheDocument();
+      });
+
+      // NEW_TRADE (11-20) should appear before OLD_TRADE (11-14) in recent trades table
+      const recentHeader = screen.getByText('最新实盘交易动态');
+      const table = recentHeader.closest('.rounded-2xl')!.querySelector('table')!;
+      const rows = within(table).getAllByRole('row');
+      // row[0] is thead, row[1] is first trade, row[2] is second trade
+      expect(rows[1]).toHaveTextContent('NEW_TRADE');
+      expect(rows[2]).toHaveTextContent('OLD_TRADE');
+
+      // OLD_TRADE should NOT show +49.1R (which was a bug when dividing by trailed SL)
+      expect(within(table).queryByText('+49.1R')).not.toBeInTheDocument();
+      // Should show '-' for uncalculable RR when SL is trailed into profit
+      expect(within(rows[2]).getByText('-')).toBeInTheDocument();
+    });
   });
 });

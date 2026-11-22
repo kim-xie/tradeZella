@@ -177,6 +177,22 @@ def sync_trades(days=30, limit=None, all_history=False, from_date=None, to_date=
             entry_iso = format_iso_time(first_in.time, target_tz=target_tz)
             exit_iso = format_iso_time(last_out.time, target_tz=target_tz)
 
+            # Automatically derive market session from entry time hour (UTC+8)
+            session = None
+            if entry_iso:
+                try:
+                    hour_str = entry_iso[11:13]
+                    if hour_str.isdigit():
+                        hour = int(hour_str)
+                        if 8 <= hour < 15:
+                            session = 'Asia'
+                        elif 15 <= hour < 21:
+                            session = 'Europe'
+                        else:
+                            session = 'US'
+                except Exception:
+                    pass
+
             trade = {
                 "ticket": str(pos_id),
                 "positionId": str(pos_id),
@@ -193,6 +209,7 @@ def sync_trades(days=30, limit=None, all_history=False, from_date=None, to_date=
                 "takeProfit": round(tp, 5) if tp else None,
                 "notes": f"MT5 Position #{pos_id}{(' | ' + all_comments.strip()) if all_comments.strip() else ''}",
                 "tags": ["MT5", first_in.symbol],
+                "session": session,
                 "finalTrigger": final_trigger
             }
             trades.append(trade)
