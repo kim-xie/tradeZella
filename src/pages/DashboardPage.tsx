@@ -262,6 +262,8 @@ export default function DashboardPage() {
     let manualCloseWins = 0;
     let manualCloseLosses = 0;
     let manualCloseBreakevens = 0;
+    let manualCloseTargetTP = 0;
+    let manualCloseTargetSL = 0;
 
     const winDurations: number[] = [];
     const lossDurations: number[] = [];
@@ -314,6 +316,9 @@ export default function DashboardPage() {
         } else {
           manualCloseBreakevens++;
         }
+        const ft = trade.final_trigger || (trade as any).finalTrigger;
+        if (ft === 'takeProfit') manualCloseTargetTP++;
+        if (ft === 'stopLoss') manualCloseTargetSL++;
       }
 
       // Holding duration calculation
@@ -387,6 +392,8 @@ export default function DashboardPage() {
       manualCloseWins,
       manualCloseLosses,
       manualCloseBreakevens,
+      manualCloseTargetTP,
+      manualCloseTargetSL,
       manualWinRate,
       avgWinDuration,
       avgLossDuration,
@@ -491,9 +498,9 @@ export default function DashboardPage() {
   // Session Analytics breakdown (TradeSync Signature)
   const sessionData = useMemo(() => {
     const sessions = {
-      Asia: { name: '亚盘 (Asia)', icon: '🌅', pnl: 0, count: 0, wins: 0, volume: 0 },
-      London: { name: '欧盘 (London)', icon: '🏛️', pnl: 0, count: 0, wins: 0, volume: 0 },
-      NewYork: { name: '美盘 (New York)', icon: '🏙️', pnl: 0, count: 0, wins: 0, volume: 0 }
+      Asia: { name: '亚盘 (Asia)', timeRange: '08:00 - 15:00', icon: '🌅', pnl: 0, count: 0, wins: 0, volume: 0 },
+      London: { name: '欧盘 (London)', timeRange: '15:00 - 21:00', icon: '🏛️', pnl: 0, count: 0, wins: 0, volume: 0 },
+      NewYork: { name: '美盘 (New York)', timeRange: '21:00 - 次日 08:00', icon: '🏙️', pnl: 0, count: 0, wins: 0, volume: 0 }
     };
 
     filteredTrades.forEach((trade) => {
@@ -978,9 +985,9 @@ export default function DashboardPage() {
                   </div>
                 </div>
 
-                {/* Manual Close Breakdown: 盈亏订单细分 */}
-                <div className="p-3 rounded-xl bg-gray-50/80 dark:bg-[#070a13] border border-gray-200/70 dark:border-white/5">
-                  <div className="flex items-center justify-between text-xs mb-2">
+                {/* Manual Close Breakdown: 盈亏与走势订单细分 */}
+                <div className="p-3 rounded-xl bg-gray-50/80 dark:bg-[#070a13] border border-gray-200/70 dark:border-white/5 space-y-2">
+                  <div className="flex items-center justify-between text-xs mb-1">
                     <span className="font-semibold text-gray-700 dark:text-gray-300 flex items-center space-x-1.5">
                       <span>手动平仓盈亏细分</span>
                       <span className="text-[10px] font-normal text-gray-400">
@@ -1029,6 +1036,33 @@ export default function DashboardPage() {
                       </>
                     )}
                   </div>
+
+                  {/* 手动平仓后续行情透视 (走势打止盈 / 打止损) */}
+                  {(metrics.manualCloseTargetTP > 0 || metrics.manualCloseTargetSL > 0) && (
+                    <div className="pt-2 border-t border-gray-200/50 dark:border-white/5 flex items-center justify-between text-[11px] font-mono">
+                      <span className="text-gray-400 text-[10px]">后续走势回溯:</span>
+                      <div className="flex items-center gap-3">
+                        <button
+                          type="button"
+                          onClick={() => navigateToTradesWithFilter({ exitMethod: 'manual_tp' })}
+                          className="flex items-center space-x-1 cursor-pointer hover:underline text-emerald-600 dark:text-emerald-400"
+                          title="点击在交易明细中筛选查看手动平仓后打止盈的订单"
+                        >
+                          <span>打止盈:</span>
+                          <strong className="font-bold">{metrics.manualCloseTargetTP} 单</strong>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => navigateToTradesWithFilter({ exitMethod: 'manual_sl' })}
+                          className="flex items-center space-x-1 cursor-pointer hover:underline text-rose-600 dark:text-rose-400"
+                          title="点击在交易明细中筛选查看手动平仓后打止损的订单"
+                        >
+                          <span>打止损:</span>
+                          <strong className="font-bold">{metrics.manualCloseTargetSL} 单</strong>
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -1273,6 +1307,12 @@ export default function DashboardPage() {
                         : 0}%
                     </span>
                   </div>
+                </div>
+              )}
+
+              {chartTab === 'session' && (
+                <div className="flex items-center text-xs text-gray-400 dark:text-gray-500 font-mono">
+                  <span>时区基准: 北京时间 (UTC+8)</span>
                 </div>
               )}
             </div>
@@ -1809,9 +1849,14 @@ export default function DashboardPage() {
                     className="p-4 rounded-xl bg-gray-50/80 dark:bg-[#070a13] border border-gray-200/70 dark:border-white/5"
                   >
                     <div className="flex items-center justify-between mb-3">
-                      <div className="flex items-center space-x-2">
-                        <span className="text-xl">{sess.icon}</span>
-                        <h4 className="text-sm font-bold text-gray-900 dark:text-white">{sess.name}</h4>
+                      <div className="flex items-center space-x-2.5">
+                        <span className="text-xl shrink-0">{sess.icon}</span>
+                        <div>
+                          <h4 className="text-sm font-bold text-gray-900 dark:text-white leading-tight">{sess.name}</h4>
+                          <span className="text-[11px] font-mono text-gray-400 dark:text-gray-500 mt-0.5 inline-block">
+                            {sess.timeRange}
+                          </span>
+                        </div>
                       </div>
                       <span className={`text-xs font-mono font-bold px-2 py-0.5 rounded-full ${
                         sess.pnl >= 0 ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/60' : 'bg-rose-50 text-rose-600 dark:bg-rose-950/60'

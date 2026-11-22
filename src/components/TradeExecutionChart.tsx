@@ -237,7 +237,7 @@ export const TradeExecutionChart: React.FC<TradeExecutionChartProps> = ({
       });
 
       // If querySymbol didn't return candles and cleanSymbol is different, try cleanSymbol as fallback
-      if ((!res.candles || res.candles.length === 0) && cleanSymbol !== querySymbol) {
+      if ((!res?.candles || res.candles.length === 0) && cleanSymbol !== querySymbol) {
         try {
           const fallbackRes = await fetchCandles({
             symbol: cleanSymbol,
@@ -247,13 +247,13 @@ export const TradeExecutionChart: React.FC<TradeExecutionChartProps> = ({
             end: endParam,
             price: entryPrice || exitPrice,
           });
-          if (fallbackRes.candles && fallbackRes.candles.length > 0) {
+          if (fallbackRes?.candles && fallbackRes.candles.length > 0) {
             res = fallbackRes;
           }
         } catch {}
       }
 
-      if (res.candles && res.candles.length > 0) {
+      if (res?.candles && res.candles.length > 0) {
         setCandles(res.candles);
       } else {
         setError('未获取到该交易时段的行情数据');
@@ -328,46 +328,171 @@ export const TradeExecutionChart: React.FC<TradeExecutionChartProps> = ({
       xTimestamp = parseTimeToUTCSeconds(exitTime);
     }
 
-    const findClosestIndex = (targetTs: number, targetPrice?: number): number => {
-      let closestIdx = 0;
-      let minDiff = Math.abs((formattedData[0].time as number) - targetTs);
-      for (let i = 0; i < formattedData.length; i++) {
-        const diff = Math.abs((formattedData[i].time as number) - targetTs);
-        if (diff < minDiff) {
-          minDiff = diff;
-          closestIdx = i;
+    // Helper to calculate price distance of a target price to a bar's [low, high]
+    const getPriceDistance = (bar: typeof formattedData[0], targetPrice: number): number => {
+      if (targetPrice >= bar.low && targetPrice <= bar.high) return 0;
+      if (targetPrice < bar.low) return bar.low - targetPrice;
+      return targetPrice - bar.high;
+    };
+
+    // Common timezone offsets (seconds) between broker servers and local time (0h, ±1h, ±2h, ±3h, ±5h, ±6h, ±7h, ±8h, ±12h, ±13h)
+    const commonTzOffsetsSec = [0, 1, -1, 2, -2, 3, -3, 5, -5, 6, -6, 7, -7, 8, -8, 12, -12, 13, -13].map(h => h * 3600);
+    const getTimeOffsetScore = (candleSec: number, targetSec: number): number => {
+      const diffSec = candleSec - targetSec;
+      let minTzDiff = Math.abs(diffSec);
+      for (const off of commonTzOffsetsSec) {
+        const offsetDiff = Math.abs(diffSec - off);
+        if (offsetDiff < minTzDiff) {
+          minTzDiff = offsetDiff;
         }
       }
+      return minTzDiff;
+    };
 
-      // Fine-tune: check if closestIdx touches targetPrice first
-      if (targetPrice && targetPrice > 0) {
-        const currentBar = formattedData[closestIdx];
-        if (currentBar && targetPrice >= currentBar.low && targetPrice <= currentBar.high) {
-          return closestIdx;
+    let eIdx = 0;
+    let xIdx = formattedData.length - 1;
+
+    const hasEntryPrice = entryPrice !== undefined && entryPrice > 0;
+    const hasExitPrice = exitPrice !== undefined && exitPrice > 0;
+
+    // Collect entry candidates: prioritize bars that touch entryPrice (distance === 0)
+    let minEntryPriceDist = Infinity;
+    for (let i = 0; i < formattedData.length; i++) {
+      const dist = hasEntryPrice ? getPriceDistance(formattedData[i], entryPrice) : 0;
+      if (dist < minEntryPriceDist) {
+        minEntryPriceDist = dist;
+      }
+    }
+    const entryTolerance = minEntryPriceDist === 0 ? 0 : minEntryPriceDist * 1.05;
+    const entryCandidates: number[] = [];
+    for (let i = 0; i < formattedData.length; i++) {
+      const dist = hasEntryPrice ? getPriceDistance(formattedData[i], entryPrice) : 0;
+      if (dist <= entryTolerance) {
+        entryCandidates.push(i);
+      }
+    }
+
+    // Collect exit candidates: prioritize bars that touch exitPrice (distance === 0)
+    let minExitPriceDist = Infinity;
+    if (hasExitPrice) {
+      for (let j = 0; j < formattedData.length; j++) {
+        const dist = getPriceDistance(formattedData[j], exitPrice!);
+        if (dist < minExitPriceDist) {
+          minExitPriceDist = dist;
         }
-        // If current bar doesn't touch, scan closest neighboring bars in order of distance (+1, -1, +2, -2, etc.)
-        for (const offset of [1, -1, 2, -2, 3, -3, 4, -4, 5, -5]) {
-          const testIdx = closestIdx + offset;
-          if (testIdx >= 0 && testIdx < formattedData.length) {
-            const bar = formattedData[testIdx];
-            if (targetPrice >= bar.low && targetPrice <= bar.high) {
-              return testIdx;
-            }
+      }
+    }
+    const exitTolerance = minExitPriceDist === 0 ? 0 : minExitPriceDist * 1.05;
+    const exitCandidates: number[] = [];
+    if (hasExitPrice) {
+      for (let j = 0; j < formattedData.length; j++) {
+        const dist = getPriceDistance(formattedData[j], exitPrice!);
+        if (dist <= exitTolerance) {
+          exitCandidates.push(j);
+        }
+      }
+    }
+
+    // Pairwise joint optimization when both entry and exit prices are available
+    if (hasExitPrice && entryCandidates.length > 0 && exitCandidates.length > 0) {
+      const expectedDurationSec = (eTimestamp !== null && xTimestamp !== null && xTimestamp >= eTimestamp)
+        ? (xTimestamp - eTimestamp)
+        : null;
+
+      let bestScore = Infinity;
+      let bestPair = { e: entryCandidates[0], x: exitCandidates[exitCandidates.length - 1] };
+
+      for (const eCandidate of entryCandidates) {
+        const eTime = formattedData[eCandidate].time as number;
+        const eTimeScore = eTimestamp !== null ? getTimeOffsetScore(eTime, eTimestamp) : 0;
+        const ePriceDist = hasEntryPrice ? getPriceDistance(formattedData[eCandidate], entryPrice) : 0;
+
+        for (const xCandidate of exitCandidates) {
+          if (xCandidate < eCandidate) continue;
+
+          const xTime = formattedData[xCandidate].time as number;
+          const xPriceDist = getPriceDistance(formattedData[xCandidate], exitPrice!);
+          const actualDurationSec = xTime - eTime;
+
+          let score = 0;
+          // Heavily prioritize bars that directly touch the execution price line
+          score += (ePriceDist + xPriceDist) * 100000;
+
+          // Duration match invariant under timezone difference
+          if (expectedDurationSec !== null) {
+            score += Math.abs(actualDurationSec - expectedDurationSec);
+          }
+
+          // Secondary tie-breaker: closer to standard timezone alignment
+          score += eTimeScore * 0.1;
+
+          if (score < bestScore) {
+            bestScore = score;
+            bestPair = { e: eCandidate, x: xCandidate };
           }
         }
       }
 
-      return closestIdx;
-    };
+      eIdx = bestPair.e;
+      xIdx = bestPair.x;
+    } else if (entryCandidates.length > 0) {
+      let bestScore = Infinity;
+      let bestE = entryCandidates[0];
+      for (const eCandidate of entryCandidates) {
+        const eTime = formattedData[eCandidate].time as number;
+        const timeScore = eTimestamp !== null ? getTimeOffsetScore(eTime, eTimestamp) : Math.abs(eCandidate - (formattedData.length - 25));
+        const priceDist = hasEntryPrice ? getPriceDistance(formattedData[eCandidate], entryPrice) : 0;
+        const score = priceDist * 100000 + timeScore;
+        if (score < bestScore) {
+          bestScore = score;
+          bestE = eCandidate;
+        }
+      }
+      eIdx = bestE;
 
-    let eIdx = eTimestamp !== null ? findClosestIndex(eTimestamp, entryPrice) : Math.max(0, formattedData.length - 25);
-    let xIdx = xTimestamp !== null ? findClosestIndex(xTimestamp, exitPrice) : formattedData.length - 1;
+      if (xTimestamp !== null) {
+        let minDiff = Infinity;
+        let closestX = formattedData.length - 1;
+        for (let j = eIdx; j < formattedData.length; j++) {
+          const diff = Math.abs((formattedData[j].time as number) - xTimestamp);
+          if (diff < minDiff) {
+            minDiff = diff;
+            closestX = j;
+          }
+        }
+        xIdx = closestX;
+      } else {
+        xIdx = formattedData.length - 1;
+      }
+    } else {
+      // Fallback by timestamp if no price candidates
+      eIdx = eTimestamp !== null ? 0 : Math.max(0, formattedData.length - 25);
+      if (eTimestamp !== null) {
+        let minDiff = Infinity;
+        for (let i = 0; i < formattedData.length; i++) {
+          const diff = Math.abs((formattedData[i].time as number) - eTimestamp);
+          if (diff < minDiff) {
+            minDiff = diff;
+            eIdx = i;
+          }
+        }
+      }
+      xIdx = formattedData.length - 1;
+      if (xTimestamp !== null) {
+        let minDiff = Infinity;
+        for (let i = eIdx; i < formattedData.length; i++) {
+          const diff = Math.abs((formattedData[i].time as number) - xTimestamp);
+          if (diff < minDiff) {
+            minDiff = diff;
+            xIdx = i;
+          }
+        }
+      }
+    }
 
     // Safety bounds
     eIdx = Math.max(0, Math.min(formattedData.length - 1, eIdx));
     xIdx = Math.max(0, Math.min(formattedData.length - 1, xIdx));
-
-    // Safety check: exit cannot be before entry
     if (xIdx < eIdx) {
       xIdx = eIdx;
     }
@@ -725,6 +850,8 @@ export const TradeExecutionChart: React.FC<TradeExecutionChartProps> = ({
       borderVisible: false,
       wickUpColor: '#10B981',
       wickDownColor: '#EF4444',
+      priceLineVisible: false, // 去掉最新/实时价格横向虚线
+      lastValueVisible: false, // 去掉右侧坐标轴上的实时价格标签徽章
       autoscaleInfoProvider: (original: () => any) => {
         const res = typeof original === 'function' ? original() : null;
         if (!res || !res.priceRange) return res;

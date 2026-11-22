@@ -962,9 +962,9 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, o
                                     </label>
                                     <div className="flex flex-wrap gap-2.5">
                                         {[
-                                            { value: 'Asia' as const, label: '亚盘时段 (Asia)' },
-                                            { value: 'Europe' as const, label: '欧盘时段 (Europe)' },
-                                            { value: 'US' as const, label: '美盘时段 (US)' },
+                                            { value: 'Asia' as const, label: '亚盘时段 (Asia)', time: '08:00 - 15:00' },
+                                            { value: 'Europe' as const, label: '欧盘时段 (Europe)', time: '15:00 - 21:00' },
+                                            { value: 'US' as const, label: '美盘时段 (US)', time: '21:00 - 次日 08:00' },
                                         ].map((option) => {
                                             const selected = formData.session === option.value;
                                             return (
@@ -978,7 +978,10 @@ const TradeDrawer: React.FC<TradeDrawerProps> = ({ isOpen, onClose, onSuccess, o
                                                             : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:border-purple-400 hover:bg-purple-50/50 dark:hover:bg-gray-750'
                                                     }`}
                                                 >
-                                                    {option.label}
+                                                    <span>{option.label}</span>
+                                                    <span className={`ml-1.5 font-mono text-[10px] ${selected ? 'text-purple-200' : 'text-gray-400 dark:text-gray-500'}`}>
+                                                        {option.time}
+                                                    </span>
                                                 </button>
                                             );
                                         })}

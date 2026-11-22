@@ -154,6 +154,10 @@ describe('DashboardPage (TradeZella & TradeSync Style)', () => {
     expect(screen.getByText(/亚盘 \(Asia\)/)).toBeInTheDocument();
     expect(screen.getByText(/欧盘 \(London\)/)).toBeInTheDocument();
     expect(screen.getByText(/美盘 \(New York\)/)).toBeInTheDocument();
+    expect(screen.getByText(/08:00 - 15:00/)).toBeInTheDocument();
+    expect(screen.getByText(/15:00 - 21:00/)).toBeInTheDocument();
+    expect(screen.getByText(/21:00 - 次日 08:00/)).toBeInTheDocument();
+    expect(screen.getByText(/北京时间 \(UTC\+8\)/)).toBeInTheDocument();
   });
 
   it('allows switching between 盈利 Top and 亏损 Top ranking tabs', async () => {

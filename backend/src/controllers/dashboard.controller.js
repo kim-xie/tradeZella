@@ -25,10 +25,6 @@ export class DashboardController {
 }
 
 export function getTradeExitMethod(trade) {
-  const finalTrigger = trade.final_trigger || trade.finalTrigger;
-  if (finalTrigger === 'takeProfit') return 'takeProfit';
-  if (finalTrigger === 'stopLoss') return 'stopLoss';
-
   const notes = trade.notes;
   if (notes) {
     const lower = notes.toLowerCase();

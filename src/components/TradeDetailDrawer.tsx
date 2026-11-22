@@ -18,6 +18,8 @@ import {
   getTradeTradingDate,
   isTradeOvernightSession,
   calculateMarketSession,
+  calculateTradeExitMethod,
+  ExitMethodType,
 } from './calendar/calendarUtils';
 
 export interface DetailTrade {
@@ -138,7 +140,8 @@ export const calculateTradePnL = (
   const leverage = trade.leverage && trade.leverage >= 1 ? trade.leverage : 1;
   const isManual = trade.manual_pnl !== undefined && trade.manual_pnl !== null && !isNaN(trade.manual_pnl);
 
-  const diff = trade.direction === 'long'
+  const isLong = trade.direction === 'long' || (trade.direction as any) === 'buy';
+  const diff = isLong
     ? trade.exitprice - trade.entryprice
     : trade.entryprice - trade.exitprice;
 
@@ -155,27 +158,7 @@ export const calculateTradePnL = (
 };
 
 export const calculateExitMethod = (trade: DetailTrade): ExitMethodType | null => {
-  if (trade.notes) {
-    const lower = trade.notes.toLowerCase();
-    if (lower.includes('[tp') || lower.includes('take profit')) return 'takeProfit';
-    if (lower.includes('[sl') || lower.includes('stop loss')) return 'stopLoss';
-  }
-
-  if (trade.exitprice == null) return null;
-
-  const exit = trade.exitprice;
-  const sl = trade.stop_loss;
-  const tp = trade.take_profit;
-
-  if (trade.direction === 'long') {
-    if (tp != null && exit >= tp) return 'takeProfit';
-    if (sl != null && exit <= sl) return 'stopLoss';
-    return 'manual';
-  } else {
-    if (tp != null && exit <= tp) return 'takeProfit';
-    if (sl != null && exit >= sl) return 'stopLoss';
-    return 'manual';
-  }
+  return calculateTradeExitMethod(trade as any);
 };
 
 export interface TradeSourceInfo {
@@ -420,10 +403,10 @@ export const TradeDetailDrawer: React.FC<TradeDetailDrawerProps> = ({
                 <span className="text-xs text-gray-500 dark:text-gray-400">交易方向:</span>{' '}
                 <span
                   className={`text-sm font-bold ${
-                    trade.direction === 'long' ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
+                    trade.direction === 'long' || (trade.direction as any) === 'buy' ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
                   }`}
                 >
-                  {trade.direction === 'long' ? '做多 (Long)' : '做空 (Short)'}
+                  {trade.direction === 'long' || (trade.direction as any) === 'buy' ? '做多 (Long)' : '做空 (Short)'}
                 </span>
               </div>
               <div>
@@ -520,9 +503,9 @@ export const TradeDetailDrawer: React.FC<TradeDetailDrawerProps> = ({
                     const effSession = trade.session || calculateMarketSession(trade.entry_time || trade.createdat);
                     if (!effSession) return '-';
                     const names: Record<string, string> = {
-                      Asia: '🌅 亚盘时段 (Asia)',
-                      Europe: '🏛️ 欧盘时段 (Europe)',
-                      US: '🏙️ 美盘时段 (US)'
+                      Asia: '🌅 亚盘时段 (Asia · 08:00 - 15:00)',
+                      Europe: '🏛️ 欧盘时段 (Europe · 15:00 - 21:00)',
+                      US: '🏙️ 美盘时段 (US · 21:00 - 次日 08:00)'
                     };
                     return names[effSession] || `${effSession} 盘`;
                   })()}

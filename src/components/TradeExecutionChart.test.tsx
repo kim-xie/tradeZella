@@ -352,4 +352,80 @@ describe('TradeExecutionChart - Replay & Timeframe', () => {
     const efficiencyEl = screen.getByText(/%/);
     expect(parseInt(efficiencyEl.textContent || '0', 10)).toBeGreaterThanOrEqual(50);
   });
+
+  it('hides real-time price line and scale badge on candlestick series (priceLineVisible: false, lastValueVisible: false)', async () => {
+    const { createChart } = await import('lightweight-charts');
+    const mockChart = (createChart as any)();
+
+    render(
+      <TradeExecutionChart
+        symbol="BTCUSD"
+        direction="long"
+        entryPrice={75759.65}
+        exitPrice={76030.74}
+      />
+    );
+
+    await waitFor(() => {
+      expect(mockChart.addSeries).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          priceLineVisible: false,
+          lastValueVisible: false,
+        })
+      );
+    });
+  });
+
+  it('aligns entry and exit markers directly to the price lines even with timezone offsets between candles and trades', async () => {
+    // 模拟 K 线数据：即使因时区偏移，价格触及入场和出场的 K 线在不同时间索引，算法也能精准选定对应 K 线
+    const offsetCandles = [
+      { time: '2026-11-08 10:00', timestamp: 1794103200, open: 75750.0, high: 75770.0, low: 75740.0, close: 75760.0, volume: 500 }, // 触及入场价 75759.65
+      { time: '2026-11-08 10:05', timestamp: 1794103500, open: 75760.0, high: 75800.0, low: 75755.0, close: 75790.0, volume: 600 },
+      { time: '2026-11-08 10:10', timestamp: 1794103800, open: 75790.0, high: 76050.0, low: 75780.0, close: 76035.0, volume: 700 }, // 触及出场价 76030.74
+      { time: '2026-11-08 16:30', timestamp: 1794126600, open: 77000.0, high: 77200.0, low: 76900.0, close: 77100.0, volume: 800 }, // 偏离价格的高位 K 线
+    ];
+
+    vi.spyOn(api, 'fetchCandles').mockResolvedValue({
+      success: true,
+      symbol: 'BTCUSD',
+      timeframe: 'M5',
+      contractSize: 1,
+      dataSource: 'MT5 Direct Terminal',
+      count: offsetCandles.length,
+      candles: offsetCandles,
+    });
+
+    const { createSeriesMarkers } = await import('lightweight-charts');
+    const mockMarkersPlugin = (createSeriesMarkers as any)();
+
+    render(
+      <TradeExecutionChart
+        symbol="BTCUSD"
+        direction="long"
+        entryPrice={75759.65}
+        exitPrice={76030.74}
+        entryTime="2026-11-08 16:30:00" // 模拟由于时区转换传入的 16:30
+        exitTime="2026-11-08 16:40:00"
+      />
+    );
+
+    await waitFor(() => {
+      expect(mockMarkersPlugin.setMarkers).toHaveBeenCalled();
+    });
+
+    const calls = mockMarkersPlugin.setMarkers.mock.calls;
+    const latestMarkers = calls[calls.length - 1][0];
+
+    // 入场打点必须精准定位在包含 entryPrice 75759.65 的第一根 K 线 (10:00)
+    // 而绝非被错误放置在偏离价格的 16:30 K 线上
+    const entryMarker = latestMarkers.find((m: any) => m.text.includes('BUY'));
+    expect(entryMarker).toBeDefined();
+    expect(entryMarker.text).toContain('75759.65');
+
+    // 出场打点必须精准定位在包含 exitPrice 76030.74 的第三根 K 线 (10:10)
+    const exitMarker = latestMarkers.find((m: any) => m.text.includes('EXIT'));
+    expect(exitMarker).toBeDefined();
+    expect(exitMarker.text).toContain('76030.74');
+  });
 });

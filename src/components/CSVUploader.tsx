@@ -3,7 +3,7 @@ import axios from 'axios';
 import Button from './common/Button';
 import { SERVER_BASE_URL as API_BASE_URL, getSyncToken } from '../services/api';
 import { useRealtimeTrades } from '../services/realtime';
-import { RefreshCw, Upload, CheckCircle2, AlertCircle, Download, Database, FileSpreadsheet, FileCode, Radio, Copy, Check, BarChart2, Zap, X, Globe } from 'lucide-react';
+import { RefreshCw, Upload, CheckCircle2, AlertCircle, AlertTriangle, Download, Database, FileSpreadsheet, FileCode, Radio, Copy, Check, BarChart2, Zap, X, Globe, ShieldAlert, ChevronDown, ChevronUp, HelpCircle, Compass } from 'lucide-react';
 
 export interface UploadSuccessInfo {
   count?: number;
@@ -31,6 +31,7 @@ const CSVUploader: React.FC<CSVUploaderProps> = ({ onUploadSuccess }) => {
   const [copiedUrl, setCopiedUrl] = useState<boolean>(false);
   const [loadingToken, setLoadingToken] = useState<boolean>(false);
   const { isConnected: isRealtimeConnected } = useRealtimeTrades();
+  const [showFaqGuide, setShowFaqGuide] = useState<boolean>(false);
 
   useEffect(() => {
     fetchEAToken();
@@ -41,10 +42,64 @@ const CSVUploader: React.FC<CSVUploaderProps> = ({ onUploadSuccess }) => {
       setLoadingToken(true);
       const token = await getSyncToken();
       setEaToken(token);
+      return token;
     } catch (err: any) {
       console.warn('Failed to load EA sync token:', err);
+      return '';
     } finally {
       setLoadingToken(false);
+    }
+  };
+
+  const handleDownloadEA = async (type: 'mq5' | 'mq4') => {
+    const fileName = type === 'mq5' ? 'TradeZen_Sync_EA.mq5' : 'TradeZen_Sync_EA.mq4';
+    try {
+      const res = await fetch(`/downloads/${fileName}`);
+      if (!res.ok) throw new Error('读取 EA 模板文件失败');
+      let text = await res.text();
+
+      // 获取当前最新的 API 地址与 Token
+      let targetToken = eaToken;
+      if (!targetToken) {
+        targetToken = await fetchEAToken();
+      }
+      const targetUrl = apiEndpointUrl || (typeof window !== 'undefined' ? `${window.location.origin}/api` : 'http://localhost:5000/api');
+
+      // 1. 将 远程服务 API 地址 (InpServerUrl) 自动写入源码默认值
+      text = text.replace(
+        /input\s+string\s+InpServerUrl\s*=\s*"[^"]*";/,
+        `input string InpServerUrl          = "${targetUrl}";`
+      );
+
+      // 2. 将 个人专属同步密钥 (InpApiToken) 自动写入源码默认值
+      if (targetToken) {
+        text = text.replace(
+          /input\s+string\s+InpApiToken\s*=\s*"[^"]*";/,
+          `input string InpApiToken           = "${targetToken}";`
+        );
+      }
+
+      // 创建 Blob 触发浏览器下载
+      const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+      const blobUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(blobUrl);
+
+      setSuccessMessage(`已下载 ${fileName}！已自动内置您的专属密钥。提示：仅限您本人使用，切勿直接发给他人，以免数据混淆。`);
+    } catch (err: any) {
+      console.warn('动态注入参数下载失败，回退为直接下载原始文件:', err);
+      const link = document.createElement('a');
+      link.href = `/downloads/${fileName}`;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      setSuccessMessage(`已下载原始 ${fileName}，请在挂载时填入下方个人密钥。`);
     }
   };
 
@@ -304,28 +359,51 @@ const CSVUploader: React.FC<CSVUploaderProps> = ({ onUploadSuccess }) => {
                 </p>
               </div>
 
-              <div className="flex items-center space-x-2">
-                <a
-                  href="/downloads/TradeZen_Sync_EA.mq5"
-                  download="TradeZen_Sync_EA.mq5"
-                  className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-xs font-medium rounded-lg flex items-center space-x-1.5 shadow-sm transition"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  <span>下载 MT5 EA (.mq5)</span>
-                </a>
-                <a
-                  href="/downloads/TradeZen_Sync_EA.mq4"
-                  download="TradeZen_Sync_EA.mq4"
-                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium rounded-lg flex items-center space-x-1.5 shadow-sm transition"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  <span>下载 MT4 EA (.mq4)</span>
-                </a>
+              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2">
+                <div className="flex items-center space-x-2">
+                  <button
+                    type="button"
+                    onClick={() => handleDownloadEA('mq5')}
+                    className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 active:bg-purple-800 text-white text-xs font-medium rounded-lg flex items-center space-x-1.5 shadow-sm transition"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>下载 MT5 EA (.mq5)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDownloadEA('mq4')}
+                    className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-xs font-medium rounded-lg flex items-center space-x-1.5 shadow-sm transition"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>下载 MT4 EA (.mq4)</span>
+                  </button>
+                </div>
+                <span className="text-[10px] font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 px-2 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800/60 inline-flex items-center gap-1">
+                  <Check className="w-3 h-3 text-emerald-500" />
+                  已自动预填下方 API 地址与个人密钥
+                </span>
+              </div>
+            </div>
+
+            {/* 专属安全与防混淆提示 */}
+            <div className="mt-3.5 p-3 bg-amber-50/90 dark:bg-amber-950/40 rounded-lg border border-amber-200 dark:border-amber-800/60 flex items-start space-x-2.5 text-xs text-amber-800 dark:text-amber-200">
+              <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <div className="font-semibold text-amber-900 dark:text-amber-100 flex items-center gap-1.5">
+                  <span>专属密钥安全提示（仅限本人挂载，请勿分享）</span>
+                  <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-200/70 dark:bg-amber-900/80 text-amber-900 dark:text-amber-200 font-bold">重要</span>
+                </div>
+                <p className="text-[11px] leading-relaxed text-amber-700 dark:text-amber-300">
+                  点击下载的 EA 已自动烧录<b>您个人的专属同步密钥</b>。<b>请切勿直接把下载好的 EA 发送给他人使用</b>，否则他人账户里的所有交易订单将直接记入您的 TradeZen 账单，造成胜率与数据混乱。
+                </p>
+                <p className="text-[11px] text-amber-600 dark:text-amber-400">
+                  👥 <b>他人如何使用：</b>让朋友登录他自己的 TradeZen 账号并在其页面点击下载，系统会自动为他生成其个人的专属 EA。
+                </p>
               </div>
             </div>
 
             {/* 参数与密钥卡片 */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-3">
               <div className="bg-gray-50 dark:bg-navy-900/60 p-3 rounded-lg border border-gray-200 dark:border-gray-700">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-medium text-gray-700 dark:text-gray-300">
@@ -349,6 +427,9 @@ const CSVUploader: React.FC<CSVUploaderProps> = ({ onUploadSuccess }) => {
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-medium text-gray-700 dark:text-gray-300">
                     2. 个人专属同步密钥 (<code className="text-purple-600">InpApiToken</code>)
+                    <span className="ml-1.5 text-[10px] text-amber-600 dark:text-amber-400 font-normal">
+                      (私密·仅限本人)
+                    </span>
                   </span>
                   <div className="flex items-center space-x-2">
                     <button
@@ -377,35 +458,118 @@ const CSVUploader: React.FC<CSVUploaderProps> = ({ onUploadSuccess }) => {
 
             {/* 4步快速指引 */}
             <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
-              <span className="text-xs font-semibold text-gray-800 dark:text-gray-200 block mb-2">
-                4 步极速挂载使用说明：
-              </span>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 mb-2.5">
+                <span className="text-xs font-semibold text-gray-800 dark:text-gray-200">
+                  4 步挂载操作指引（从零起点到自动同步）：
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setShowFaqGuide(prev => !prev)}
+                  className="text-xs text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300 flex items-center space-x-1 font-medium transition self-start sm:self-auto"
+                >
+                  <HelpCircle className="w-3.5 h-3.5" />
+                  <span>{showFaqGuide ? '收起避坑指南' : '新手避坑指南 (编译/导航/目录常见疑问)'}</span>
+                  {showFaqGuide ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                </button>
+              </div>
+
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2.5 text-[11px]">
-                <div className="p-2.5 bg-gray-50 dark:bg-navy-900/40 rounded border border-gray-200 dark:border-gray-700">
-                  <div className="font-semibold text-purple-600 dark:text-purple-400">第一步：放置 EA 插件</div>
-                  <p className="mt-1 text-gray-500 dark:text-gray-400">
-                    点击上方按钮下载 EA，拷贝到 MT5 的 <code className="bg-gray-200 dark:bg-navy-800 px-1 rounded">MQL5/Experts</code>（或 MT4 的 <code className="bg-gray-200 dark:bg-navy-800 px-1 rounded">MQL4/Experts</code>）目录。
-                  </p>
+                <div className="p-2.5 bg-gray-50 dark:bg-navy-900/40 rounded border border-gray-200 dark:border-gray-700 flex flex-col justify-between">
+                  <div>
+                    <div className="font-semibold text-purple-600 dark:text-purple-400 flex items-center justify-between">
+                      <span>第一步：放置 EA 插件</span>
+                      <span className="text-[10px] font-normal px-1 py-0.2 bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300 rounded">找准目录</span>
+                    </div>
+                    <p className="mt-1 text-gray-600 dark:text-gray-400 leading-relaxed">
+                      点击上方按钮下载 EA。在 MT5/MT4 顶部点击菜单<b>「文件 (File)」➔「打开数据文件夹 (Open Data Folder)」</b>，依次双击进入 <code className="bg-gray-200 dark:bg-navy-800 px-1 rounded font-mono">MQL5/Experts</code>（MT4 为 <code className="bg-gray-200 dark:bg-navy-800 px-1 rounded font-mono">MQL4/Experts</code>）目录粘贴放入。
+                    </p>
+                  </div>
                 </div>
-                <div className="p-2.5 bg-gray-50 dark:bg-navy-900/40 rounded border border-gray-200 dark:border-gray-700">
-                  <div className="font-semibold text-indigo-600 dark:text-indigo-400">第二步：开启 WebRequest</div>
-                  <p className="mt-1 text-gray-500 dark:text-gray-400">
-                    在客户端「工具」 → 「选项」 → 「EA交易」中勾选 <b>“允许 WebRequest 到所列的 URL”</b>，并将上方 API 网址添加到列表中。
-                  </p>
+
+                <div className="p-2.5 bg-gray-50 dark:bg-navy-900/40 rounded border border-gray-200 dark:border-gray-700 flex flex-col justify-between">
+                  <div>
+                    <div className="font-semibold text-indigo-600 dark:text-indigo-400 flex items-center justify-between">
+                      <span>第二步：开启 WebRequest</span>
+                      <span className="text-[10px] font-normal px-1 py-0.2 bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 rounded">放行网络</span>
+                    </div>
+                    <p className="mt-1 text-gray-600 dark:text-gray-400 leading-relaxed">
+                      在客户端菜单<b>「工具 (Tools)」➔「选项 (Options)」</b>（快捷键 <kbd className="px-1 py-0.5 bg-gray-200 dark:bg-navy-800 rounded font-mono text-[10px]">Ctrl+O</kbd>）➔ 切换到<b>「EA交易」</b>：勾选<b>“允许算法交易”</b>和<b>“允许 WebRequest 用于所列的 URL”</b>，将上方 API 地址加入列表。
+                    </p>
+                  </div>
                 </div>
-                <div className="p-2.5 bg-gray-50 dark:bg-navy-900/40 rounded border border-gray-200 dark:border-gray-700">
-                  <div className="font-semibold text-emerald-600 dark:text-emerald-400">第三步：挂载并填入密钥</div>
-                  <p className="mt-1 text-gray-500 dark:text-gray-400">
-                    在导航器右键刷新，将 EA 拖到任意交易图表上，在“输入参数”中粘贴上方复制的 <b>InpServerUrl</b> 与 <b>InpApiToken</b>。
-                  </p>
+
+                <div className="p-2.5 bg-gray-50 dark:bg-navy-900/40 rounded border border-gray-200 dark:border-gray-700 flex flex-col justify-between">
+                  <div>
+                    <div className="font-semibold text-emerald-600 dark:text-emerald-400 flex items-center justify-between">
+                      <span>第三步：挂载并填入密钥</span>
+                      <span className="text-[10px] font-normal px-1 py-0.2 bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300 rounded">调出导航</span>
+                    </div>
+                    <p className="mt-1 text-gray-600 dark:text-gray-400 leading-relaxed">
+                      按快捷键 <kbd className="px-1 py-0.5 bg-gray-200 dark:bg-navy-800 rounded font-mono text-[10px]">Ctrl+N</kbd>（或菜单「查看」➔「导航」）打开左侧导航器，右键「专家顾问」点击<b>刷新</b>；将 EA 拖拽到图表中央。下载的 EA <b>已内置您的密钥与地址</b>，确认后直接点确定。
+                    </p>
+                  </div>
                 </div>
-                <div className="p-2.5 bg-gray-50 dark:bg-navy-900/40 rounded border border-gray-200 dark:border-gray-700">
-                  <div className="font-semibold text-amber-600 dark:text-amber-400">第四步：全自动双向同步</div>
-                  <p className="mt-1 text-gray-500 dark:text-gray-400">
-                    点击确定即可！EA 将在有新平仓订单时即时推送，并定时同步品种真实 K 线，在复盘图表中 100% 还原执行点位。
-                  </p>
+
+                <div className="p-2.5 bg-gray-50 dark:bg-navy-900/40 rounded border border-gray-200 dark:border-gray-700 flex flex-col justify-between">
+                  <div>
+                    <div className="font-semibold text-amber-600 dark:text-amber-400 flex items-center justify-between">
+                      <span>第四步：全自动双向同步</span>
+                      <span className="text-[10px] font-normal px-1 py-0.2 bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300 rounded">状态确认</span>
+                    </div>
+                    <p className="mt-1 text-gray-600 dark:text-gray-400 leading-relaxed">
+                      确保顶部工具栏<b>「算法交易 (Algo Trading)」</b>按钮为绿色三角 ▶️（若为红色方块点击开启）。按 <kbd className="px-1 py-0.5 bg-gray-200 dark:bg-navy-800 rounded font-mono text-[10px]">Ctrl+T</kbd> 打开底部工具箱 ➔ 切换到<b>「专家」</b>日志，即可查看秒级订单与分批 K 线推送！
+                    </p>
+                  </div>
                 </div>
               </div>
+
+              {/* 新手避坑指南展开面板 */}
+              {showFaqGuide && (
+                <div className="mt-3 p-3.5 bg-purple-50/80 dark:bg-navy-900/90 rounded-xl border border-purple-200 dark:border-purple-800/60 text-xs animate-in fade-in slide-in-from-top-1 duration-200 space-y-2.5">
+                  <div className="font-semibold text-purple-900 dark:text-purple-200 flex items-center gap-1.5 border-b border-purple-200/60 dark:border-purple-800/40 pb-2">
+                    <Compass className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                    <span>新手常见疑问速查与保姆级排查指引：</span>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-[11px] leading-relaxed">
+                    <div className="p-2.5 bg-white dark:bg-navy-800 rounded-lg border border-purple-100 dark:border-purple-900/40">
+                      <div className="font-semibold text-purple-700 dark:text-purple-300">
+                        Q1: 放入目录后，是不是要先执行编译 (Compile)？
+                      </div>
+                      <p className="text-gray-600 dark:text-gray-400 mt-1">
+                        <b>是的，强烈建议按 F4 ➔ F7 快速编译</b>：因为下载的是 <code className="text-purple-600 font-mono">.mq5</code> 源码。在 MT5 中按键盘 <b>F4</b> 打开 MetaEditor 编辑器，左侧展开 Experts 双击打开刚放进去的文件，按键盘 <b>F7（编写/Compile）</b>，下方提示 <span className="text-emerald-600 font-semibold">0 error(s)</span> 即生成执行程序，回到 MT5 刷新即可看到。
+                      </p>
+                    </div>
+
+                    <div className="p-2.5 bg-white dark:bg-navy-800 rounded-lg border border-purple-100 dark:border-purple-900/40">
+                      <div className="font-semibold text-indigo-700 dark:text-indigo-300">
+                        Q2: 界面左侧找不到“导航”窗口怎么办？
+                      </div>
+                      <p className="text-gray-600 dark:text-gray-400 mt-1">
+                        在 MT5 界面直接按键盘快捷键 <b>Ctrl + N</b>（或点击顶部菜单栏<b>「查看 (View)」➔「导航 (Navigator)」</b>），即可立刻调出左侧导航器。找到「专家顾问 (Expert Advisors)」，右键点击<b>「刷新」</b>即可列出刚编译的 EA。
+                      </p>
+                    </div>
+
+                    <div className="p-2.5 bg-white dark:bg-navy-800 rounded-lg border border-purple-100 dark:border-purple-900/40">
+                      <div className="font-semibold text-emerald-700 dark:text-emerald-300">
+                        Q3: 怎么确认 EA 已经在正常运行并开始同步？
+                      </div>
+                      <p className="text-gray-600 dark:text-gray-400 mt-1">
+                        ① 图表右上角会显示 <code className="text-emerald-600 font-mono">TradeZen_Sync_EA</code> 名称且小图标为蓝绿色；② 顶部工具栏中央的「算法交易」按钮保持开启（绿色三角 ▶️）；③ 按 <b>Ctrl + T</b> 打开底部工具箱，在「专家 (Experts)」日志页能看到直推成功的打印。
+                      </p>
+                    </div>
+
+                    <div className="p-2.5 bg-white dark:bg-navy-800 rounded-lg border border-purple-100 dark:border-purple-900/40">
+                      <div className="font-semibold text-amber-700 dark:text-amber-300">
+                        Q4: 专家日志提示「4060 错误」或「WebRequest 被禁止」？
+                      </div>
+                      <p className="text-gray-600 dark:text-gray-400 mt-1">
+                        说明 MT5 缺少网络白名单授权。请按快捷键 <b>Ctrl + O</b> 打开选项 ➔ 切换到「EA交易」➔ 务必勾选「允许 WebRequest 用于所列的 URL」，将上方完整的 API 地址（或主域名）添加到列表中并保存即可。
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* 订单范围与K线自定义范围与实时流同步说明 */}
               <div className="mt-3 p-3 bg-purple-50/60 dark:bg-purple-950/30 rounded-lg border border-purple-200/70 dark:border-purple-800/50 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">

@@ -51,6 +51,13 @@ describe('CSVUploader - Sync Center', () => {
     expect(screen.getByText('第二步：开启 WebRequest')).toBeInTheDocument();
     expect(screen.getByText('第三步：挂载并填入密钥')).toBeInTheDocument();
     expect(screen.getByText('第四步：全自动双向同步')).toBeInTheDocument();
+
+    // Check FAQ guide toggle
+    const faqBtn = screen.getByText(/新手避坑指南/);
+    expect(faqBtn).toBeInTheDocument();
+    fireEvent.click(faqBtn);
+    expect(screen.getByText(/Q1: 放入目录后，是不是要先执行编译/)).toBeInTheDocument();
+    expect(screen.getByText(/Q2: 界面左侧找不到“导航”窗口怎么办/)).toBeInTheDocument();
   });
 
   it('switches to report file upload tab and renders format cards', async () => {
@@ -93,5 +100,38 @@ describe('CSVUploader - Sync Center', () => {
     // Click first copy button (URL)
     fireEvent.click(copyButtons[0]);
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith('http://localhost:5000/api');
+  });
+
+  it('downloads pre-configured EA with server url and api token automatically injected', async () => {
+    const rawTemplate = `
+input string InpServerUrl          = "http://localhost:3000/api";
+input string InpApiToken           = "";
+`;
+    // Mock fetch to return template
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      text: vi.fn().mockResolvedValue(rawTemplate),
+    });
+    global.fetch = fetchMock;
+
+    // Mock URL.createObjectURL
+    const createObjectURLMock = vi.fn().mockReturnValue('blob:mock-url');
+    const revokeObjectURLMock = vi.fn();
+    global.URL.createObjectURL = createObjectURLMock;
+    global.URL.revokeObjectURL = revokeObjectURLMock;
+
+    render(<CSVUploader onUploadSuccess={onUploadSuccess} />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/test-ea-token-1234567890abcdef/)).toBeInTheDocument();
+    });
+
+    const downloadBtn = screen.getByRole('button', { name: /下载 MT5 EA/ });
+    fireEvent.click(downloadBtn);
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith('/downloads/TradeZen_Sync_EA.mq5');
+      expect(createObjectURLMock).toHaveBeenCalled();
+    });
   });
 });

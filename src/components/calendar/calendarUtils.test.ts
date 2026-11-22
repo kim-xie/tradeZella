@@ -369,7 +369,7 @@ describe('calendarUtils', () => {
     });
 
     it('calculates trade exit methods accurately', () => {
-      // 1. Explicit final_trigger takeProfit / stopLoss
+      // 1. Take profit by price target reach or notes
       expect(calculateTradeExitMethod({
         id: 1,
         symbol: 'EURUSD',
@@ -377,9 +377,10 @@ describe('calendarUtils', () => {
         size: 1,
         entryprice: 1.1000,
         exitprice: 1.1050,
-        final_trigger: 'takeProfit',
+        take_profit: 1.1050,
       })).toBe('takeProfit');
 
+      // 2. Stop loss by price target hit
       expect(calculateTradeExitMethod({
         id: 2,
         symbol: 'EURUSD',
@@ -387,10 +388,10 @@ describe('calendarUtils', () => {
         size: 1,
         entryprice: 1.1000,
         exitprice: 1.0950,
-        finalTrigger: 'stopLoss',
+        stop_loss: 1.0950,
       })).toBe('stopLoss');
 
-      // 2. MT5 notes with [tp] or [sl]
+      // 3. MT5 notes with [tp] or [sl]
       expect(calculateTradeExitMethod({
         id: 3,
         symbol: 'BTCUSD',
@@ -401,11 +402,11 @@ describe('calendarUtils', () => {
         notes: 'MT5 Position #1234 [tp 51000.0]',
       })).toBe('takeProfit');
 
-      // 3. Price comparison for long position
+      // 4. Price comparison for long and buy positions
       expect(calculateTradeExitMethod({
         id: 4,
         symbol: 'XAUUSD',
-        direction: 'long',
+        direction: 'buy' as any,
         size: 1,
         entryprice: 2000,
         exitprice: 2020,
@@ -424,6 +425,7 @@ describe('calendarUtils', () => {
         stop_loss: 1990,
       })).toBe('stopLoss');
 
+      // 5. Manual exit before TP/SL is reached (even with final_trigger recorded for post-exit tracking)
       expect(calculateTradeExitMethod({
         id: 6,
         symbol: 'XAUUSD',
@@ -433,6 +435,7 @@ describe('calendarUtils', () => {
         exitprice: 2005,
         take_profit: 2020,
         stop_loss: 1990,
+        final_trigger: 'takeProfit',
       })).toBe('manual');
 
       // 4. Open trade has no exit method

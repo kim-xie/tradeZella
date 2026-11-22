@@ -22,6 +22,8 @@ import {
   getTradingWeekRange,
   isTradeOvernightSession,
   calculateMarketSession,
+  calculateTradeExitMethod,
+  ExitMethodType,
 } from '../components/calendar/calendarUtils';
 
 interface Trade {
@@ -115,7 +117,8 @@ const calculateTradePnL = (trade: Trade): { pnl: number; pnlPercent: number; rr:
   const leverage = trade.leverage && trade.leverage >= 1 ? trade.leverage : 1;
   const isManual = trade.manual_pnl !== undefined && trade.manual_pnl !== null && !isNaN(trade.manual_pnl);
 
-  const diff = trade.direction === 'long'
+  const isLong = trade.direction === 'long' || (trade.direction as any) === 'buy';
+  const diff = isLong
     ? trade.exitprice - trade.entryprice
     : trade.entryprice - trade.exitprice;
 
@@ -131,33 +134,9 @@ const calculateTradePnL = (trade: Trade): { pnl: number; pnlPercent: number; rr:
   return { pnl, pnlPercent, rr: actualRR, targetRR, isManual };
 };
 
-type ExitMethodType = 'takeProfit' | 'stopLoss' | 'manual';
 const SENTIMENT_EMOJI: Record<string, string> = { Nervous: '😰', Uneasy: '😟', Neutral: '😐', Composed: '😌', Zen: '🧘' };
 const calculateExitMethod = (trade: Trade): ExitMethodType | null => {
-  // 1. 若未平仓，则无平仓方式
-  if (trade.exitprice == null) return null;
-
-  // 2. 兼容历史数据在 notes 中带有 MT5 SL/TP 触发标记的情况
-  if (trade.notes) {
-    const lower = trade.notes.toLowerCase();
-    if (lower.includes('[tp') || lower.includes('take profit')) return 'takeProfit';
-    if (lower.includes('[sl') || lower.includes('stop loss')) return 'stopLoss';
-  }
-
-  const exit = trade.exitprice;
-  const sl = trade.stop_loss;
-  const tp = trade.take_profit;
-
-  // 3. 根据多空方向与止盈/止损价格推算
-  if (trade.direction === 'long') {
-    if (tp != null && exit >= tp) return 'takeProfit';
-    if (sl != null && exit <= sl) return 'stopLoss';
-    return 'manual';
-  } else {
-    if (tp != null && exit <= tp) return 'takeProfit';
-    if (sl != null && exit >= sl) return 'stopLoss';
-    return 'manual';
-  }
+  return calculateTradeExitMethod(trade as any);
 };
 
 // 后端返回的时间字符串视为本地时间（无时区），直接字符串处理避免时区偏移
@@ -1291,10 +1270,15 @@ const TradesPage: React.FC = () => {
                                 Europe: '欧盘',
                                 US: '美盘',
                               };
+                              const badgeTimes: Record<string, string> = {
+                                Asia: '08:00 - 15:00',
+                                Europe: '15:00 - 21:00',
+                                US: '21:00 - 次日 08:00',
+                              };
                               return (
                                 <span
                                   className={`px-1.5 py-0.5 rounded text-[9px] font-medium border shrink-0 ${badgeStyles[effSession] || ''}`}
-                                  title={`交易时段: ${badgeLabels[effSession]} (${effSession})`}
+                                  title={`交易时段: ${badgeLabels[effSession]} (${effSession} · ${badgeTimes[effSession] || ''})`}
                                 >
                                   {badgeLabels[effSession]}
                                 </span>
@@ -1313,11 +1297,11 @@ const TradesPage: React.FC = () => {
                         <td className="px-3 py-3 text-sm font-bold font-mono tracking-wide text-gray-900 dark:text-white whitespace-nowrap">{trade.symbol}</td>
                         <td className="px-3 py-3 text-xs">
                           <span className={`inline-flex items-center px-2 py-0.5 rounded font-mono font-bold text-[11px] ${
-                            trade.direction === 'long' 
+                            trade.direction === 'long' || (trade.direction as any) === 'buy'
                               ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20' 
                               : 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20'
                           }`}>
-                            {trade.direction === 'long' ? '做多 BUY' : '做空 SELL'}
+                            {trade.direction === 'long' || (trade.direction as any) === 'buy' ? '做多 BUY' : '做空 SELL'}
                           </span>
                         </td>
                         <td className="px-3 py-3 text-xs font-mono font-semibold text-gray-700 dark:text-gray-300">

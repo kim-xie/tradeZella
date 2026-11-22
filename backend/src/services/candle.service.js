@@ -183,47 +183,80 @@ export class CandleService {
     const cleanSymbol = String(symbol).trim().toUpperCase();
     const cleanTf = String(timeframe).trim().toUpperCase();
 
+    // Prepare and sanitize candle records
+    const preparedCandles = [];
+    for (const c of candles) {
+      if (!c.time && !c.timestamp) continue;
+      
+      let candleTime = c.time;
+      if (candleTime) {
+        candleTime = convertToShanghaiTime(candleTime, timezone);
+      } else if (c.timestamp) {
+        const d = new Date(c.timestamp * 1000);
+        const pad = (n) => String(n).padStart(2, '0');
+        const rawBrokerTime = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+        candleTime = convertToShanghaiTime(rawBrokerTime, timezone);
+      }
+
+      const dParsed = new Date(String(candleTime).replace(' ', 'T').replace(/\./g, '-'));
+      const ts = !isNaN(dParsed.getTime()) ? Math.floor(dParsed.getTime() / 1000) : (c.timestamp || 0);
+
+      const open = parseFloat(c.open) || 0;
+      const high = parseFloat(c.high) || 0;
+      const low = parseFloat(c.low) || 0;
+      const close = parseFloat(c.close) || 0;
+      const volume = parseInt(c.volume) || 0;
+
+      preparedCandles.push({
+        symbol: cleanSymbol,
+        timeframe: cleanTf,
+        candleTime,
+        ts,
+        open,
+        high,
+        low,
+        close,
+        volume,
+      });
+    }
+
+    if (preparedCandles.length === 0) {
+      return { insertedCount: 0 };
+    }
+
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
 
       let insertedCount = 0;
-      for (const c of candles) {
-        if (!c.time && !c.timestamp) continue;
-        
-        let candleTime = c.time;
-        if (candleTime) {
-          candleTime = convertToShanghaiTime(candleTime, timezone);
-        } else if (c.timestamp) {
-          const d = new Date(c.timestamp * 1000);
-          const pad = (n) => String(n).padStart(2, '0');
-          const rawBrokerTime = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-          candleTime = convertToShanghaiTime(rawBrokerTime, timezone);
-        }
+      // Process in chunks of 100 to minimize DB roundtrips while staying well within parameter limits
+      const chunkSize = 100;
+      for (let i = 0; i < preparedCandles.length; i += chunkSize) {
+        const chunk = preparedCandles.slice(i, i + chunkSize);
+        const valueClauses = [];
+        const params = [];
 
-        const dParsed = new Date(String(candleTime).replace(' ', 'T').replace(/\./g, '-'));
-        const ts = !isNaN(dParsed.getTime()) ? Math.floor(dParsed.getTime() / 1000) : (c.timestamp || 0);
+        chunk.forEach((c, idx) => {
+          const offset = idx * 9;
+          valueClauses.push(`($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}, $${offset + 8}, $${offset + 9})`);
+          params.push(c.symbol, c.timeframe, c.candleTime, c.ts, c.open, c.high, c.low, c.close, c.volume);
+        });
 
-        const open = parseFloat(c.open) || 0;
-        const high = parseFloat(c.high) || 0;
-        const low = parseFloat(c.low) || 0;
-        const close = parseFloat(c.close) || 0;
-        const volume = parseInt(c.volume) || 0;
+        const queryStr = `
+          INSERT INTO market_candles (symbol, timeframe, candle_time, timestamp, open, high, low, close, volume)
+          VALUES ${valueClauses.join(', ')}
+          ON CONFLICT (symbol, timeframe, candle_time) 
+          DO UPDATE SET 
+            open = EXCLUDED.open,
+            high = EXCLUDED.high,
+            low = EXCLUDED.low,
+            close = EXCLUDED.close,
+            volume = EXCLUDED.volume,
+            timestamp = EXCLUDED.timestamp
+        `;
 
-        await client.query(
-          `INSERT INTO market_candles (symbol, timeframe, candle_time, timestamp, open, high, low, close, volume)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-           ON CONFLICT (symbol, timeframe, candle_time) 
-           DO UPDATE SET 
-             open = EXCLUDED.open,
-             high = EXCLUDED.high,
-             low = EXCLUDED.low,
-             close = EXCLUDED.close,
-             volume = EXCLUDED.volume,
-             timestamp = EXCLUDED.timestamp`,
-          [cleanSymbol, cleanTf, candleTime, ts, open, high, low, close, volume]
-        );
-        insertedCount++;
+        await client.query(queryStr, params);
+        insertedCount += chunk.length;
       }
 
       await client.query('COMMIT');

@@ -137,17 +137,18 @@ export const HourlyPerformanceChart: React.FC<HourlyPerformanceChartProps> = ({ 
         <div className="flex items-center space-x-3">
           <span className="flex items-center space-x-1">
             <span className="w-2 h-2 rounded-full bg-blue-400 inline-block" />
-            <span>亚洲盘 (00:00 - 08:00)</span>
+            <span>亚盘 (08:00 - 15:00)</span>
           </span>
           <span className="flex items-center space-x-1">
             <span className="w-2 h-2 rounded-full bg-amber-400 inline-block" />
-            <span>伦敦盘 (07:00 - 16:00)</span>
+            <span>欧盘 (15:00 - 21:00)</span>
           </span>
           <span className="flex items-center space-x-1">
             <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block" />
-            <span>纽约盘 (13:00 - 21:00)</span>
+            <span>美盘 (21:00 - 次日 08:00)</span>
           </span>
         </div>
+        <span className="text-[10px] text-gray-400">时区: 北京时间 (UTC+8)</span>
       </div>
     </div>
   );

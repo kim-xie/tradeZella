@@ -8,7 +8,7 @@
 #property link      "https://your-domain.com"
 #property version   "1.20"
 #property strict
-#property description "自动将 MT4 历史与实时平仓订单、历史全量与实时增量K线流直推同步到远程 TradeZen / TradeZella 服务端"
+#property description "自动将 MT4 历史与实时平仓订单、历史全量与实时增量K线流直推同步到远程 TradeZen 服务端"
 
 //--- 订单同步范围枚举
 enum ENUM_ORDER_SYNC_MODE
@@ -30,7 +30,7 @@ enum ENUM_CANDLE_SYNC_MODE
 
 //--- 输入参数
 input string InpServerUrl          = "http://localhost:3000/api"; // 远程服务 API 地址 (勿以斜杠结尾)
-input string InpApiToken           = "";                          // 平台专属同步密钥 (在网页个人中心获取)
+input string InpApiToken           = "";                          // 平台专属同步密钥 (仅限本人使用！请勿转给他人，以防账单数据混淆)
 input bool   InpSyncOrders         = true;                        // 启用订单自动同步
 input bool   InpLiveOrderSync      = true;                        // 开启实时增量同步 (默认开启，设为false则仅同步历史订单)
 input ENUM_ORDER_SYNC_MODE InpOrderSyncMode = ORDER_SYNC_THIS_MONTH; // 首次加载同步范围 (本周/本月/今年/全部)
@@ -104,28 +104,51 @@ bool SendJsonRequest(string endpoint, string jsonBody, string &responseOut)
       ArrayResize(postData, postDataSize - 1);
    }
 
-   ResetLastError();
-   int timeoutMs = 12000;
-   int httpCode = WebRequest("POST", url, headers, timeoutMs, postData, resultData, resultHeaders);
+   int timeoutMs = 30000;
+   int maxRetries = 2;
+   int httpCode = -1;
+   int err = 0;
 
-   if(httpCode == 200 || httpCode == 201)
+   for(int attempt = 0; attempt <= maxRetries; attempt++)
    {
-      responseOut = CharArrayToString(resultData, 0, WHOLE_ARRAY, CP_UTF8);
-      return true;
-   }
-   else
-   {
-      int err = GetLastError();
+      ResetLastError();
+      httpCode = WebRequest("POST", url, headers, timeoutMs, postData, resultData, resultHeaders);
+      err = GetLastError();
+
+      if(httpCode == 200 || httpCode == 201)
+      {
+         responseOut = CharArrayToString(resultData, 0, WHOLE_ARRAY, CP_UTF8);
+         return true;
+      }
+
       if(err == 4060)
       {
-         PrintFormat("[TradeZen EA] 错误: WebRequest 被禁止! 请在 MT4 菜单 '工具' -> '选项' -> 'EA交易' 中勾选 '允许 WebRequest' 并添加 URL: %s", InpServerUrl);
+         PrintFormat("[TradeZen EA MT4] 错误: WebRequest 被禁止! 请在 MT4 菜单 '工具' -> '选项' -> 'EA交易' 中勾选 '允许 WebRequest' 并添加 URL: %s", InpServerUrl);
+         return false;
       }
-      else
+
+      if((httpCode == 502 || httpCode == 503 || httpCode == 504 || httpCode == -1) && attempt < maxRetries)
       {
-         PrintFormat("[TradeZen EA] 请求失败! 目标: %s | HTTP状态码: %d | 错误码: %d", url, httpCode, err);
+         Sleep(2000);
+         continue;
       }
-      return false;
+
+      break;
    }
+
+   string errBody = CharArrayToString(resultData, 0, WHOLE_ARRAY, CP_UTF8);
+   string cleanErr = errBody;
+   if(StringFind(cleanErr, "<html") >= 0 || StringFind(cleanErr, "<HTML") >= 0 || StringFind(cleanErr, "<!DOCTYPE") >= 0)
+   {
+      cleanErr = "云端服务返回了 HTML 错误页 (可能是服务冷启动唤醒中或反向代理超时，HTTP " + IntegerToString(httpCode) + ")，稍后将自动重试";
+   }
+   else if(StringLen(cleanErr) > 250)
+   {
+      cleanErr = StringSubstr(cleanErr, 0, 250) + "...";
+   }
+
+   PrintFormat("[TradeZen EA MT4] 请求失败! 目标: %s | HTTP状态码: %d | 错误码: %d | 响应: %s", url, httpCode, err, cleanErr);
+   return false;
 }
 
 //+------------------------------------------------------------------+
@@ -327,7 +350,7 @@ void SyncCandles()
    }
 
    string tfStr = TimeframeToStr(InpCandleTf);
-   int batchSize = 1000;
+   int batchSize = 300;
    int currentFrom = startBar;
    int totalSynced = 0;
 
@@ -443,6 +466,7 @@ int OnInit()
 {
    Print("==================================================");
    Print("[TradeZen EA MT4] 正在启动 (v1.20 实时增量流同步版)...");
+   Print("[TradeZen EA MT4] [安全提示] 当前使用的 API Token 为个人专属密钥，请勿转给他人使用以防账单数据被污染。");
    PrintFormat("[TradeZen EA MT4] 远程目标: %s", InpServerUrl);
    PrintFormat("[TradeZen EA MT4] 品种: %s | 周期: %s (已锁定为 1M 基础原子周期，服务端自动向上聚合多周期)", _Symbol, TimeframeToStr(InpCandleTf));
    if(InpLiveCandleSync)
