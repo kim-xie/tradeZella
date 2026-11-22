@@ -359,29 +359,23 @@ const CSVUploader: React.FC<CSVUploaderProps> = ({ onUploadSuccess }) => {
                 </p>
               </div>
 
-              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2">
-                <div className="flex items-center space-x-2">
-                  <button
-                    type="button"
-                    onClick={() => handleDownloadEA('mq5')}
-                    className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 active:bg-purple-800 text-white text-xs font-medium rounded-lg flex items-center space-x-1.5 shadow-sm transition"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    <span>下载 MT5 EA (.mq5)</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleDownloadEA('mq4')}
-                    className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-xs font-medium rounded-lg flex items-center space-x-1.5 shadow-sm transition"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    <span>下载 MT4 EA (.mq4)</span>
-                  </button>
-                </div>
-                <span className="text-[10px] font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 px-2 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800/60 inline-flex items-center gap-1">
-                  <Check className="w-3 h-3 text-emerald-500" />
-                  已自动预填下方 API 地址与个人密钥
-                </span>
+              <div className="flex items-center space-x-2">
+                <button
+                  type="button"
+                  onClick={() => handleDownloadEA('mq5')}
+                  className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 active:bg-purple-800 text-white text-xs font-medium rounded-lg flex items-center space-x-1.5 shadow-sm transition"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>下载 MT5 EA (.mq5)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleDownloadEA('mq4')}
+                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-xs font-medium rounded-lg flex items-center space-x-1.5 shadow-sm transition"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>下载 MT4 EA (.mq4)</span>
+                </button>
               </div>
             </div>
 
