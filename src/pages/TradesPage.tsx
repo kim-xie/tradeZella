@@ -1,9 +1,9 @@
 import TradeDrawer from '../components/TradeDrawer';
 import TradeDetailDrawer from '../components/TradeDetailDrawer';
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { X, Star, ChevronLeft, ChevronRight, RefreshCw, Upload, Database, CheckCircle2, BarChart2, Calendar, PenLine, Trash2, AlertTriangle, ArrowUpDown, ArrowUp, ArrowDown, Zap } from 'lucide-react';
+import { X, Star, ChevronLeft, ChevronRight, RefreshCw, Upload, Database, CheckCircle2, BarChart2, Calendar, PenLine, Trash2, AlertTriangle, ArrowUpDown, ArrowUp, ArrowDown, Zap, ChevronDown, Check } from 'lucide-react';
 import Button from '../components/common/Button';
 import Select from '../components/common/Select';
 import DateRangePicker from '../components/common/DateRangePicker';
@@ -323,6 +323,29 @@ const TradesPage: React.FC = () => {
 
   const [lightboxImage, setLightboxImage] = useState<{ urls: string[]; index: number } | null>(null);
   const [searchSymbol, setSearchSymbol] = useState('');
+  const [showSymbolDropdown, setShowSymbolDropdown] = useState(false);
+  const symbolSearchRef = useRef<HTMLDivElement>(null);
+  const symbolInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!showSymbolDropdown) return;
+    const handleClick = (e: MouseEvent) => {
+      if (symbolSearchRef.current && !symbolSearchRef.current.contains(e.target as Node)) {
+        setShowSymbolDropdown(false);
+      }
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setShowSymbolDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClick);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleClick);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [showSymbolDropdown]);
   const [searchEntryDateStart, setSearchEntryDateStart] = useState('');
   const [searchEntryDateEnd, setSearchEntryDateEnd] = useState('');
   const [searchDirection, setSearchDirection] = useState('');
@@ -565,7 +588,7 @@ const TradesPage: React.FC = () => {
     if (filter === 'all') {
       setSearchEntryDateStart('');
       setSearchEntryDateEnd('');
-      setQuickFilter('');
+      setQuickFilter('all');
       return;
     }
   };
@@ -644,7 +667,7 @@ const TradesPage: React.FC = () => {
     } else if (quick === 'all') {
       setSearchEntryDateStart('');
       setSearchEntryDateEnd('');
-      setQuickFilter('');
+      setQuickFilter('all');
     } else if (quick && ['today', 'yesterday', 'week', 'month', 'year'].includes(quick)) {
       handleQuickFilter(quick);
     } else if (!quick && !start && !end) {
@@ -667,6 +690,14 @@ const TradesPage: React.FC = () => {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [lightboxImage]);
+
+  // 监听全平台交易日切日口径变动事件 (美盘 06:00 vs MT5 自然日 00:00)
+  const [cutoffRevision, setCutoffRevision] = useState(0);
+  useEffect(() => {
+    const handler = () => setCutoffRevision((r) => r + 1);
+    window.addEventListener('tradezella_cutoff_changed', handler);
+    return () => window.removeEventListener('tradezella_cutoff_changed', handler);
+  }, []);
 
   const filteredTrades = useMemo(() => {
     return trades.filter((trade) => {
@@ -700,7 +731,7 @@ const TradesPage: React.FC = () => {
       }
       return true;
     });
-  }, [trades, searchSymbol, searchEntryDateStart, searchEntryDateEnd, searchDirection, searchExitMethod, searchSource, searchResult]);
+  }, [trades, searchSymbol, searchEntryDateStart, searchEntryDateEnd, searchDirection, searchExitMethod, searchSource, searchResult, cutoffRevision]);
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -735,6 +766,23 @@ const TradesPage: React.FC = () => {
     trades.forEach((t) => { if (t.symbol) symbols.add(t.symbol); });
     return Array.from(symbols).sort();
   }, [trades]);
+
+  const symbolStats = useMemo(() => {
+    const map = new Map<string, number>();
+    trades.forEach((t) => {
+      if (t.symbol) {
+        const sym = t.symbol.trim();
+        map.set(sym, (map.get(sym) || 0) + 1);
+      }
+    });
+    return map;
+  }, [trades]);
+
+  const filteredAvailableSymbols = useMemo(() => {
+    const query = searchSymbol.trim().toLowerCase();
+    if (!query) return availableSymbols;
+    return availableSymbols.filter((s) => s.toLowerCase().includes(query));
+  }, [availableSymbols, searchSymbol]);
 
   const totalPages = Math.max(1, Math.ceil(filteredTrades.length / pageSize));
 
@@ -936,14 +984,116 @@ const TradesPage: React.FC = () => {
       <div className="relative z-30 mb-6 bg-white/90 dark:bg-[#0b0f19]/90 backdrop-blur-md p-4 sm:p-5 rounded-2xl border border-gray-200/80 dark:border-white/10 shadow-sm space-y-3.5">
         {/* Top Filter Controls: Search & Select Dropdowns */}
         <div className="flex flex-wrap items-center gap-3">
-          <div className="flex-1 min-w-[160px]">
-            <input
-              type="text"
-              placeholder="搜索标的"
-              value={searchSymbol}
-              onChange={(e) => setSearchSymbol(e.target.value)}
-              className="w-full h-[38px] px-3.5 text-sm border border-gray-200 dark:border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 hover:border-purple-400 dark:hover:border-purple-500/80 bg-white dark:bg-[#070a13] text-gray-900 dark:text-white transition shadow-2xs"
-            />
+          <div ref={symbolSearchRef} className="relative flex-1 min-w-[180px]">
+            <div className="relative flex items-center">
+              <input
+                ref={symbolInputRef}
+                type="text"
+                placeholder="全部标的"
+                value={searchSymbol}
+                onChange={(e) => setSearchSymbol(e.target.value)}
+                onFocus={() => setShowSymbolDropdown(true)}
+                onClick={() => setShowSymbolDropdown(true)}
+                className="w-full h-[38px] pl-3.5 pr-14 text-sm border border-gray-200 dark:border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 hover:border-purple-400 dark:hover:border-purple-500/80 bg-white dark:bg-[#070a13] text-gray-900 dark:text-white transition shadow-2xs"
+              />
+              <div className="absolute right-1.5 flex items-center gap-0.5">
+                {searchSymbol && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSearchSymbol('');
+                      setShowSymbolDropdown(false);
+                    }}
+                    className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 rounded-md transition-colors"
+                    title="清空标的"
+                    aria-label="清空标的"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowSymbolDropdown((v) => !v);
+                    symbolInputRef.current?.focus();
+                  }}
+                  className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 rounded-md transition-colors"
+                  title="选择已有标的"
+                  aria-label="选择已有标的"
+                >
+                  <ChevronDown
+                    className={`w-4 h-4 transition-transform duration-200 ${
+                      showSymbolDropdown ? 'rotate-180 text-purple-500' : ''
+                    }`}
+                  />
+                </button>
+              </div>
+            </div>
+
+            {showSymbolDropdown && (
+              <div className="absolute z-50 left-0 right-0 mt-1.5 bg-white dark:bg-[#0c101c] border border-gray-200 dark:border-white/10 rounded-xl shadow-xl py-1 max-h-64 overflow-y-auto">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchSymbol('');
+                    setShowSymbolDropdown(false);
+                  }}
+                  className={`w-full flex items-center justify-between px-3.5 py-2 text-sm text-left transition-colors ${
+                    !searchSymbol
+                      ? 'bg-purple-50 dark:bg-purple-900/30 text-purple-600 dark:text-purple-300 font-semibold'
+                      : 'text-gray-700 dark:text-gray-200 hover:bg-purple-50/60 dark:hover:bg-purple-900/20'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <span>全部标的</span>
+                    <span className="text-xs text-gray-400 dark:text-gray-500">
+                      ({trades.length} 笔)
+                    </span>
+                  </div>
+                  {!searchSymbol && <Check className="w-4 h-4 text-purple-600 dark:text-purple-400 shrink-0 ml-2" />}
+                </button>
+
+                <div className="my-1 border-t border-gray-100 dark:border-white/5" />
+
+                {availableSymbols.length === 0 ? (
+                  <div className="px-3.5 py-3 text-xs text-center text-gray-400 dark:text-gray-500">
+                    暂无标的数据
+                  </div>
+                ) : filteredAvailableSymbols.length > 0 ? (
+                  filteredAvailableSymbols.map((sym) => {
+                    const isSelected = searchSymbol.trim().toUpperCase() === sym.toUpperCase();
+                    const count = symbolStats.get(sym) || 0;
+                    return (
+                      <button
+                        key={sym}
+                        type="button"
+                        onClick={() => {
+                          setSearchSymbol(sym);
+                          setShowSymbolDropdown(false);
+                        }}
+                        className={`w-full flex items-center justify-between px-3.5 py-2 text-sm text-left transition-colors ${
+                          isSelected
+                            ? 'bg-purple-50 dark:bg-purple-900/30 text-purple-600 dark:text-purple-300 font-semibold'
+                            : 'text-gray-700 dark:text-gray-200 hover:bg-purple-50/60 dark:hover:bg-purple-900/20'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-gray-900 dark:text-white">{sym}</span>
+                          <span className="text-[11px] px-1.5 py-0.5 rounded-md bg-gray-100 dark:bg-white/10 text-gray-500 dark:text-gray-400">
+                            {count} 笔
+                          </span>
+                        </div>
+                        {isSelected && <Check className="w-4 h-4 text-purple-600 dark:text-purple-400 shrink-0 ml-2" />}
+                      </button>
+                    );
+                  })
+                ) : (
+                  <div className="px-3.5 py-3 text-xs text-center text-gray-400 dark:text-gray-500">
+                    未找到匹配的已有标的
+                  </div>
+                )}
+              </div>
+            )}
           </div>
           <div className="min-w-[130px]">
             <Select
@@ -982,8 +1132,8 @@ const TradesPage: React.FC = () => {
                 { value: 'takeProfit', label: '止盈触发' },
                 { value: 'stopLoss', label: '止损触发' },
                 { value: 'manual', label: '全部手动平仓' },
-                { value: 'manual_tp', label: '手动平仓 · 打止盈' },
-                { value: 'manual_sl', label: '手动平仓 · 打止损' },
+                { value: 'manual_tp', label: '手动平仓 · 达止盈' },
+                { value: 'manual_sl', label: '手动平仓 · 达止损' },
               ]}
               className="w-full"
             />
@@ -1175,6 +1325,24 @@ const TradesPage: React.FC = () => {
       )}
 
       <div className="bg-white dark:bg-[#0b0f19] border border-gray-200/80 dark:border-white/10 shadow-sm rounded-2xl overflow-hidden">
+        {/* 表格顶部左上角记录条数提示 */}
+        {trades.length > 0 && (
+          <div className="px-4 py-2.5 bg-gray-50/70 dark:bg-[#070a13]/80 border-b border-gray-200/80 dark:border-white/10 flex items-center text-xs text-gray-500 dark:text-gray-400">
+            <div className="flex items-center space-x-1.5 font-mono tracking-tight">
+              <span>显示</span>
+              <span className="font-semibold text-purple-600 dark:text-purple-400">
+                {filteredTrades.length}
+              </span>
+              <span className="text-gray-300 dark:text-gray-600">/</span>
+              <span>共</span>
+              <span className="font-semibold text-gray-800 dark:text-gray-200">
+                {trades.length}
+              </span>
+              <span>笔交易记录</span>
+            </div>
+          </div>
+        )}
+
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse leading-normal">
             <thead>
@@ -1319,17 +1487,17 @@ const TradesPage: React.FC = () => {
                                   type="button"
                                   onClick={() => setFinalTriggerModalTrade(trade)}
                                   className="group inline-flex items-center gap-1.5 px-2 py-0.5 text-[11px] font-medium rounded-md bg-amber-50 hover:bg-amber-100/80 text-amber-800 dark:bg-amber-950/40 dark:hover:bg-amber-900/60 dark:text-amber-300 border border-amber-200 dark:border-amber-800/50 transition cursor-pointer"
-                                  title="点击快速标记或修改最终价格打止盈/打止损走势"
+                                  title="点击快速标记或修改最终价格达止盈/达止损走势"
                                 >
                                   <span>手动平仓</span>
                                   {finalTrigger === 'takeProfit' && (
                                     <span className="px-1 py-0.2 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
-                                      打止盈
+                                      达止盈
                                     </span>
                                   )}
                                   {finalTrigger === 'stopLoss' && (
                                     <span className="px-1 py-0.2 rounded text-[10px] font-bold bg-rose-500/20 text-rose-700 dark:text-rose-300 border border-rose-500/30">
-                                      打止损
+                                      达止损
                                     </span>
                                   )}
                                 </button>
@@ -1475,25 +1643,16 @@ const TradesPage: React.FC = () => {
         {/* 分页控制栏 (默认每页 50 条) */}
         {trades.length > 0 && (
           <div className="px-4 py-3 bg-gray-50/70 dark:bg-[#070a13]/80 border-t border-gray-200/80 dark:border-white/10 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-gray-500 dark:text-gray-400">
-            {/* 左侧：条数显示与每页大小切换 */}
+            {/* 左侧：分页提示与每页大小切换 */}
             <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-              <div className="flex items-center space-x-1.5 font-mono tracking-tight">
-                <span>显示</span>
-                <span className="font-semibold text-purple-600 dark:text-purple-400">
-                  {filteredTrades.length}
-                </span>
-                <span className="text-gray-300 dark:text-gray-600">/</span>
-                <span>共</span>
-                <span className="font-semibold text-gray-800 dark:text-gray-200">
-                  {trades.length}
-                </span>
-                <span>笔交易记录</span>
-                {filteredTrades.length > 0 && (
-                  <span className="text-gray-400 dark:text-gray-500 ml-1">
-                    (第 {(currentPage - 1) * pageSize + 1} - {Math.min(currentPage * pageSize, filteredTrades.length)} 条)
+              {filteredTrades.length > 0 && (
+                <div className="flex items-center space-x-1.5 font-mono tracking-tight text-gray-500 dark:text-gray-400">
+                  <span>第 {(currentPage - 1) * pageSize + 1} - {Math.min(currentPage * pageSize, filteredTrades.length)} 条</span>
+                  <span className="text-gray-400 dark:text-gray-500">
+                    (共 {totalPages} 页)
                   </span>
-                )}
-              </div>
+                </div>
+              )}
 
               {/* 每页条数选择器 */}
               <div className="flex items-center space-x-1.5 pl-2 sm:pl-3 border-l border-gray-200 dark:border-white/10">

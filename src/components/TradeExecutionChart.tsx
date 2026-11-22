@@ -117,6 +117,8 @@ const getSymbolContractSize = (sym: string, customSize?: number): number => {
   return 1;
 };
 
+const DEFAULT_RIGHT_OFFSET = 35; // 默认与右侧保持 35 根 K 线的呼吸间隙，支持自由拖动至视口中间
+
 export const TradeExecutionChart: React.FC<TradeExecutionChartProps> = ({
   symbol,
   direction,
@@ -166,6 +168,10 @@ export const TradeExecutionChart: React.FC<TradeExecutionChartProps> = ({
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [playSpeed, setPlaySpeed] = useState<number>(800); // ms per step
   const timerRef = useRef<any>(null);
+  const userScrollOffsetRef = useRef<number | null>(null);
+  const isDraggingRef = useRef<boolean>(false);
+  const prevViewModeRef = useRef<'overview' | 'replay'>(viewMode);
+  const prevDataLenRef = useRef<number>(0);
 
   const finalProfit = profit !== undefined ? profit : (pnl !== undefined ? pnl : 0);
   const isLong = typeof direction === 'string' 
@@ -830,6 +836,12 @@ export const TradeExecutionChart: React.FC<TradeExecutionChartProps> = ({
         borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
         timeVisible: true,
         secondsVisible: false,
+        rightOffset: DEFAULT_RIGHT_OFFSET, // 默认与右侧保持一定间距 (35根K线)
+        barSpacing: 9,
+        minBarSpacing: 0.5,
+        fixLeftEdge: false,
+        fixRightEdge: false, // 允许自由向左/右拖拽，可拖动到视口中间甚至更远
+        shiftVisibleRangeOnNewBar: true,
       },
       rightPriceScale: {
         borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
@@ -897,14 +909,16 @@ export const TradeExecutionChart: React.FC<TradeExecutionChartProps> = ({
     // Frame the trade in the viewport
     if (viewMode === 'overview') {
       const fromIdx = Math.max(0, entryBarIndex - 20);
-      const toIdx = Math.min(formattedData.length - 1, exitBarIndex + 20);
+      const toIdx = (exitBarIndex > 0 ? exitBarIndex : formattedData.length - 1) + DEFAULT_RIGHT_OFFSET;
       if (toIdx > fromIdx && formattedData.length > 0 && typeof chart.timeScale().setVisibleLogicalRange === 'function') {
         chart.timeScale().setVisibleLogicalRange({ from: fromIdx, to: toIdx });
-      } else {
+      } else if (typeof chart.timeScale().fitContent === 'function') {
         chart.timeScale().fitContent();
       }
     } else {
-      chart.timeScale().fitContent();
+      if (typeof chart.timeScale().scrollToPosition === 'function') {
+        chart.timeScale().scrollToPosition(userScrollOffsetRef.current ?? DEFAULT_RIGHT_OFFSET, false);
+      }
     }
 
     // Responsive resize observer
@@ -920,7 +934,74 @@ export const TradeExecutionChart: React.FC<TradeExecutionChartProps> = ({
       resizeObserver.observe(container);
     }
 
+    // Listen for user drag / pan gestures to allow dragging K-line to middle and keeping it there
+    const handlePointerDown = (e: PointerEvent) => {
+      if (e.button === 0) {
+        isDraggingRef.current = true;
+      }
+    };
+
+    const handlePointerUp = () => {
+      isDraggingRef.current = false;
+      if (chartInstanceRef.current && typeof chartInstanceRef.current.timeScale().scrollPosition === 'function') {
+        const pos = chartInstanceRef.current.timeScale().scrollPosition();
+        if (typeof pos === 'number' && isFinite(pos)) {
+          userScrollOffsetRef.current = pos;
+        }
+      }
+    };
+
+    const handleWheel = () => {
+      setTimeout(() => {
+        if (chartInstanceRef.current && typeof chartInstanceRef.current.timeScale().scrollPosition === 'function') {
+          const pos = chartInstanceRef.current.timeScale().scrollPosition();
+          if (typeof pos === 'number' && isFinite(pos)) {
+            userScrollOffsetRef.current = pos;
+          }
+        }
+      }, 50);
+    };
+
+    const handleDblClick = () => {
+      userScrollOffsetRef.current = null;
+      if (chartInstanceRef.current && typeof chartInstanceRef.current.timeScale().scrollToPosition === 'function') {
+        chartInstanceRef.current.timeScale().scrollToPosition(DEFAULT_RIGHT_OFFSET, true);
+      }
+    };
+
+    // Keep userScrollOffsetRef synced whenever the visible range changes via dragging/zooming
+    const handleRangeChange = () => {
+      if (!isDraggingRef.current && chartInstanceRef.current && typeof chartInstanceRef.current.timeScale().scrollPosition === 'function') {
+        const pos = chartInstanceRef.current.timeScale().scrollPosition();
+        if (typeof pos === 'number' && isFinite(pos)) {
+          userScrollOffsetRef.current = pos;
+        }
+      }
+    };
+
+    try {
+      if (typeof chart.timeScale().subscribeVisibleLogicalRangeChange === 'function') {
+        chart.timeScale().subscribeVisibleLogicalRangeChange(handleRangeChange);
+      }
+    } catch {}
+
+    container.addEventListener('pointerdown', handlePointerDown, { capture: true });
+    window.addEventListener('pointerup', handlePointerUp, { capture: true });
+    window.addEventListener('pointercancel', handlePointerUp, { capture: true });
+    container.addEventListener('wheel', handleWheel, { passive: true });
+    container.addEventListener('dblclick', handleDblClick);
+
     return () => {
+      try {
+        if (chartInstanceRef.current && typeof chartInstanceRef.current.timeScale().unsubscribeVisibleLogicalRangeChange === 'function') {
+          chartInstanceRef.current.timeScale().unsubscribeVisibleLogicalRangeChange(handleRangeChange);
+        }
+      } catch {}
+      container.removeEventListener('pointerdown', handlePointerDown, { capture: true } as any);
+      window.removeEventListener('pointerup', handlePointerUp, { capture: true } as any);
+      window.removeEventListener('pointercancel', handlePointerUp, { capture: true } as any);
+      container.removeEventListener('wheel', handleWheel);
+      container.removeEventListener('dblclick', handleDblClick);
       if (resizeObserver) {
         resizeObserver.disconnect();
       }
@@ -1087,17 +1168,25 @@ export const TradeExecutionChart: React.FC<TradeExecutionChartProps> = ({
     const chart = chartInstanceRef.current;
     if (chart) {
       if (viewMode === 'overview') {
-        const fromIdx = Math.max(0, entryBarIndex - 20);
-        const toIdx = Math.min(formattedData.length - 1, exitBarIndex + 20);
-        if (toIdx > fromIdx && typeof chart.timeScale().setVisibleLogicalRange === 'function') {
-          chart.timeScale().setVisibleLogicalRange({ from: fromIdx, to: toIdx });
-        } else if (typeof chart.timeScale().fitContent === 'function') {
-          chart.timeScale().fitContent();
+        const isFirstOverview = prevViewModeRef.current !== 'overview' || prevDataLenRef.current !== formattedData.length;
+        if (isFirstOverview) {
+          const fromIdx = Math.max(0, entryBarIndex - 20);
+          const toIdx = (exitBarIndex > 0 ? exitBarIndex : formattedData.length - 1) + DEFAULT_RIGHT_OFFSET;
+          if (toIdx > fromIdx && typeof chart.timeScale().setVisibleLogicalRange === 'function') {
+            chart.timeScale().setVisibleLogicalRange({ from: fromIdx, to: toIdx });
+          } else if (typeof chart.timeScale().fitContent === 'function') {
+            chart.timeScale().fitContent();
+          }
         }
       } else if (viewMode === 'replay' && typeof chart.timeScale().scrollToPosition === 'function') {
-        chart.timeScale().scrollToPosition(0, false);
+        if (!isDraggingRef.current) {
+          const targetOffset = userScrollOffsetRef.current ?? DEFAULT_RIGHT_OFFSET;
+          chart.timeScale().scrollToPosition(targetOffset, false);
+        }
       }
     }
+    prevViewModeRef.current = viewMode;
+    prevDataLenRef.current = formattedData.length;
   }, [viewMode, replayIndex, formattedData, entryPrice, exitPrice, stopLoss, takeProfit, entryBarIndex, exitBarIndex, isLong, size, finalProfit, liveStats]);
 
   // Handle Play / Pause toggle
@@ -1121,12 +1210,39 @@ export const TradeExecutionChart: React.FC<TradeExecutionChartProps> = ({
   const handleReset = () => {
     setIsPlaying(false);
     setReplayIndex(preEntryIndex);
+    userScrollOffsetRef.current = null;
+    const chart = chartInstanceRef.current;
+    if (chart && typeof chart.timeScale().scrollToPosition === 'function') {
+      chart.timeScale().scrollToPosition(DEFAULT_RIGHT_OFFSET, true);
+    }
   };
 
   const handleJumpToExit = () => {
     setIsPlaying(false);
     setReplayIndex(exitBarIndex);
   };
+
+  // Center current K-line in viewport
+  const handleCenterViewport = useCallback(() => {
+    const chart = chartInstanceRef.current;
+    if (!chart) return;
+    let centerOffset = 50;
+    try {
+      if (typeof chart.timeScale().getVisibleLogicalRange === 'function') {
+        const range = chart.timeScale().getVisibleLogicalRange();
+        if (range && typeof range.from === 'number' && typeof range.to === 'number') {
+          const barsCount = Math.max(20, range.to - range.from);
+          centerOffset = Math.round(barsCount / 2);
+        }
+      } else if (chartContainerRef.current) {
+        centerOffset = Math.round((chartContainerRef.current.clientWidth / 9) / 2);
+      }
+    } catch {}
+    userScrollOffsetRef.current = centerOffset;
+    if (typeof chart.timeScale().scrollToPosition === 'function') {
+      chart.timeScale().scrollToPosition(centerOffset, true);
+    }
+  }, []);
 
   return (
     <div className={`bg-white dark:bg-[#0b0f19] rounded-2xl border border-gray-200 dark:border-white/10 overflow-hidden shadow-xs ${className}`}>
@@ -1180,7 +1296,7 @@ export const TradeExecutionChart: React.FC<TradeExecutionChartProps> = ({
             </button>
             <button
               type="button"
-              onClick={() => { setViewMode('replay'); setReplayIndex(preEntryIndex); }}
+              onClick={() => { setViewMode('replay'); setReplayIndex(preEntryIndex); userScrollOffsetRef.current = null; }}
               className={`px-2.5 py-1 rounded-md transition-all flex items-center space-x-1 ${
                 viewMode === 'replay'
                   ? 'bg-purple-600 text-white shadow-xs font-semibold'
@@ -1259,26 +1375,6 @@ export const TradeExecutionChart: React.FC<TradeExecutionChartProps> = ({
                   <span className="text-[11px] text-gray-500">
                     ({formatPipsOrPoints(liveStats.floatingPips, entryPrice)})
                   </span>
-                </div>
-              )}
-            </div>
-
-            {/* MFE & MAE Counters */}
-            <div className="flex items-center space-x-4 font-mono text-[11px]">
-              <div className="flex items-center space-x-1 text-emerald-600 dark:text-emerald-400">
-                <TrendingUp className="w-3.5 h-3.5" />
-                <span>MFE(最大顺行):</span>
-                <span className="font-bold">+${liveStats.mfeAmount.toFixed(1)}</span>
-              </div>
-              <div className="flex items-center space-x-1 text-rose-600 dark:text-rose-400">
-                <TrendingDown className="w-3.5 h-3.5" />
-                <span>MAE(最大逆行):</span>
-                <span className="font-bold">-${liveStats.maeAmount.toFixed(1)}</span>
-              </div>
-              {liveStats.isPostExit && (
-                <div className="flex items-center space-x-1 text-purple-600 dark:text-purple-400 font-semibold">
-                  <Award className="w-3.5 h-3.5" />
-                  <span>离场效率: {liveStats.exitEfficiency}%</span>
                 </div>
               )}
             </div>
@@ -1370,6 +1466,14 @@ export const TradeExecutionChart: React.FC<TradeExecutionChartProps> = ({
                   title="跳转到平仓出场点"
                 >
                   出场点
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCenterViewport}
+                  className="px-2 py-0.5 rounded text-[11px] font-mono transition border bg-white dark:bg-navy-800 text-gray-600 dark:text-gray-400 border-gray-200 dark:border-white/10 hover:bg-gray-100 hover:text-purple-600 dark:hover:text-purple-400"
+                  title="将当前K线居中显示在视口中间（支持自由拖拽平移）"
+                >
+                  居中视口
                 </button>
               </div>
 

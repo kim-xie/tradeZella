@@ -17,6 +17,10 @@ vi.mock('lightweight-charts', () => {
     fitContent: vi.fn(),
     setVisibleLogicalRange: vi.fn(),
     scrollToPosition: vi.fn(),
+    scrollPosition: vi.fn().mockReturnValue(35),
+    getVisibleLogicalRange: vi.fn().mockReturnValue({ from: 0, to: 100 }),
+    subscribeVisibleLogicalRangeChange: vi.fn(),
+    unsubscribeVisibleLogicalRangeChange: vi.fn(),
   };
 
   const mockChart = {

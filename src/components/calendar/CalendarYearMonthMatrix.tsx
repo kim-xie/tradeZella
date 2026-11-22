@@ -48,9 +48,11 @@ export const CalendarYearMonthMatrix: React.FC<CalendarYearMonthMatrixProps> = (
       setInternalRev((v) => v + 1);
     };
     window.addEventListener('tradezella_daily_notes_updated', handleNotesUpdate);
+    window.addEventListener('tradezella_cutoff_changed', handleNotesUpdate);
     window.addEventListener('storage', handleNotesUpdate);
     return () => {
       window.removeEventListener('tradezella_daily_notes_updated', handleNotesUpdate);
+      window.removeEventListener('tradezella_cutoff_changed', handleNotesUpdate);
       window.removeEventListener('storage', handleNotesUpdate);
     };
   }, []);

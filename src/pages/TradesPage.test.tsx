@@ -68,7 +68,7 @@ describe('TradesPage', () => {
     });
 
     // Now filter by symbol "EURUSD"
-    const searchInput = screen.getByPlaceholderText('搜索标的');
+    const searchInput = screen.getByPlaceholderText('全部标的');
     fireEvent.change(searchInput, { target: { value: 'EURUSD' } });
 
     await waitFor(() => {
@@ -76,6 +76,65 @@ describe('TradesPage', () => {
       expect(screen.getByText('EURUSD')).toBeInTheDocument();
     });
   });
+
+  it('supports selecting an existing symbol from the dropdown list and clearing it', async () => {
+    const mockTrades = [
+      { id: 1, symbol: 'EURUSD', direction: 'long', size: 1, entryprice: 1.1, exitprice: 1.12, entry_time: '2026-11-20T10:00:00', createdat: '2026-11-20T10:00:00' },
+      { id: 2, symbol: 'XAUUSD', direction: 'long', size: 1, entryprice: 2000, exitprice: 2050, entry_time: '2026-11-20T10:00:00', createdat: '2026-11-20T10:00:00' },
+      { id: 3, symbol: 'EURUSD', direction: 'short', size: 2, entryprice: 1.15, exitprice: 1.14, entry_time: '2026-11-20T11:00:00', createdat: '2026-11-20T11:00:00' },
+    ];
+    vi.spyOn(api, 'getUserTrades').mockResolvedValue(mockTrades);
+    localStorage.setItem('token', 'test-token');
+
+    render(
+      <MemoryRouter>
+        <TradesPage />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => {
+      expect(screen.queryByText('Loading trades...')).not.toBeInTheDocument();
+    });
+
+    // View all trades
+    fireEvent.click(screen.getByRole('button', { name: '全部' }));
+    await waitFor(() => {
+      expect(screen.getByText('XAUUSD')).toBeInTheDocument();
+    });
+
+    // Open dropdown by clicking the dropdown button
+    const dropdownBtn = screen.getByRole('button', { name: '选择已有标的' });
+    fireEvent.click(dropdownBtn);
+
+    // Verify "全部标的" and available symbols with counts are displayed
+    expect(screen.getByText('全部标的')).toBeInTheDocument();
+    expect(screen.getByText('2 笔')).toBeInTheDocument(); // EURUSD has 2 trades
+    expect(screen.getByText('1 笔')).toBeInTheDocument(); // XAUUSD has 1 trade
+
+    // Click EURUSD in the dropdown
+    const eurusdOption = screen.getAllByRole('button').find((b) => b.textContent?.includes('EURUSD') && b.textContent?.includes('2 笔'));
+    expect(eurusdOption).toBeDefined();
+    fireEvent.click(eurusdOption!);
+
+    // Dropdown closes and search input is updated to EURUSD
+    const searchInput = screen.getByPlaceholderText('全部标的') as HTMLInputElement;
+    expect(searchInput.value).toBe('EURUSD');
+
+    // XAUUSD is filtered out, both EURUSD rows visible
+    await waitFor(() => {
+      expect(screen.queryByText('XAUUSD')).not.toBeInTheDocument();
+      expect(screen.getAllByText('EURUSD').length).toBe(2);
+    });
+
+    // Click clear button (X)
+    const clearBtn = screen.getByRole('button', { name: '清空标的' });
+    fireEvent.click(clearBtn);
+
+    expect(searchInput.value).toBe('');
+    await waitFor(() => {
+      expect(screen.getByText('XAUUSD')).toBeInTheDocument();
+    });
+  }, 15000);
 
   it('renders "订单同步" button, unifies exit method, and filters by custom date range', async () => {
     const mockTrades = [
@@ -855,23 +914,23 @@ describe('TradesPage', () => {
     expect(screen.queryByText('已平仓结算')).not.toBeInTheDocument();
 
     // 3. Verify manual close trades display final price triggers
-    // Trade 101: manual close + final_trigger = 'takeProfit' -> displays "打止盈"
-    expect(screen.getByText('打止盈')).toBeInTheDocument();
+    // Trade 101: manual close + final_trigger = 'takeProfit' -> displays "达止盈"
+    expect(screen.getByText('达止盈')).toBeInTheDocument();
 
-    // Trade 102: manual close + final_trigger = 'stopLoss' -> displays "打止损"
-    expect(screen.getByText('打止损')).toBeInTheDocument();
+    // Trade 102: manual close + final_trigger = 'stopLoss' -> displays "达止损"
+    expect(screen.getByText('达止损')).toBeInTheDocument();
 
     // Trade 103: plain manual close
     expect(screen.getAllByText('手动平仓').length).toBeGreaterThanOrEqual(3);
 
     // 4. Clicking manual close badge opens FinalTriggerModal
-    const manualBtns = screen.getAllByTitle('点击快速标记或修改最终价格打止盈/打止损走势');
+    const manualBtns = screen.getAllByTitle('点击快速标记或修改最终价格达止盈/达止损走势');
     expect(manualBtns.length).toBe(3);
     fireEvent.click(manualBtns[0]);
 
     expect(screen.getByText('手动平仓 · 标记最终价格走势')).toBeInTheDocument();
-    expect(screen.getByText('最终价格打止盈')).toBeInTheDocument();
-    expect(screen.getByText('最终价格打止损')).toBeInTheDocument();
+    expect(screen.getByText('最终价格达止盈')).toBeInTheDocument();
+    expect(screen.getByText('最终价格达止损')).toBeInTheDocument();
     expect(screen.getByText(/仅手动平仓 \(清除标记\)/)).toBeInTheDocument();
   });
 

@@ -978,6 +978,11 @@ export default function ManualBarReplay({
             borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.12)',
             timeVisible: true,
             secondsVisible: false,
+            rightOffset: 35,
+            barSpacing: 8,
+            minBarSpacing: 0.5,
+            fixLeftEdge: false,
+            fixRightEdge: false,
           },
           rightPriceScale: {
             borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.12)',
@@ -1176,7 +1181,7 @@ export default function ManualBarReplay({
         try {
           series.setData(tvData);
           if (currentIndex <= 50) {
-            chart.timeScale().scrollToPosition(0, false);
+            chart.timeScale().scrollToPosition(35, false);
           }
         } catch (err) {
           console.warn('Failed to update TradingView series data:', err);

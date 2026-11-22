@@ -526,14 +526,14 @@ export const TradeDetailDrawer: React.FC<TradeDetailDrawerProps> = ({
                         <>
                           <span>手动平仓</span>
                           <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-700 dark:text-emerald-300">
-                            打止盈
+                            达止盈
                           </span>
                         </>
                       ) : trade.final_trigger === 'stopLoss' ? (
                         <>
                           <span>手动平仓</span>
                           <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-rose-500/20 text-rose-700 dark:text-rose-300">
-                            打止损
+                            达止损
                           </span>
                         </>
                       ) : (

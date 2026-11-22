@@ -114,6 +114,42 @@ describe('DashboardPage (TradeZella & TradeSync Style)', () => {
     expect(api.getUserTrades).toHaveBeenCalled();
   });
 
+  it('allows toggling global trading day cutoff between US session 06:00 and MT5 natural day 00:00', async () => {
+    const today = new Date().toISOString().split('T')[0];
+    const mockTrades = [
+      {
+        id: 1,
+        symbol: 'BTCUSD',
+        direction: 'long',
+        size: 0.1,
+        entryprice: 60000,
+        exitprice: 62000,
+        entry_time: `${today}T09:30:00`,
+        createdat: `${today}T09:30:00`,
+      }
+    ];
+
+    vi.spyOn(api, 'getUserTrades').mockResolvedValue(mockTrades);
+    localStorage.setItem('token', 'test-token');
+
+    renderWithProviders(<DashboardPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('美盘交易日 (06:00)')).toBeInTheDocument();
+      expect(screen.getByText('MT5 自然日 (00:00)')).toBeInTheDocument();
+    });
+
+    const naturalBtn = screen.getByText('MT5 自然日 (00:00)');
+    fireEvent.click(naturalBtn);
+
+    expect(localStorage.getItem('tradezella_trading_day_cutoff')).toBe('0');
+
+    const tradingBtn = screen.getByText('美盘交易日 (06:00)');
+    fireEvent.click(tradingBtn);
+
+    expect(localStorage.getItem('tradezella_trading_day_cutoff')).toBe('6');
+  });
+
   it('allows switching chart tabs between Equity Curve, Daily P&L and Sessions', async () => {
     const today = new Date().toISOString().split('T')[0];
     const mockTrades = [

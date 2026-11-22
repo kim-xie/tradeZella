@@ -38,7 +38,7 @@ export const getTradeExitTime = (t: Trade): string => {
  * @param trade 交易记录对象
  * @param cutoffHour 切日小时（默认 6，即 06:00:00 前归属前一交易日）
  */
-export const getTradeTradingDate = (trade: Trade, cutoffHour: number = 6): string => {
+export const getTradeTradingDate = (trade: Trade, cutoffHour?: number): string => {
   const rawDate = getTradeExitTime(trade) || getTradeEntryTime(trade);
   if (!rawDate) return '';
 
@@ -62,7 +62,7 @@ export const getTradeTradingDate = (trade: Trade, cutoffHour: number = 6): strin
         const savedCutoff = localStorage.getItem('tradezella_trading_day_cutoff');
         if (savedCutoff !== null && !isNaN(Number(savedCutoff))) {
           const val = Number(savedCutoff);
-          if (val > 0) effectiveCutoff = val;
+          if (val >= 0) effectiveCutoff = val;
         }
       }
     } catch {}
@@ -82,7 +82,7 @@ export const getTradeTradingDate = (trade: Trade, cutoffHour: number = 6): strin
 /**
  * 判断某笔交易是否属于跨夜美盘交易（北京时间 00:00 ~ 05:59:59）
  */
-export const isTradeOvernightSession = (trade: Trade, cutoffHour: number = 6): boolean => {
+export const isTradeOvernightSession = (trade: Trade, cutoffHour?: number): boolean => {
   const rawDate = getTradeExitTime(trade) || getTradeEntryTime(trade);
   if (!rawDate) return false;
   const match = String(rawDate).trim().match(/[T\s](\d{1,2}):/);
@@ -98,7 +98,7 @@ export const isTradeOvernightSession = (trade: Trade, cutoffHour: number = 6): b
         const savedCutoff = localStorage.getItem('tradezella_trading_day_cutoff');
         if (savedCutoff !== null && !isNaN(Number(savedCutoff))) {
           const val = Number(savedCutoff);
-          if (val > 0) effectiveCutoff = val;
+          if (val >= 0) effectiveCutoff = val;
         }
       }
     } catch {}
@@ -110,7 +110,7 @@ export const isTradeOvernightSession = (trade: Trade, cutoffHour: number = 6): b
  * 获取当前时刻所属的交易日（格式 YYYY-MM-DD）。
  * 例如：周六凌晨 02:00（美盘下半夜），当前交易日属于【周五】。
  */
-export const getCurrentTradingDate = (cutoffHour: number = 6): string => {
+export const getCurrentTradingDate = (cutoffHour?: number): string => {
   const now = new Date();
   const pad = (n: number) => String(n).padStart(2, '0');
   const localNowStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
@@ -121,7 +121,7 @@ export const getCurrentTradingDate = (cutoffHour: number = 6): string => {
  * 获取上一交易日（跳过周末闭市）。
  * 例如：周一的前一交易日为【周五】；周五的前一交易日为【周四】。
  */
-export const getPreviousTradingDate = (currentTradingDateStr?: string, cutoffHour: number = 6): string => {
+export const getPreviousTradingDate = (currentTradingDateStr?: string, cutoffHour?: number): string => {
   const baseDateStr = currentTradingDateStr || getCurrentTradingDate(cutoffHour);
   const parts = baseDateStr.split('-');
   const y = parseInt(parts[0], 10);
@@ -147,7 +147,7 @@ export const getPreviousTradingDate = (currentTradingDateStr?: string, cutoffHou
  */
 export const getTradingWeekRange = (
   referenceTradingDate?: string,
-  cutoffHour: number = 6
+  cutoffHour?: number
 ): { start: string; end: string } => {
   const baseDateStr = referenceTradingDate || getCurrentTradingDate(cutoffHour);
   const parts = baseDateStr.split('-');
@@ -174,7 +174,7 @@ export const getTradingWeekRange = (
  * 获取订单在交易日体系下的星期几（1 = 周一, 2 = 周二 ... 5 = 周五, 6 = 周六, 0 = 周日）。
  * 周五跨夜美盘订单（周六 00:00~06:00 成交）归属为 5 (周五交易日)。
  */
-export const getTradeDayOfWeek = (trade: Trade, cutoffHour: number = 6): number => {
+export const getTradeDayOfWeek = (trade: Trade, cutoffHour?: number): number => {
   const tradingDate = getTradeTradingDate(trade, cutoffHour);
   if (!tradingDate || tradingDate.length < 10) return -1;
   const parts = tradingDate.split('-');
@@ -191,7 +191,7 @@ export const getTradeDayOfWeek = (trade: Trade, cutoffHour: number = 6): number 
  */
 export const getTradeMonthAndYear = (
   trade: Trade,
-  cutoffHour: number = 6
+  cutoffHour?: number
 ): { year: number; month: number } => {
   const tradingDate = getTradeTradingDate(trade, cutoffHour);
   if (!tradingDate || tradingDate.length < 7) {

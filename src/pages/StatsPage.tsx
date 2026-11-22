@@ -139,21 +139,40 @@ const StatsPage: React.FC = () => {
     fetchTrades();
   });
 
-  // 交易日切日模式：默认美盘 06:00 切日（与 MT5 服务器结算一致）
-  const [cutoffMode, setCutoffMode] = useState<'trading' | 'natural'>('trading');
-
-  useEffect(() => {
+  // 交易日切日模式：默认美盘 06:00 切日（与 MT5 服务器结算一致），支持切换 MT5 原生自然日
+  const [cutoffMode, setCutoffMode] = useState<'trading' | 'natural'>(() => {
     try {
-      localStorage.setItem('tradezella_trading_day_cutoff', '6');
+      if (typeof localStorage !== 'undefined') {
+        const saved = localStorage.getItem('tradezella_trading_day_cutoff');
+        if (saved === '0') return 'natural';
+      }
     } catch {}
-  }, []);
+    return 'trading';
+  });
 
   const handleCutoffChange = (mode: 'trading' | 'natural') => {
     setCutoffMode(mode);
     try {
-      localStorage.setItem('tradezella_trading_day_cutoff', mode === 'trading' ? '6' : '0');
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('tradezella_trading_day_cutoff', mode === 'trading' ? '6' : '0');
+        window.dispatchEvent(new Event('tradezella_cutoff_changed'));
+      }
     } catch {}
   };
+
+  // 监听全平台切日口径变动事件 (如在仪表盘切换设置时，日历秒级联动响应)
+  useEffect(() => {
+    const onCutoffChange = () => {
+      try {
+        if (typeof localStorage !== 'undefined') {
+          const saved = localStorage.getItem('tradezella_trading_day_cutoff');
+          setCutoffMode(saved === '0' ? 'natural' : 'trading');
+        }
+      } catch {}
+    };
+    window.addEventListener('tradezella_cutoff_changed', onCutoffChange);
+    return () => window.removeEventListener('tradezella_cutoff_changed', onCutoffChange);
+  }, []);
 
   // Group trades by trading day: "YYYY-MM-DD"
   const tradesByDay = useMemo(() => {
@@ -280,8 +299,35 @@ const StatsPage: React.FC = () => {
               )}
             </div>
 
-            {/* Right: Next Month Arrow */}
+            {/* Right: Cutoff Mode Switch & Next Month Arrow */}
             <div className="flex items-center space-x-2">
+              <div className="hidden sm:flex items-center p-0.5 bg-gray-100 dark:bg-[#070a13] rounded-xl border border-gray-200/80 dark:border-white/10 text-xs">
+                <button
+                  type="button"
+                  onClick={() => handleCutoffChange('trading')}
+                  className={`px-2.5 py-1.5 rounded-lg font-medium transition cursor-pointer ${
+                    cutoffMode === 'trading'
+                      ? 'bg-white dark:bg-purple-600 text-purple-700 dark:text-white font-semibold shadow-xs'
+                      : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+                  }`}
+                  title="美盘交易日（默认）：以美盘结算（北京时间 06:00）作为切日点，00:00~06:00 归属前一交易日（跨夜单合并）"
+                >
+                  美盘交易日 (06:00)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleCutoffChange('natural')}
+                  className={`px-2.5 py-1.5 rounded-lg font-medium transition cursor-pointer ${
+                    cutoffMode === 'natural'
+                      ? 'bg-white dark:bg-purple-600 text-purple-700 dark:text-white font-semibold shadow-xs'
+                      : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+                  }`}
+                  title="MT5 自然日：与 MT5 客户端历史记录日期完全 1:1 精确对齐，严格按 00:00~23:59 统计"
+                >
+                  MT5 自然日 (00:00)
+                </button>
+              </div>
+
               <button
                 onClick={nextMonth}
                 className="w-[38px] h-[38px] flex items-center justify-center rounded-xl border border-gray-200 dark:border-white/10 bg-white dark:bg-[#070a13] text-gray-600 dark:text-gray-300 hover:text-purple-600 dark:hover:text-purple-400 hover:border-purple-400 dark:hover:border-purple-500/80 transition-all shadow-2xs shrink-0"

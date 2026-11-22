@@ -332,6 +332,20 @@ describe('calendarUtils', () => {
       expect(getTradeTradingDate({ entry_time: '2026-11-13' } as any)).toBe('2026-11-13');
     });
 
+    it('supports 00:00 natural day cutoff to 100% align with MT5 terminal history', () => {
+      const earlyMorningTrade: Trade = {
+        id: 107,
+        symbol: 'XAUUSD',
+        direction: 'long',
+        size: 1,
+        entry_time: '2026-11-20T03:15:00',
+      };
+      // In default 06:00 trading day mode, rolls back to 2026-11-19
+      expect(getTradeTradingDate(earlyMorningTrade)).toBe('2026-11-19');
+      // In 00:00 natural day mode (cutoff = 0), stays on 2026-11-20
+      expect(getTradeTradingDate(earlyMorningTrade, 0)).toBe('2026-11-20');
+    });
+
     it('calculates trading day helpers accurately', () => {
       // 2026-11-16 is Monday. Previous trading day must be Friday 2026-11-13!
       expect(getPreviousTradingDate('2026-11-16')).toBe('2026-11-13');

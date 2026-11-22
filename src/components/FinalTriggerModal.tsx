@@ -174,7 +174,7 @@ export default function FinalTriggerModal({
           ) : autoResult === 'takeProfit' ? (
             <div className="flex items-center justify-between gap-2 pt-0.5">
               <div className="text-[11px] text-emerald-700 dark:text-emerald-300">
-                <p className="font-semibold">🎯 智能检测：行情后续已触及目标止盈位 (打止盈)</p>
+                <p className="font-semibold">🎯 智能检测：行情后续已触及目标止盈位 (达止盈)</p>
                 <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">平仓后价格继续按原计划运行达到预设止盈价</p>
               </div>
               <button
@@ -192,7 +192,7 @@ export default function FinalTriggerModal({
           ) : autoResult === 'stopLoss' ? (
             <div className="flex items-center justify-between gap-2 pt-0.5">
               <div className="text-[11px] text-rose-700 dark:text-rose-300">
-                <p className="font-semibold">🛡️ 智能检测：行情后续已触及保护止损位 (打止损)</p>
+                <p className="font-semibold">🛡️ 智能检测：行情后续已触及保护止损位 (达止损)</p>
                 <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">平仓后价格反向回调跌破了预设止损价</p>
               </div>
               <button
@@ -243,9 +243,9 @@ export default function FinalTriggerModal({
               </div>
               <div>
                 <div className="flex items-center gap-2">
-                  <span className="text-sm font-bold text-gray-900 dark:text-white">最终价格打止盈</span>
+                  <span className="text-sm font-bold text-gray-900 dark:text-white">最终价格达止盈</span>
                   <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">
-                    打止盈 (TP)
+                    达止盈 (TP)
                   </span>
                 </div>
                 <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
@@ -279,9 +279,9 @@ export default function FinalTriggerModal({
               </div>
               <div>
                 <div className="flex items-center gap-2">
-                  <span className="text-sm font-bold text-gray-900 dark:text-white">最终价格打止损</span>
+                  <span className="text-sm font-bold text-gray-900 dark:text-white">最终价格达止损</span>
                   <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-500/15 text-rose-700 dark:text-rose-300">
-                    打止损 (SL)
+                    达止损 (SL)
                   </span>
                 </div>
                 <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
@@ -315,7 +315,7 @@ export default function FinalTriggerModal({
               </div>
               <div>
                 <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">仅手动平仓 (清除标记)</span>
-                <p className="text-[11px] text-gray-400 dark:text-gray-500">不记录后续价格是否打止盈或打止损</p>
+                <p className="text-[11px] text-gray-400 dark:text-gray-500">不记录后续价格是否达止盈或达止损</p>
               </div>
             </div>
             {!currentTrigger && (
