@@ -472,10 +472,10 @@ const CSVUploader: React.FC<CSVUploaderProps> = ({ onUploadSuccess }) => {
                   <div>
                     <div className="font-semibold text-purple-600 dark:text-purple-400 flex items-center justify-between">
                       <span>第一步：放置 EA 插件</span>
-                      <span className="text-[10px] font-normal px-1 py-0.2 bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300 rounded">找准目录</span>
+                      <span className="text-[10px] font-normal px-1 py-0.2 bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300 rounded">放置与编译</span>
                     </div>
                     <p className="mt-1 text-gray-600 dark:text-gray-400 leading-relaxed">
-                      点击上方按钮下载 EA。在 MT5/MT4 顶部点击菜单<b>「文件 (File)」➔「打开数据文件夹 (Open Data Folder)」</b>，依次双击进入 <code className="bg-gray-200 dark:bg-navy-800 px-1 rounded font-mono">MQL5/Experts</code>（MT4 为 <code className="bg-gray-200 dark:bg-navy-800 px-1 rounded font-mono">MQL4/Experts</code>）目录粘贴放入。
+                      点击上方按钮下载 EA。在 MT5/MT4 顶部点击菜单<b>「文件 (File)」➔「打开数据文件夹 (Open Data Folder)」</b>，依次双击进入 <code className="bg-gray-200 dark:bg-navy-800 px-1 rounded font-mono">MQL5/Experts</code>（MT4 为 <code className="bg-gray-200 dark:bg-navy-800 px-1 rounded font-mono">MQL4/Experts</code>）粘贴放入。随后按键盘 <kbd className="px-1 py-0.5 bg-gray-200 dark:bg-navy-800 rounded font-mono text-[10px]">F4</kbd> 打开编辑器按 <kbd className="px-1 py-0.5 bg-gray-200 dark:bg-navy-800 rounded font-mono text-[10px]">F7</kbd> 编译（或在导航器右键「刷新」自动编译生成可执行文件）。
                     </p>
                   </div>
                 </div>
