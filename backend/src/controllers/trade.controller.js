@@ -166,12 +166,15 @@ export class TradeController {
       const newTrades = await TradeService.createBulkTrades(tradesToCreate);
       const skippedCount = newTrades.skippedCount || 0;
       const insertedCount = newTrades.length;
+      const enrichedCount = newTrades.enrichedCount || 0;
 
       let msg = '';
-      if (insertedCount > 0 && skippedCount > 0) {
-        msg = `成功从 ${platform} 报表导入 ${insertedCount} 笔新交易，已自动过滤 ${skippedCount} 笔重复记录！`;
+      if (insertedCount > 0 && (skippedCount > 0 || enrichedCount > 0)) {
+        msg = `成功从 ${platform} 报表导入 ${insertedCount} 笔新交易，已自动去重合并 ${skippedCount} 笔已有记录！`;
       } else if (insertedCount > 0) {
         msg = `成功从 ${platform} 报表解析并导入 ${insertedCount} 笔交易！`;
+      } else if (enrichedCount > 0) {
+        msg = `报表中的交易此前已记录，已智能融合补全 ${enrichedCount} 笔订单的止损止盈及精确平仓数据！`;
       } else {
         msg = `报表中的全部交易此前均已导入，已自动跳过 ${skippedCount} 笔重复记录。`;
       }
@@ -266,12 +269,15 @@ export class TradeController {
       const newTrades = await TradeService.createBulkTrades(tradesToCreate);
       const skippedCount = newTrades.skippedCount || 0;
       const insertedCount = newTrades.length;
+      const enrichedCount = newTrades.enrichedCount || 0;
 
       let msg = '';
-      if (insertedCount > 0 && skippedCount > 0) {
-        msg = `EA 成功直推同步 ${insertedCount} 笔新交易，已自动去重 ${skippedCount} 笔已有记录！`;
+      if (insertedCount > 0 && (skippedCount > 0 || enrichedCount > 0)) {
+        msg = `EA 成功直推同步 ${insertedCount} 笔新交易，已自动去重合并 ${skippedCount} 笔已有记录！`;
       } else if (insertedCount > 0) {
         msg = `EA 成功直推同步 ${insertedCount} 笔交易！`;
+      } else if (enrichedCount > 0) {
+        msg = `同步的交易此前已记录，已智能融合补全 ${enrichedCount} 笔订单的止损止盈及精确平仓数据！`;
       } else {
         msg = `推送的全部交易此前均已同步，已自动跳过 ${skippedCount} 笔重复记录。`;
       }
@@ -534,6 +540,33 @@ export class TradeController {
         success: true,
         count: (updated || []).length,
         data: updated || [],
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * One-click intelligent duplicate detection, merge, and cleanup for user's trades
+   */
+  static async cleanupDuplicates(req, res, next) {
+    try {
+      const result = await TradeService.cleanupDuplicateTrades(req.user.id);
+      if (result.cleanedCount > 0) {
+        RealtimeService.broadcastTradeUpdate(req.user.id, {
+          action: 'cleanup_duplicates',
+          source: '智能去重清理',
+          count: result.cleanedCount,
+          mergedCount: result.mergedCount,
+          message: `成功智能合并并清理了 ${result.cleanedCount} 笔重复交易记录！`,
+        });
+      }
+      res.status(200).json({
+        success: true,
+        message: result.cleanedCount > 0
+          ? `成功智能合并并清理了 ${result.cleanedCount} 笔重复交易记录！`
+          : '未检测到重复交易记录，账单数据健康完整。',
+        data: result,
       });
     } catch (error) {
       next(error);

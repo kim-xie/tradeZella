@@ -149,4 +149,108 @@ describe('TradeService', () => {
       dbClient.release();
     }
   });
+
+  describe('Deduplication & Smart Enrichment', () => {
+    it('should prevent inserting duplicate and enrich existing trade when second sync brings SL/TP', async () => {
+      // Trade 1: Rough import or manual entry (4m duration, no SL/TP, pnl 3.72)
+      const trade1 = {
+        userId: user.id,
+        symbol: 'XAUUSD',
+        direction: 'short',
+        size: 1,
+        entryPrice: 2650.50,
+        exitPrice: 2646.78,
+        entryTime: '2026-11-20T23:56:00',
+        exitTime: '2026-11-21T00:00:00',
+        manualPnl: 3.72,
+        notes: 'Manual or rough statement'
+      };
+
+      const res1 = await TradeService.createBulkTrades([trade1]);
+      expect(res1).toHaveLength(1);
+
+      // Trade 2: EA sync (5m duration, has SL/TP, ticket, pnl 3.72)
+      const trade2 = {
+        userId: user.id,
+        ticket: '98765432',
+        symbol: 'XAUUSD',
+        direction: 'short',
+        size: 1,
+        entryPrice: 2650.50,
+        exitPrice: 2646.78,
+        entryTime: '2026-11-20T23:56:15',
+        exitTime: '2026-11-21T00:01:10',
+        stopLoss: 2660.00,
+        takeProfit: 2630.00,
+        finalTrigger: 'takeProfit',
+        manualPnl: 3.72,
+        notes: 'Ticket/ID: 98765432 | EA Auto Sync'
+      };
+
+      const res2 = await TradeService.createBulkTrades([trade2]);
+      // Should NOT insert a new row
+      expect(res2).toHaveLength(0);
+      expect(res2.skippedCount).toBe(1);
+      expect(res2.enrichedCount).toBe(1);
+
+      // Verify that database still only has 1 trade, but it has been enriched with SL/TP and Ticket!
+      const allTrades = await TradeService.getTradesByUserId(user.id);
+      expect(allTrades).toHaveLength(1);
+      const enriched = allTrades[0];
+      expect(enriched.ticket).toBe('98765432');
+      expect(Number(enriched.stop_loss)).toBe(2660.00);
+      expect(Number(enriched.take_profit)).toBe(2630.00);
+      expect(enriched.final_trigger).toBe('takeProfit');
+    });
+
+    it('should successfully cleanup existing duplicates in DB, keeping the richest record', async () => {
+      const dbClient = await pool.connect();
+      try {
+        // Manually insert two duplicates (like the user experienced)
+        // Duplicate 1: 4m, no SL/TP, no ticket
+        await dbClient.query(`
+          INSERT INTO trades (
+            userId, symbol, direction, size, entryPrice, exitPrice,
+            entry_time, exit_time, manual_pnl, notes, createdat, updatedat
+          ) VALUES (
+            $1, 'XAUUSD', 'short', 1, 2650.5, 2646.78,
+            '2026-11-20 23:56:00', '2026-11-21 00:00:00', 3.72, '手动平仓',
+            NOW(), NOW()
+          )
+        `, [user.id]);
+
+        // Duplicate 2: 5m, has SL/TP, ticket, final_trigger
+        await dbClient.query(`
+          INSERT INTO trades (
+            userId, ticket, symbol, direction, size, entryPrice, exitPrice,
+            entry_time, exit_time, stop_loss, take_profit, final_trigger, manual_pnl, notes, createdat, updatedat
+          ) VALUES (
+            $1, '98765432', 'XAUUSD', 'short', 1, 2650.5, 2646.78,
+            '2026-11-20 23:56:15', '2026-11-21 00:01:10', 2660, 2630, 'takeProfit', 3.72, 'EA Auto Sync',
+            NOW(), NOW()
+          )
+        `, [user.id]);
+      } finally {
+        dbClient.release();
+      }
+
+      // Check initially 2 trades exist
+      const beforeCleanup = await TradeService.getTradesByUserId(user.id);
+      expect(beforeCleanup).toHaveLength(2);
+
+      // Run cleanupDuplicateTrades
+      const cleanupRes = await TradeService.cleanupDuplicateTrades(user.id);
+      expect(cleanupRes.cleanedCount).toBe(1);
+      expect(cleanupRes.remainingCount).toBe(1);
+
+      // Verify only 1 trade remains, and it's the rich record with SL/TP and 3.4R
+      const afterCleanup = await TradeService.getTradesByUserId(user.id);
+      expect(afterCleanup).toHaveLength(1);
+      const remaining = afterCleanup[0];
+      expect(remaining.ticket).toBe('98765432');
+      expect(Number(remaining.stop_loss)).toBe(2660);
+      expect(Number(remaining.take_profit)).toBe(2630);
+      expect(remaining.final_trigger).toBe('takeProfit');
+    });
+  });
 });

@@ -1029,4 +1029,37 @@ describe('TradesPage', () => {
     expect(screen.getByText('全部手动平仓')).toBeInTheDocument();
     expect(screen.getByText('盈利')).toBeInTheDocument();
   });
+
+  it('renders "智能清理重复" button and triggers duplicate cleanup', async () => {
+    const today = getCurrentTradingDate();
+    const mockTrades = [
+      { id: 1, symbol: 'XAUUSD', direction: 'short', size: 1, entryprice: 2650, exitprice: 2646, entry_time: `${today}T10:00:00`, createdat: `${today}T10:00:00` },
+      { id: 2, symbol: 'XAUUSD', direction: 'short', size: 1, entryprice: 2650, exitprice: 2646, entry_time: `${today}T10:00:15`, createdat: `${today}T10:00:15` },
+    ];
+    vi.spyOn(api, 'getUserTrades').mockResolvedValue(mockTrades);
+    vi.spyOn(api, 'cleanupDuplicateTrades').mockResolvedValue({
+      success: true,
+      data: { cleanedCount: 1, mergedCount: 1, remainingCount: 1 },
+      message: '成功智能合并清理了 1 笔重复订单！',
+    } as any);
+    localStorage.setItem('token', 'test-token');
+
+    render(
+      <MemoryRouter>
+        <TradesPage />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('智能清理重复')).toBeInTheDocument();
+    });
+
+    const cleanBtn = screen.getByText('智能清理重复');
+    fireEvent.click(cleanBtn);
+
+    await waitFor(() => {
+      expect(api.cleanupDuplicateTrades).toHaveBeenCalled();
+      expect(screen.getByText(/成功智能合并清理了 1 笔重复订单！/)).toBeInTheDocument();
+    });
+  });
 });

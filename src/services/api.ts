@@ -413,6 +413,19 @@ export const clearAllTrades = async () => {
 };
 
 /**
+ * 智能检测并合并清理重复历史订单
+ */
+export const cleanupDuplicateTrades = async () => {
+  try {
+    const response = await apiClient.post('/trades/cleanup-duplicates');
+    return response.data;
+  } catch (error: any) {
+    console.error('Failed to cleanup duplicate trades:', error);
+    throw new Error(error.response?.data?.message || '智能清理重复订单失败');
+  }
+};
+
+/**
  * 获取所有已保存的回测历史记录
  */
 export const getBacktestingResults = async (): Promise<BacktestRecord[]> => {

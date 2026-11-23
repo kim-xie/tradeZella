@@ -33,8 +33,28 @@ const localNowISO = () => {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${String(d.getMilliseconds()).padStart(3, '0')}`;
 };
 
+// 解析时间为 Unix 毫秒时间戳（容错多种时区与字符串格式）
+export const parseTimeToMs = (t) => {
+  if (!t) return null;
+  if (t instanceof Date && !isNaN(t.getTime())) return t.getTime();
+  if (typeof t === 'number' && !isNaN(t)) return t;
+  const str = String(t).trim();
+  if (!str) return null;
+  const isoStr = str.includes(' ') && !str.includes('T') ? str.replace(' ', 'T') : str;
+  const parsed = new Date(isoStr);
+  if (!isNaN(parsed.getTime())) return parsed.getTime();
+  const parsedDirect = new Date(str);
+  return isNaN(parsedDirect.getTime()) ? null : parsedDirect.getTime();
+};
+
+// 标准化标的代码（移除常见券商后缀如 .m, .raw, _pro, # 等）
+export const cleanSymbol = (s) => {
+  if (!s) return '';
+  return String(s).trim().toUpperCase().replace(/[\._#].*$/, '');
+};
+
 // 提取标准化秒级时间字符串 (YYYY-MM-DDTHH:mm:ss)
-const normalizeTimeStr = (t) => {
+export const normalizeTimeStr = (t) => {
   if (!t) return '';
   if (typeof t === 'string') {
     return t.replace(' ', 'T').replace(/\.\d+.*$/, '').replace(/Z$/, '');
@@ -46,16 +66,17 @@ const normalizeTimeStr = (t) => {
 };
 
 // 提取标准化浮点数字符串
-const normalizeNumStr = (val) => {
+export const normalizeNumStr = (val) => {
   if (val === null || val === undefined || val === '') return '0.0000';
   const num = parseFloat(val);
   return isNaN(num) ? '0.0000' : num.toFixed(4);
 };
 
 // 生成单笔交易的唯一综合指纹
-const buildTradeFingerprint = (trade) => {
-  const sym = String(trade.symbol || '').trim().toUpperCase();
-  const dir = String(trade.direction || '').trim().toLowerCase();
+export const buildTradeFingerprint = (trade) => {
+  const sym = cleanSymbol(trade.symbol);
+  const rawDir = String(trade.direction || '').trim().toLowerCase();
+  const dir = (rawDir === 'short' || rawDir === 'sell' || rawDir === '1') ? 'short' : 'long';
   const ep = normalizeNumStr(trade.entryPrice ?? trade.entryprice ?? trade.ep);
   const xp = normalizeNumStr(trade.exitPrice ?? trade.exitprice ?? trade.xp);
   const sz = normalizeNumStr(trade.size ?? trade.sz);
@@ -65,7 +86,8 @@ const buildTradeFingerprint = (trade) => {
 };
 
 // 从交易对象或 notes 中提取 ticket/position_id
-const extractTradeTicket = (trade) => {
+export const extractTradeTicket = (trade) => {
+  if (!trade) return null;
   if (trade.ticket) return String(trade.ticket).trim();
   if (trade.positionId) return String(trade.positionId).trim();
   if (trade.pos_id) return String(trade.pos_id).trim();
@@ -78,6 +100,211 @@ const extractTradeTicket = (trade) => {
   if (ticketMatch) return ticketMatch[1];
 
   return null;
+};
+
+/**
+ * 智能模糊/容差订单防重判定函数
+ * 适用于不同数据源（EA直推、CSV报表导入、手动记账）平仓时间微差、秒级精度丢失或止损止盈缺失的情况
+ */
+export const areTradesFuzzyDuplicate = (tradeA, tradeB) => {
+  if (!tradeA || !tradeB) return false;
+
+  // 1. 品种必须一致 (容差后缀如 .m / .raw)
+  const symA = cleanSymbol(tradeA.symbol);
+  const symB = cleanSymbol(tradeB.symbol);
+  if (!symA || !symB || symA !== symB) return false;
+
+  // 2. 多空方向必须一致
+  const rawDirA = String(tradeA.direction || '').trim().toLowerCase();
+  const rawDirB = String(tradeB.direction || '').trim().toLowerCase();
+  const dirA = (rawDirA === 'short' || rawDirA === 'sell' || rawDirA === '1') ? 'short' : 'long';
+  const dirB = (rawDirB === 'short' || rawDirB === 'sell' || rawDirB === '1') ? 'short' : 'long';
+  if (dirA !== dirB) return false;
+
+  // 3. 手数必须一致 (容差 0.005)
+  const szA = parseFloat(tradeA.size ?? tradeA.sz);
+  const szB = parseFloat(tradeB.size ?? tradeB.sz);
+  if (!isNaN(szA) && !isNaN(szB) && Math.abs(szA - szB) > 0.005) {
+    return false;
+  }
+
+  // 4. Ticket 单号比对 (若均有单号且相同，直接确认重复)
+  const ticketA = extractTradeTicket(tradeA);
+  const ticketB = extractTradeTicket(tradeB);
+  if (ticketA && ticketB && ticketA === ticketB) {
+    return true;
+  }
+
+  // 5. 开仓入场时间比对 (容差 150 秒 / 2.5分钟)
+  const etA = parseTimeToMs(tradeA.entryTime ?? tradeA.entry_time ?? tradeA.et ?? tradeA.tradeDate ?? tradeA.trade_date);
+  const etB = parseTimeToMs(tradeB.entryTime ?? tradeB.entry_time ?? tradeB.et ?? tradeB.tradeDate ?? tradeB.trade_date);
+
+  if (etA && etB) {
+    const entryDiffSec = Math.abs(etA - etB) / 1000;
+    if (entryDiffSec > 150) {
+      return false;
+    }
+  } else if ((etA && !etB) || (!etA && etB)) {
+    if (!ticketA && !ticketB) {
+      const dA = String(tradeA.tradeDate || tradeA.trade_date || tradeA.entryTime || tradeA.entry_time || '').substring(0, 10);
+      const dB = String(tradeB.tradeDate || tradeB.trade_date || tradeB.entryTime || tradeB.entry_time || '').substring(0, 10);
+      if (dA && dB && dA !== dB) return false;
+    }
+  }
+
+  // 6. 出场平仓时间比对 (容差 210 秒 / 3.5分钟)
+  const xtA = parseTimeToMs(tradeA.exitTime ?? tradeA.exit_time ?? tradeA.xt);
+  const xtB = parseTimeToMs(tradeB.exitTime ?? tradeB.exit_time ?? tradeB.xt);
+
+  let exitMatch = false;
+  if (xtA && xtB) {
+    const exitDiffSec = Math.abs(xtA - xtB) / 1000;
+    if (exitDiffSec <= 210) {
+      exitMatch = true;
+    }
+  } else if (!xtA && !xtB) {
+    exitMatch = true;
+  }
+
+  // 7. 净盈亏比对 (容差 0.05 货币单位)
+  const pnlA = parseFloat(tradeA.manualPnl ?? tradeA.manual_pnl ?? tradeA.pnl);
+  const pnlB = parseFloat(tradeB.manualPnl ?? tradeB.manual_pnl ?? tradeB.pnl);
+  let pnlMatch = false;
+  if (!isNaN(pnlA) && !isNaN(pnlB)) {
+    pnlMatch = Math.abs(pnlA - pnlB) <= 0.05;
+  }
+
+  // 8. 价格比对 (开仓价 / 平仓价容差 0.1% 或 0.5 点)
+  const epA = parseFloat(tradeA.entryPrice ?? tradeA.entryprice ?? tradeA.ep);
+  const epB = parseFloat(tradeB.entryPrice ?? tradeB.entryprice ?? tradeB.ep);
+  let epMatch = false;
+  if (!isNaN(epA) && !isNaN(epB) && epA > 0 && epB > 0) {
+    epMatch = Math.abs(epA - epB) <= 0.5 || (Math.abs(epA - epB) / epA) <= 0.001;
+  }
+
+  const xpA = parseFloat(tradeA.exitPrice ?? tradeA.exitprice ?? tradeA.xp);
+  const xpB = parseFloat(tradeB.exitPrice ?? tradeB.exitprice ?? tradeB.xp);
+  let xpMatch = false;
+  if (!isNaN(xpA) && !isNaN(xpB) && xpA > 0 && xpB > 0) {
+    xpMatch = Math.abs(xpA - xpB) <= 0.5 || (Math.abs(xpA - xpB) / xpA) <= 0.001;
+  }
+
+  // 综合判定规则：
+  // 若净盈亏完全吻合（如同为 +$3.72），且标的、多空、手数、入场时间相近，判定为同一笔交易
+  if (pnlMatch) return true;
+
+  // 出场时间相近且开仓价或平仓价吻合
+  if (exitMatch && (epMatch || xpMatch)) return true;
+
+  // 开平仓价格均紧密吻合
+  if (epMatch && xpMatch) return true;
+
+  // 两个未平仓在手订单，开仓价格吻合
+  if (!xtA && !xtB && epMatch) return true;
+
+  return false;
+};
+
+/**
+ * 智能融合补充已存订单信息（将新数据源更完善的字段回填至已有记录）
+ */
+export const enrichExistingTrade = async (client, existingTrade, incomingTrade, userId) => {
+  if (!existingTrade || !incomingTrade) return false;
+  const updates = [];
+  const params = [];
+  let paramIdx = 1;
+
+  // 1. Ticket 单号回填
+  const inTicket = extractTradeTicket(incomingTrade);
+  if (!existingTrade.ticket && inTicket) {
+    updates.push(`ticket = $${paramIdx++}`);
+    params.push(inTicket);
+    existingTrade.ticket = inTicket;
+  }
+
+  // 2. 止损价 (SL) 智能回填
+  const inSl = parseFloat(incomingTrade.stopLoss ?? incomingTrade.stop_loss);
+  if ((existingTrade.stop_loss === null || existingTrade.stop_loss === undefined || Number(existingTrade.stop_loss) === 0) && !isNaN(inSl) && inSl > 0) {
+    updates.push(`stop_loss = $${paramIdx++}`);
+    params.push(inSl);
+    existingTrade.stop_loss = inSl;
+  }
+
+  // 3. 止盈价 (TP) 智能回填
+  const inTp = parseFloat(incomingTrade.takeProfit ?? incomingTrade.take_profit);
+  if ((existingTrade.take_profit === null || existingTrade.take_profit === undefined || Number(existingTrade.take_profit) === 0) && !isNaN(inTp) && inTp > 0) {
+    updates.push(`take_profit = $${paramIdx++}`);
+    params.push(inTp);
+    existingTrade.take_profit = inTp;
+  }
+
+  // 4. 平仓出场时间更新（若 incoming 具有更精确的秒级时间，予以更新）
+  const inExit = incomingTrade.exitTime ?? incomingTrade.exit_time;
+  if (inExit) {
+    const normInExit = normalizeTimeStr(inExit);
+    if (!existingTrade.exit_time || (normInExit.length > existingTrade.exit_time.length && !existingTrade.exit_time.endsWith(':00'))) {
+      updates.push(`exit_time = $${paramIdx++}`);
+      params.push(normInExit);
+      existingTrade.exit_time = normInExit;
+    }
+  }
+
+  // 5. 走势打到止盈/止损 (final_trigger) 回填
+  const inTrigger = incomingTrade.finalTrigger ?? incomingTrade.final_trigger;
+  if (!existingTrade.final_trigger && inTrigger) {
+    updates.push(`final_trigger = $${paramIdx++}`);
+    params.push(inTrigger);
+    existingTrade.final_trigger = inTrigger;
+  }
+
+  // 6. 净盈亏 (manual_pnl) 回填
+  const inPnl = parseFloat(incomingTrade.manualPnl ?? incomingTrade.manual_pnl);
+  if ((existingTrade.manual_pnl === null || existingTrade.manual_pnl === undefined) && !isNaN(inPnl)) {
+    updates.push(`manual_pnl = $${paramIdx++}`);
+    params.push(inPnl);
+    existingTrade.manual_pnl = inPnl;
+  }
+
+  // 7. 标签合并 (tags)
+  const inTags = incomingTrade.tags;
+  if (Array.isArray(inTags) && inTags.length > 0) {
+    const existingTags = Array.isArray(existingTrade.tags) ? existingTrade.tags : [];
+    const mergedTags = [...new Set([...existingTags, ...inTags])];
+    if (mergedTags.length > existingTags.length) {
+      updates.push(`tags = $${paramIdx++}`);
+      params.push(mergedTags);
+      existingTrade.tags = mergedTags;
+    }
+  }
+
+  // 8. 截图合并 (screenshots)
+  const inScreenshots = incomingTrade.screenshots;
+  if (Array.isArray(inScreenshots) && inScreenshots.length > 0) {
+    const existingScreenshots = Array.isArray(existingTrade.screenshots) ? existingTrade.screenshots : [];
+    const mergedScreenshots = [...new Set([...existingScreenshots, ...inScreenshots])];
+    if (mergedScreenshots.length > existingScreenshots.length) {
+      updates.push(`screenshots = $${paramIdx++}`);
+      params.push(mergedScreenshots);
+      existingTrade.screenshots = mergedScreenshots;
+    }
+  }
+
+  if (updates.length > 0) {
+    updates.push(`updatedAt = $${paramIdx++}`);
+    params.push(localNowISO());
+
+    const idParam = `$${paramIdx++}`;
+    params.push(existingTrade.id);
+    const userParam = `$${paramIdx++}`;
+    params.push(userId);
+
+    await client.query(
+      `UPDATE trades SET ${updates.join(', ')} WHERE id = ${idParam} AND userid = ${userParam}`,
+      params
+    );
+    return true;
+  }
+  return false;
 };
 
 export class TradeService {
@@ -112,6 +339,53 @@ export class TradeService {
       const leverageVal = (!leverage || leverage < 1) ? 1 : leverage;
       const extractedTicket = ticket || extractTradeTicket({ ticket, notes });
       const derivedSession = session || calculateMarketSession(entryTime || tradeDate);
+
+      // 1. 检查是否存在模糊重复的已存订单（防重并智能补全）
+      const existingCandidates = await client.query(
+        `SELECT id, ticket, symbol, direction,
+                round(entryprice::numeric, 4) AS entryprice,
+                round(coalesce(exitprice, 0)::numeric, 4) AS exitprice,
+                round(size::numeric, 4) AS size,
+                TO_CHAR(entry_time, 'YYYY-MM-DD"T"HH24:MI:SS') AS entry_time,
+                TO_CHAR(exit_time, 'YYYY-MM-DD"T"HH24:MI:SS') AS exit_time,
+                stop_loss, take_profit, manual_pnl, notes, tags, screenshots, final_trigger
+         FROM trades
+         WHERE userid = $1 AND symbol ILIKE $2
+         ORDER BY id DESC LIMIT 50`,
+        [userId, symbol]
+      );
+
+      const incomingTrade = {
+        userId,
+        ticket: extractedTicket,
+        symbol,
+        direction,
+        size,
+        entryPrice,
+        exitPrice,
+        notes,
+        tradeDate,
+        tags,
+        sentiment,
+        screenshots,
+        entryTime,
+        exitTime,
+        stopLoss,
+        takeProfit,
+        entryConditions,
+        rating,
+        manualPnl,
+        leverage: leverageVal,
+        session: derivedSession,
+        finalTrigger,
+      };
+
+      for (const row of existingCandidates.rows) {
+        if (areTradesFuzzyDuplicate(row, incomingTrade)) {
+          await enrichExistingTrade(client, row, incomingTrade, userId);
+          return row;
+        }
+      }
 
       const result = await client.query(
         `INSERT INTO trades (
@@ -310,28 +584,29 @@ export class TradeService {
   }
 
   /**
-   * 批量创建交易记录（内置全量智能防重机制）
+   * 批量创建交易记录（内置智能容差防重与新旧数据融合补全机制）
    * 1. 批次内自去重：避免同一个导入批次中有重复订单
-   * 2. 数据库比对去重：根据 userId + ticket 以及核心综合特征指纹（品种、方向、价格、手数、开平仓时间），自动剔除已存在的订单
-   * 3. 数据库唯一索引保护：ON CONFLICT (userid, ticket) WHERE ticket IS NOT NULL DO NOTHING，确保绝对幂等
+   * 2. 数据库比对去重：根据 userId + ticket 以及特征指纹、模糊时间容差比对，自动剔除已存在的订单
+   * 3. 智能融合补全：若新订单带有更完整的信息（如 SL/TP、精确平仓时间、finalTrigger），自动丰富已有订单
+   * 4. 数据库唯一索引保护：ON CONFLICT (userid, ticket) WHERE ticket IS NOT NULL DO NOTHING，确保绝对幂等
    */
   static async createBulkTrades(trades) {
     if (!trades || trades.length === 0) {
       const empty = [];
       empty.skippedCount = 0;
       empty.insertedCount = 0;
+      empty.enrichedCount = 0;
       empty.totalReceived = 0;
       return empty;
     }
 
     const client = await pool.connect();
     try {
-      // 提取目标用户 ID（批量同步通常属于同一用户）
       const userIds = [...new Set(trades.map((t) => t.userId).filter(Boolean))];
       
-      // 查询涉及用户在数据库中已有的所有订单标识和特征指纹
-      const existingTickets = new Set();
-      const existingFingerprints = new Set();
+      const existingTickets = new Map();
+      const existingFingerprints = new Map();
+      const existingBySymbol = new Map();
 
       for (const uId of userIds) {
         const existingTradesRes = await client.query(
@@ -341,7 +616,7 @@ export class TradeService {
                   round(size::numeric, 4) AS size,
                   TO_CHAR(entry_time, 'YYYY-MM-DD"T"HH24:MI:SS') AS entry_time,
                   TO_CHAR(exit_time, 'YYYY-MM-DD"T"HH24:MI:SS') AS exit_time,
-                  notes
+                  stop_loss, take_profit, manual_pnl, notes, tags, screenshots, rating, final_trigger
            FROM trades
            WHERE userid = $1`,
           [uId]
@@ -349,23 +624,28 @@ export class TradeService {
 
         for (const row of existingTradesRes.rows) {
           if (row.ticket) {
-            existingTickets.add(`${uId}:${String(row.ticket).trim()}`);
+            existingTickets.set(`${uId}:${String(row.ticket).trim()}`, row);
           }
-          // 从已有 notes 中提取 ticket 兼容旧数据
           const fromNotesTicket = extractTradeTicket(row);
           if (fromNotesTicket) {
-            existingTickets.add(`${uId}:${fromNotesTicket}`);
+            existingTickets.set(`${uId}:${fromNotesTicket}`, row);
           }
 
-          // 记录指纹
           const fp = `${uId}:${buildTradeFingerprint(row)}`;
-          existingFingerprints.add(fp);
+          existingFingerprints.set(fp, row);
+
+          const symKey = `${uId}:${cleanSymbol(row.symbol)}`;
+          if (!existingBySymbol.has(symKey)) {
+            existingBySymbol.set(symKey, []);
+          }
+          existingBySymbol.get(symKey).push(row);
         }
       }
 
       // 批次内去重与数据库已存对比
       const tradesToInsert = [];
       let skippedCount = 0;
+      let enrichedCount = 0;
 
       for (const trade of trades) {
         const uId = trade.userId;
@@ -374,24 +654,68 @@ export class TradeService {
           trade.ticket = ticket;
         }
 
-        // 1. 检查 ticket 是否已存在
+        let matchedExistingRow = null;
+
+        // 1. 检查 ticket 是否匹配已存订单
         if (ticket && existingTickets.has(`${uId}:${ticket}`)) {
+          matchedExistingRow = existingTickets.get(`${uId}:${ticket}`);
+        }
+
+        // 2. 检查精确特征指纹是否匹配已存订单
+        if (!matchedExistingRow) {
+          const fp = `${uId}:${buildTradeFingerprint(trade)}`;
+          if (existingFingerprints.has(fp)) {
+            matchedExistingRow = existingFingerprints.get(fp);
+          }
+        }
+
+        // 3. 检查模糊/容差时间特征是否匹配已存订单
+        if (!matchedExistingRow) {
+          const symKey = `${uId}:${cleanSymbol(trade.symbol)}`;
+          const candidates = existingBySymbol.get(symKey) || [];
+          for (const cand of candidates) {
+            if (areTradesFuzzyDuplicate(cand, trade)) {
+              matchedExistingRow = cand;
+              break;
+            }
+          }
+        }
+
+        // 如果匹配到已存订单：尝试融合补全止损止盈等字段，并跳过新增
+        if (matchedExistingRow) {
+          const didEnrich = await enrichExistingTrade(client, matchedExistingRow, trade, uId);
+          if (didEnrich) {
+            enrichedCount++;
+          }
           skippedCount++;
           continue;
         }
 
-        // 2. 检查交易综合特征指纹是否已存在
-        const fp = `${uId}:${buildTradeFingerprint(trade)}`;
-        if (existingFingerprints.has(fp)) {
+        // 4. 检查批次内自去重（避免单次推送包内含有重复订单）
+        let isBatchDuplicate = false;
+        for (const approved of tradesToInsert) {
+          if (approved.userId === uId && areTradesFuzzyDuplicate(approved, trade)) {
+            isBatchDuplicate = true;
+            break;
+          }
+        }
+        if (isBatchDuplicate) {
           skippedCount++;
           continue;
         }
 
-        // 未出现过的新订单，记录并准备入库
+        // 未出现过的新订单，注册并准备入库
         if (ticket) {
-          existingTickets.add(`${uId}:${ticket}`);
+          existingTickets.set(`${uId}:${ticket}`, trade);
         }
-        existingFingerprints.add(fp);
+        const newFp = `${uId}:${buildTradeFingerprint(trade)}`;
+        existingFingerprints.set(newFp, trade);
+        const newSymKey = `${uId}:${cleanSymbol(trade.symbol)}`;
+        if (!existingBySymbol.has(newSymKey)) {
+          existingBySymbol.set(newSymKey, []);
+        }
+        existingBySymbol.get(newSymKey).push(trade);
+
         tradesToInsert.push(trade);
       }
 
@@ -400,6 +724,7 @@ export class TradeService {
         const result = [];
         result.skippedCount = skippedCount;
         result.insertedCount = 0;
+        result.enrichedCount = enrichedCount;
         result.totalReceived = trades.length;
         return result;
       }
@@ -509,12 +834,126 @@ export class TradeService {
 
       allInsertedRows.skippedCount = totalSkipped;
       allInsertedRows.insertedCount = actualInsertedCount;
+      allInsertedRows.enrichedCount = enrichedCount;
       allInsertedRows.totalReceived = trades.length;
 
       return allInsertedRows;
     } catch (error) {
       console.error('Error creating bulk trades with deduplication:', error);
       throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * 智能检测并合并清理当前用户的所有历史重复订单
+   */
+  static async cleanupDuplicateTrades(userId) {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      const tradesRes = await client.query(
+        `SELECT id, ticket, symbol, direction,
+                round(entryprice::numeric, 4) AS entryprice,
+                round(coalesce(exitprice, 0)::numeric, 4) AS exitprice,
+                round(size::numeric, 4) AS size,
+                TO_CHAR(entry_time, 'YYYY-MM-DD"T"HH24:MI:SS') AS entry_time,
+                TO_CHAR(exit_time, 'YYYY-MM-DD"T"HH24:MI:SS') AS exit_time,
+                stop_loss, take_profit, manual_pnl, notes, tags, screenshots, rating, final_trigger, createdat
+         FROM trades
+         WHERE userid = $1
+         ORDER BY COALESCE(entry_time, createdat) DESC, id DESC`,
+        [userId]
+      );
+
+      const allTrades = tradesRes.rows || [];
+      if (allTrades.length <= 1) {
+        await client.query('COMMIT');
+        return { cleanedCount: 0, mergedCount: 0, remainingCount: allTrades.length };
+      }
+
+      // 按清洗后的品种分组以提高比较性能
+      const bySymbol = new Map();
+      for (const t of allTrades) {
+        const sym = cleanSymbol(t.symbol);
+        if (!bySymbol.has(sym)) bySymbol.set(sym, []);
+        bySymbol.get(sym).push(t);
+      }
+
+      const duplicateIdsToDelete = new Set();
+      let mergedCount = 0;
+
+      for (const [sym, list] of bySymbol.entries()) {
+        const visited = new Set();
+
+        for (let i = 0; i < list.length; i++) {
+          const tA = list[i];
+          if (visited.has(tA.id) || duplicateIdsToDelete.has(tA.id)) continue;
+
+          const duplicatesGroup = [tA];
+
+          for (let j = i + 1; j < list.length; j++) {
+            const tB = list[j];
+            if (visited.has(tB.id) || duplicateIdsToDelete.has(tB.id)) continue;
+
+            if (areTradesFuzzyDuplicate(tA, tB)) {
+              duplicatesGroup.push(tB);
+              visited.add(tB.id);
+            }
+          }
+
+          if (duplicatesGroup.length > 1) {
+            // 评分机制：选出字段信息最完整的一笔作为保留对象 (Keeper)
+            const scoreTrade = (t) => {
+              let score = 0;
+              if (t.ticket) score += 10;
+              if (t.stop_loss && Number(t.stop_loss) > 0) score += 10;
+              if (t.take_profit && Number(t.take_profit) > 0) score += 10;
+              if (t.final_trigger) score += 8;
+              if (t.rating && Number(t.rating) > 0) score += 5;
+              if (t.screenshots && Array.isArray(t.screenshots) && t.screenshots.length > 0) score += 5;
+              if (t.notes && t.notes.trim().length > 10) score += 4;
+              if (t.tags && Array.isArray(t.tags) && t.tags.length > 0) score += 3;
+              if (t.exit_time && t.exit_time.length >= 19 && !t.exit_time.endsWith(':00')) score += 2;
+              return score;
+            };
+
+            duplicatesGroup.sort((a, b) => scoreTrade(b) - scoreTrade(a));
+            const keeper = duplicatesGroup[0];
+            const toDelete = duplicatesGroup.slice(1);
+
+            // 将被删除订单中的有用字段融合补全至 keeper
+            for (const other of toDelete) {
+              await enrichExistingTrade(client, keeper, other, userId);
+              duplicateIdsToDelete.add(other.id);
+            }
+
+            mergedCount++;
+          }
+        }
+      }
+
+      const deletedCount = duplicateIdsToDelete.size;
+      if (deletedCount > 0) {
+        const deleteArray = Array.from(duplicateIdsToDelete);
+        await client.query(
+          `DELETE FROM trades WHERE id = ANY($1) AND userid = $2`,
+          [deleteArray, userId]
+        );
+      }
+
+      await client.query('COMMIT');
+
+      return {
+        cleanedCount: deletedCount,
+        mergedCount,
+        remainingCount: allTrades.length - deletedCount,
+      };
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
     } finally {
       client.release();
     }

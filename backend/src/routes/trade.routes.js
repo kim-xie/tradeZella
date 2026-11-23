@@ -50,6 +50,9 @@ router.delete('/all', protect, TradeController.deleteAllTrades);
 // Auto-evaluate final triggers (TP/SL) for manual trades based on candle data
 router.post('/auto-evaluate-triggers', protect, TradeController.autoEvaluateTriggers);
 
+// Intelligent deduplication, merge, and cleanup
+router.post('/cleanup-duplicates', protect, TradeController.cleanupDuplicates);
+
 router.route('/:id')
   .get(protect, TradeController.getTrade)
   .put(protect, updateTradeValidationRules(), validate, TradeController.updateTrade)

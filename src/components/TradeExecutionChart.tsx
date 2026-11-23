@@ -1380,9 +1380,9 @@ export const TradeExecutionChart: React.FC<TradeExecutionChartProps> = ({
             </div>
           </div>
 
-          {/* Bottom Controls Row: Play/Pause/Scrubber */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
-            <div className="flex items-center space-x-1.5">
+          {/* Bottom Controls Row: Play/Pause/Navigation */}
+          <div className="flex flex-wrap items-center gap-3 pt-1">
+            <div className="flex items-center space-x-1.5 flex-wrap gap-y-1.5">
               <button
                 type="button"
                 onClick={handleReset}
@@ -1499,23 +1499,6 @@ export const TradeExecutionChart: React.FC<TradeExecutionChartProps> = ({
                   </button>
                 ))}
               </div>
-            </div>
-
-            {/* Scrubber slider */}
-            <div className="flex-1 max-w-sm flex items-center space-x-2">
-              <span className="text-[10px] font-mono text-gray-400">入场前</span>
-              <input
-                type="range"
-                min={preEntryIndex}
-                max={postExitIndex}
-                value={replayIndex}
-                onChange={e => {
-                  setIsPlaying(false);
-                  setReplayIndex(parseInt(e.target.value, 10));
-                }}
-                className="w-full h-1.5 bg-gray-200 dark:bg-navy-700 rounded-lg appearance-none cursor-pointer accent-purple-600"
-              />
-              <span className="text-[10px] font-mono text-gray-400">出场后</span>
             </div>
           </div>
         </div>
