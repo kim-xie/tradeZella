@@ -286,6 +286,9 @@ void SyncOrders()
          double openPrice = closePrice;
          datetime openTime = closeTime;
          string direction = (dealType == DEAL_TYPE_BUY) ? "short" : "long";
+         double stopLoss = 0.0;
+         double takeProfit = 0.0;
+         string finalTrigger = "";
 
          if(posId > 0 && HistorySelectByPosition(posId))
          {
@@ -302,19 +305,73 @@ void SyncOrders()
                   break;
                }
             }
+
+            int posOrders = HistoryOrdersTotal();
+            for(int j = 0; j < posOrders; j++)
+            {
+               ulong ordTicket = HistoryOrderGetTicket(j);
+               if(ordTicket > 0)
+               {
+                  double ordSl = HistoryOrderGetDouble(ordTicket, ORDER_SL);
+                  double ordTp = HistoryOrderGetDouble(ordTicket, ORDER_TP);
+                  if(stopLoss <= 0.0 && ordSl > 0.0) stopLoss = ordSl;
+                  if(takeProfit <= 0.0 && ordTp > 0.0) takeProfit = ordTp;
+               }
+            }
+         }
+
+         long dealReason = HistoryDealGetInteger(ticket, DEAL_REASON);
+         if(dealReason == DEAL_REASON_SL || StringFind(comment, "[sl") >= 0)
+         {
+            finalTrigger = "stopLoss";
+         }
+         else if(dealReason == DEAL_REASON_TP || StringFind(comment, "[tp") >= 0)
+         {
+            finalTrigger = "takeProfit";
+         }
+
+         // 从出场 Deal 备注中解析可能记录的止损止盈（例如部分平台或自成交标记 [sl 2640.50] / [tp 2650.00]）
+         if(stopLoss <= 0.0)
+         {
+            int slIdx = StringFind(comment, "[sl ");
+            if(slIdx >= 0)
+            {
+               int endIdx = StringFind(comment, "]", slIdx);
+               if(endIdx > slIdx)
+               {
+                  string slStr = StringSubstr(comment, slIdx + 4, endIdx - (slIdx + 4));
+                  stopLoss = StringToDouble(slStr);
+               }
+            }
+         }
+         if(takeProfit <= 0.0)
+         {
+            int tpIdx = StringFind(comment, "[tp ");
+            if(tpIdx >= 0)
+            {
+               int endIdx = StringFind(comment, "]", tpIdx);
+               if(endIdx > tpIdx)
+               {
+                  string tpStr = StringSubstr(comment, tpIdx + 4, endIdx - (tpIdx + 4));
+                  takeProfit = StringToDouble(tpStr);
+               }
+            }
          }
 
          double netPnl = profit + commission + swap;
 
          if(batchValid > 0) jsonItems += ",";
          jsonItems += StringFormat(
-            "{\"ticket\":\"%d\",\"symbol\":\"%s\",\"direction\":\"%s\",\"size\":%.2f,\"entryPrice\":%.5f,\"exitPrice\":%.5f,\"entryTime\":\"%s\",\"exitTime\":\"%s\",\"manualPnl\":%.2f,\"profit\":%.2f,\"commission\":%.2f,\"swap\":%.2f,\"notes\":\"%s\"}",
+            "{\"ticket\":\"%I64u\",\"symbol\":\"%s\",\"direction\":\"%s\",\"size\":%.2f,\"entryPrice\":%.5f,\"exitPrice\":%.5f,\"stopLoss\":%.5f,\"takeProfit\":%.5f,\"finalTrigger\":\"%s\",\"entryTime\":\"%s\",\"exitTime\":\"%s\",\"manualPnl\":%.2f,\"profit\":%.2f,\"commission\":%.2f,\"swap\":%.2f,\"notes\":\"%s\"}",
             ticket,
             symbol,
             direction,
             volume,
             openPrice,
             closePrice,
+            stopLoss,
+            takeProfit,
+            finalTrigger,
             TimeToString(openTime, TIME_DATE | TIME_SECONDS),
             TimeToString(closeTime, TIME_DATE | TIME_SECONDS),
             netPnl,

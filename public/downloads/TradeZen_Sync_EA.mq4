@@ -214,6 +214,8 @@ void SyncOrders()
 
    string jsonItems = "";
    int validCount = 0;
+   int batchTickets[];
+   ArrayResize(batchTickets, totalHistory);
 
    for(int i = 0; i < totalHistory; i++)
    {
@@ -232,6 +234,8 @@ void SyncOrders()
       double lots = OrderLots();
       double openPrice = OrderOpenPrice();
       double closePrice = OrderClosePrice();
+      double stopLoss = OrderStopLoss();
+      double takeProfit = OrderTakeProfit();
       datetime openTime = OrderOpenTime();
       double profit = OrderProfit();
       double commission = OrderCommission();
@@ -240,15 +244,28 @@ void SyncOrders()
       string direction = (type == OP_BUY) ? "long" : "short";
       double netPnl = profit + commission + swap;
 
+      string finalTrigger = "";
+      if(StringFind(comment, "[sl]") >= 0 || (stopLoss > 0 && MathAbs(closePrice - stopLoss) <= Point * 10))
+      {
+         finalTrigger = "stopLoss";
+      }
+      else if(StringFind(comment, "[tp]") >= 0 || (takeProfit > 0 && MathAbs(closePrice - takeProfit) <= Point * 10))
+      {
+         finalTrigger = "takeProfit";
+      }
+
       if(validCount > 0) jsonItems += ",";
       jsonItems += StringFormat(
-         "{\"ticket\":\"%d\",\"symbol\":\"%s\",\"direction\":\"%s\",\"size\":%.2f,\"entryPrice\":%.5f,\"exitPrice\":%.5f,\"entryTime\":\"%s\",\"exitTime\":\"%s\",\"manualPnl\":%.2f,\"profit\":%.2f,\"commission\":%.2f,\"swap\":%.2f,\"notes\":\"%s\"}",
+         "{\"ticket\":\"%d\",\"symbol\":\"%s\",\"direction\":\"%s\",\"size\":%.2f,\"entryPrice\":%.5f,\"exitPrice\":%.5f,\"stopLoss\":%.5f,\"takeProfit\":%.5f,\"finalTrigger\":\"%s\",\"entryTime\":\"%s\",\"exitTime\":\"%s\",\"manualPnl\":%.2f,\"profit\":%.2f,\"commission\":%.2f,\"swap\":%.2f,\"notes\":\"%s\"}",
          ticket,
          symbol,
          direction,
          lots,
          openPrice,
          closePrice,
+         stopLoss,
+         takeProfit,
+         finalTrigger,
          TimeToStr(openTime, TIME_DATE | TIME_SECONDS),
          TimeToStr(closeTime, TIME_DATE | TIME_SECONDS),
          netPnl,
@@ -258,7 +275,7 @@ void SyncOrders()
          comment
       );
 
-      RecordSyncedTicket(ticket);
+      batchTickets[validCount] = ticket;
       validCount++;
    }
 
@@ -268,6 +285,10 @@ void SyncOrders()
       string resp;
       if(SendJsonRequest("/trades/sync", payload, resp))
       {
+         for(int k = 0; k < validCount; k++)
+         {
+            RecordSyncedTicket(batchTickets[k]);
+         }
          g_last_order_sync_time = now;
          PrintFormat("[TradeZen EA] 成功直推同步 %d 笔 MT4 交易订单到远程服务器!", validCount);
       }

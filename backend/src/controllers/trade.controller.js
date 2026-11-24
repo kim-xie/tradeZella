@@ -262,7 +262,7 @@ export class TradeController {
           takeProfit: parseFloat(t.takeProfit || t.tp) || null,
           notes: t.notes || (ticket ? `Ticket/ID: ${ticket} | EA Auto Sync` : 'EA Auto Sync'),
           tags: [platform, symbol],
-          finalTrigger: t.finalTrigger || null,
+          finalTrigger: (t.finalTrigger === 'takeProfit' || t.finalTrigger === 'stopLoss') ? t.finalTrigger : null,
         };
       });
 
