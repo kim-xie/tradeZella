@@ -113,10 +113,10 @@ export default function SymbolSearchSelect({
   };
 
   return (
-    <div ref={containerRef} className={`relative ${className}`}>
+    <div ref={containerRef} className={`relative ${isOpen ? 'z-50' : ''} ${className}`}>
       {/* Input bar */}
       <div 
-        className="relative flex items-center bg-white dark:bg-navy-800 border border-gray-300 dark:border-gray-600 rounded-lg focus-within:ring-2 focus-within:ring-purple-500 focus-within:border-purple-500 transition-all shadow-sm"
+        className="relative flex items-center bg-white dark:bg-[#1e222d] border border-gray-300 dark:border-[#2a2e39] rounded-lg focus-within:ring-2 focus-within:ring-purple-500 focus-within:border-purple-500 transition-all shadow-sm"
       >
         <div className="pl-3 pr-2 text-gray-400 pointer-events-none">
           <Search className="w-4 h-4" />
@@ -170,10 +170,10 @@ export default function SymbolSearchSelect({
       {/* Dropdown Menu */}
       {isOpen && (
         <div 
-          className="absolute z-50 mt-1.5 w-full bg-white dark:bg-navy-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-100"
+          className="absolute z-50 mt-1.5 min-w-[240px] w-full bg-white dark:bg-[#1e222d] border border-gray-200 dark:border-[#2a2e39] rounded-xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-100"
         >
           {/* Header count info */}
-          <div className="px-3 py-1.5 bg-gray-50 dark:bg-navy-700/60 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between text-[11px] text-gray-400">
+          <div className="px-3 py-1.5 bg-gray-50 dark:bg-[#131722] border-b border-gray-100 dark:border-[#2a2e39] flex items-center justify-between text-[11px] text-gray-400">
             <span>
               {searchQuery.trim() 
                 ? `检索结果 (${filteredSymbols.length})` 
@@ -185,7 +185,7 @@ export default function SymbolSearchSelect({
           {/* List items */}
           <ul 
             ref={listRef}
-            className="max-h-60 overflow-y-auto divide-y divide-gray-50 dark:divide-gray-800 text-xs py-1"
+            className="max-h-60 overflow-y-auto divide-y divide-gray-50 dark:divide-[#2a2e39]/60 text-xs py-1"
           >
             {filteredSymbols.length > 0 ? (
               filteredSymbols.slice(0, 100).map((sym, idx) => {
@@ -200,8 +200,8 @@ export default function SymbolSearchSelect({
                     onClick={() => handleSelect(sym)}
                     className={`px-3 py-2 cursor-pointer flex items-center justify-between transition-colors ${
                       isHighlighted 
-                        ? 'bg-purple-50 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300' 
-                        : 'text-gray-800 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-navy-700'
+                        ? 'bg-purple-50 dark:bg-[#2962ff]/20 text-purple-700 dark:text-[#2962ff]' 
+                        : 'text-gray-800 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-[#2a2e39]'
                     }`}
                   >
                     <div className="flex items-center space-x-2">

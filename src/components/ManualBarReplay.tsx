@@ -3425,7 +3425,7 @@ export default function ManualBarReplay({
         <div className="relative flex-1 h-full min-h-0 bg-white dark:bg-[#131722] overflow-hidden">
           {/* TradingView Top-Left In-Chart HUD & Quick Trade Buttons */}
           {isPrimary && (
-            <div className="absolute top-2 left-3 z-20 pointer-events-auto flex flex-col space-y-1.5 select-none">
+            <div className="absolute top-2 left-3 z-10 pointer-events-auto flex flex-col space-y-1.5 select-none">
               {/* HUD Status Line */}
               <div className="flex items-center space-x-2 text-[11px] font-mono bg-black/60 dark:bg-[#131722]/80 backdrop-blur-md px-2.5 py-1 rounded-md border border-white/10 text-gray-200">
                 <span className="font-bold text-white tracking-wide">
@@ -3742,11 +3742,11 @@ export default function ManualBarReplay({
         {/* 2.1 CENTER CHART VIEWPORT (Full Width) */}
         <div className="flex-1 flex flex-col relative overflow-hidden bg-white dark:bg-[#131722] min-w-0 h-full">
           {/* TradingView Unified Pro Chart Header (品种、指标、画图、信息、下单一体化) */}
-          <div className="bg-white/95 dark:bg-[#1e222d]/90 backdrop-blur-sm border-b border-gray-200 dark:border-[#2a2e39] px-3 py-1.5 flex flex-wrap items-center justify-between gap-2 text-xs select-none z-20 text-gray-800 dark:text-gray-200">
+          <div className="relative z-30 bg-white/95 dark:bg-[#1e222d]/90 backdrop-blur-sm border-b border-gray-200 dark:border-[#2a2e39] px-3 py-1.5 flex flex-wrap items-center justify-between gap-2 text-xs select-none text-gray-800 dark:text-gray-200">
             {/* Left: Symbol Search, Timeframe, Indicators, Reload, Info */}
             <div className="flex flex-wrap items-center gap-2">
               {/* Symbol Selector */}
-              <div className="w-36 sm:w-44">
+              <div className="w-36 sm:w-44 relative z-50">
                 <label className="sr-only">回测标的品种</label>
                 <SymbolSearchSelect
                   value={symbol}
