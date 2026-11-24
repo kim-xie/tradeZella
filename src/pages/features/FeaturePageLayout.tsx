@@ -11,7 +11,7 @@ interface FeaturePageLayoutProps {
 
 const FeaturePageLayout: React.FC<FeaturePageLayoutProps> = ({ title, description, hideHeader, fullWidth, children }) => {
   return (
-    <div className="min-h-screen bg-gray-50/50 dark:bg-[#131722] text-gray-900 dark:text-gray-100 transition-colors">
+    <div className="min-h-screen bg-gray-50/50 dark:bg-[#070a13] text-gray-900 dark:text-gray-100 transition-colors">
       {/* Sleek High-Tech Header Section */}
       {!hideHeader && title && (
         <div className="relative border-b border-gray-200/80 dark:border-white/10 bg-gradient-to-b from-white via-purple-50/20 to-gray-50 dark:from-[#0b0f19] dark:via-[#0b0f19]/80 dark:to-[#070a13] overflow-hidden">

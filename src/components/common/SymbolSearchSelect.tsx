@@ -200,8 +200,8 @@ export default function SymbolSearchSelect({
                     onClick={() => handleSelect(sym)}
                     className={`px-3 py-2 cursor-pointer flex items-center justify-between transition-colors ${
                       isHighlighted 
-                        ? 'bg-purple-50 dark:bg-[#2962ff]/20 text-purple-700 dark:text-[#2962ff]' 
-                        : 'text-gray-800 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-[#2a2e39]'
+                        ? 'bg-purple-50 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300' 
+                        : 'text-gray-800 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-[#151c2e]'
                     }`}
                   >
                     <div className="flex items-center space-x-2">
