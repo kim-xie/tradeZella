@@ -48,7 +48,11 @@ import {
   getTradeDurationMinutes,
   formatCurrency,
   formatDurationShort,
-  formatDateTime
+  formatDateTime,
+  BrokerTimezoneMode,
+  TRADING_DAY_CUTOFF_STORAGE_KEY,
+  getEffectiveBrokerTimezone,
+  getCurrentMT5CutoffLabel,
 } from '../components/calendar/calendarUtils';
 
 export type TimeRange = 'today' | 'week' | 'month' | 'year' | 'all';
@@ -196,23 +200,24 @@ export default function DashboardPage() {
     }
   }, [chartTab]);
 
-  // 监听交易日切日口径变动事件 (美盘 06:00 vs MT5 自然日 00:00)
+  // 监听交易日切日口径变动事件 (MT5 服务器交易日 vs 北京自然日 00:00)
   const [cutoffRevision, setCutoffRevision] = useState(0);
   const [cutoffMode, setCutoffMode] = useState<'trading' | 'natural'>(() => {
     try {
       if (typeof localStorage !== 'undefined') {
-        const saved = localStorage.getItem('tradezella_trading_day_cutoff');
+        const saved = localStorage.getItem(TRADING_DAY_CUTOFF_STORAGE_KEY);
         if (saved === '0') return 'natural';
       }
     } catch {}
     return 'trading';
   });
+  const [brokerTz, setBrokerTz] = useState<BrokerTimezoneMode>(() => getEffectiveBrokerTimezone());
 
   const handleCutoffChange = (mode: 'trading' | 'natural') => {
     setCutoffMode(mode);
     try {
       if (typeof localStorage !== 'undefined') {
-        localStorage.setItem('tradezella_trading_day_cutoff', mode === 'trading' ? '6' : '0');
+        localStorage.setItem(TRADING_DAY_CUTOFF_STORAGE_KEY, mode === 'trading' ? '6' : '0');
         window.dispatchEvent(new Event('tradezella_cutoff_changed'));
       }
     } catch {}
@@ -222,8 +227,9 @@ export default function DashboardPage() {
     const handler = () => {
       try {
         if (typeof localStorage !== 'undefined') {
-          const saved = localStorage.getItem('tradezella_trading_day_cutoff');
+          const saved = localStorage.getItem(TRADING_DAY_CUTOFF_STORAGE_KEY);
           setCutoffMode(saved === '0' ? 'natural' : 'trading');
+          setBrokerTz(getEffectiveBrokerTimezone());
         }
       } catch {}
       setCutoffRevision((r) => r + 1);
@@ -235,14 +241,14 @@ export default function DashboardPage() {
   // Filter trades based on selected time range (全部以交易日时间统计)
   const filteredTrades = useMemo(() => {
     if (timeRange === 'all') return trades;
-    const cutoff = cutoffMode === 'trading' ? 6 : 0;
-    const currentTradingDay = getCurrentTradingDate(cutoff);
+    const cutoffParam = cutoffMode === 'trading' ? 'mt5' : 0;
+    const currentTradingDay = getCurrentTradingDate(cutoffParam, brokerTz);
     const currentYearStr = currentTradingDay.substring(0, 4);
     const currentMonthPrefix = currentTradingDay.substring(0, 7);
-    const weekRange = getTradingWeekRange(currentTradingDay, cutoff);
+    const weekRange = getTradingWeekRange(currentTradingDay, cutoffParam, brokerTz);
 
     return trades.filter((trade) => {
-      const tradingDate = getTradeTradingDate(trade, cutoff);
+      const tradingDate = getTradeTradingDate(trade, cutoffParam, brokerTz);
       if (!tradingDate || tradingDate.length < 10) return false;
 
       if (timeRange === 'today') {
@@ -263,7 +269,7 @@ export default function DashboardPage() {
 
       return true;
     });
-  }, [trades, timeRange, cutoffRevision, cutoffMode]);
+  }, [trades, timeRange, cutoffRevision, cutoffMode, brokerTz]);
 
   // 最新实盘交易动态：严格按入场时间倒序展示 (Newest entry first)
   const recentTrades = useMemo(() => {
@@ -392,11 +398,11 @@ export default function DashboardPage() {
       ? avgWinDuration / avgLossDuration
       : (avgWinDuration > 0 ? 99.9 : 1);
 
-    // Unique trading days (TradeZella / TraderSync Session Standard)
-    const cutoff = cutoffMode === 'trading' ? 6 : 0;
+    // Unique trading days (TradeZella / MT5 Server Session Standard)
+    const cutoffParam = cutoffMode === 'trading' ? 'mt5' : 0;
     const daysMap = new Set<string>();
     filteredTrades.forEach((t) => {
-      const d = getTradeTradingDate(t, cutoff);
+      const d = getTradeTradingDate(t, cutoffParam, brokerTz);
       if (d && d.length >= 10) daysMap.add(d);
     });
     const tradingDaysCount = daysMap.size;
@@ -440,11 +446,11 @@ export default function DashboardPage() {
       winDurationsCount: winDurations.length,
       lossDurationsCount: lossDurations.length
     };
-  }, [filteredTrades]);
+  }, [filteredTrades, cutoffMode, brokerTz]);
 
   // Equity Curve trajectory points
   const equityPoints = useMemo(() => {
-    const cutoff = cutoffMode === 'trading' ? 6 : 0;
+    const cutoffParam = cutoffMode === 'trading' ? 'mt5' : 0;
     const initialBalance = 10000;
     let running = equityMode === 'balance' ? initialBalance : 0;
     const points: { date: string; value: number; pnl: number; peak: number }[] = [];
@@ -454,7 +460,7 @@ export default function DashboardPage() {
     let firstDateStr = '起点';
     if (metrics.sortedCompleted.length > 0) {
       const firstTrade = metrics.sortedCompleted[0];
-      const tDate = getTradeTradingDate(firstTrade, cutoff) || getTradeEntryTime(firstTrade);
+      const tDate = getTradeTradingDate(firstTrade, cutoffParam, brokerTz) || getTradeEntryTime(firstTrade);
       if (tDate && tDate.length >= 10) {
         firstDateStr = tDate.substring(5, 10);
       }
@@ -466,7 +472,7 @@ export default function DashboardPage() {
       const pnl = calculateTradePnL(trade);
       running += pnl;
       if (running > currentPeak) currentPeak = running;
-      const tradingDate = getTradeTradingDate(trade, cutoff);
+      const tradingDate = getTradeTradingDate(trade, cutoffParam, brokerTz);
       const dateStr = tradingDate ? tradingDate.substring(5, 10) : `#${idx + 1}`;
       points.push({
         date: dateStr,
@@ -484,11 +490,11 @@ export default function DashboardPage() {
       ];
     }
     return points;
-  }, [metrics.sortedCompleted, equityMode, cutoffMode]);
+  }, [metrics.sortedCompleted, equityMode, cutoffMode, brokerTz]);
 
   // Daily P&L bars data (TradeZella Iconic Daily Distribution & Two-Bar Breakdown)
   const dailyPnLData = useMemo(() => {
-    const cutoff = cutoffMode === 'trading' ? 6 : 0;
+    const cutoffParam = cutoffMode === 'trading' ? 'mt5' : 0;
     const map: Record<string, {
       date: string;
       pnl: number;
@@ -500,7 +506,7 @@ export default function DashboardPage() {
     }> = {};
 
     metrics.sortedCompleted.forEach((trade) => {
-      const dateStr = getTradeTradingDate(trade, cutoff) || '未知';
+      const dateStr = getTradeTradingDate(trade, cutoffParam, brokerTz) || '未知';
       if (!map[dateStr]) {
         map[dateStr] = {
           date: dateStr,
@@ -745,7 +751,7 @@ export default function DashboardPage() {
                 ))}
               </div>
 
-              {/* 全局统计口径设置开关 (美盘交易日 06:00 vs MT5 自然日 00:00) */}
+              {/* 全局统计口径设置开关 (MT5 交易日自动夏令时 vs 北京自然日 00:00) */}
               <div className="hidden sm:flex items-center p-0.5 bg-gray-100 dark:bg-[#070a13] rounded-xl border border-gray-200/80 dark:border-white/10 text-xs shrink-0">
                 <button
                   type="button"
@@ -755,10 +761,10 @@ export default function DashboardPage() {
                       ? 'bg-white dark:bg-purple-600 text-purple-700 dark:text-white font-semibold shadow-xs'
                       : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
                   }`}
-                  title="美盘交易日（默认）：以美盘结算（北京时间 06:00）作为切日点，00:00~06:00 归属前一交易日（跨夜单合并）"
+                  title="与 MT5 统计 1:1 对齐：按 MT5 服务器 00:00~23:59 归集（自动折算北京时间 夏令时 05:00 / 冬令时 06:00 切日），订单时间仍显示北京时间"
                 >
                   <Clock className="w-3.5 h-3.5" />
-                  <span>美盘交易日 (06:00)</span>
+                  <span>MT5 交易日 ({getCurrentMT5CutoffLabel(brokerTz)})</span>
                 </button>
                 <button
                   type="button"
@@ -768,9 +774,9 @@ export default function DashboardPage() {
                       ? 'bg-white dark:bg-purple-600 text-purple-700 dark:text-white font-semibold shadow-xs'
                       : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
                   }`}
-                  title="MT5 自然日：与 MT5 客户端历史记录日期完全 1:1 精确对齐，严格按 00:00~23:59 统计"
+                  title="严格按北京时间 00:00~23:59 统计（注意：MT5 晚间 18:00~23:59 平仓订单会归入北京次日）"
                 >
-                  <span>MT5 自然日 (00:00)</span>
+                  <span>北京自然日 (00:00)</span>
                 </button>
               </div>
 

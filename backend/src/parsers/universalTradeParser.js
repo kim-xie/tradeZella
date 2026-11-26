@@ -115,27 +115,31 @@ export function convertToShanghaiTime(val, sourceTimezone = 'broker') {
   const minute = parseInt(match[5], 10);
   const second = match[6] ? parseInt(match[6], 10) : 0;
 
-  let offsetHours = 0;
+  let offsetSeconds = 0;
   const tz = String(sourceTimezone || 'broker').toLowerCase().trim();
 
   if (tz === 'broker' || tz === 'mt' || tz === 'eet') {
     const inDST = isUSDST(year, month, day, hour);
-    offsetHours = inDST ? 5 : 6;
-  } else if (tz === 'utc' || tz === 'gmt' || tz === 'z') {
-    offsetHours = 8;
+    offsetSeconds = (inDST ? 5 : 6) * 3600;
+  } else if (tz === 'utc' || tz === 'gmt' || tz === 'z' || tz === 'utc+0' || tz === 'utc0') {
+    offsetSeconds = 8 * 3600;
+  } else if (tz === 'utc3' || tz === 'utc+3') {
+    offsetSeconds = 5 * 3600;
+  } else if (tz === 'utc2' || tz === 'utc+2') {
+    offsetSeconds = 6 * 3600;
   } else if (tz === 'shanghai' || tz === 'beijing' || tz === 'none' || tz === 'cst' || tz === 'utc+8' || tz === 'gmt+8') {
-    offsetHours = 0;
+    offsetSeconds = 0;
   } else if (tz === 'est' || tz === 'us_eastern' || tz === 'edt') {
     const inDST = isUSDST(year, month, day, hour);
-    offsetHours = inDST ? 12 : 13;
-  } else if (/^[+-]?\d+$/.test(tz)) {
-    offsetHours = parseInt(tz, 10);
+    offsetSeconds = (inDST ? 12 : 13) * 3600;
+  } else if (/^[+-]?\d+(?:\.\d+)?$/.test(tz)) {
+    offsetSeconds = Math.round(parseFloat(tz) * 3600);
   } else {
     const inDST = isUSDST(year, month, day, hour);
-    offsetHours = inDST ? 5 : 6;
+    offsetSeconds = (inDST ? 5 : 6) * 3600;
   }
 
-  const d = new Date(Date.UTC(year, month - 1, day, hour + offsetHours, minute, second));
+  const d = new Date(Date.UTC(year, month - 1, day, hour, minute, second + offsetSeconds));
   const pad = (n) => String(n).padStart(2, '0');
   return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}T${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`;
 }
@@ -297,12 +301,17 @@ export function extractRowsFromHTML(htmlContent) {
       continue;
     }
 
-    // Stop at MT4/MT5 non-position sections (Open Trades, Orders, Deals, Summary)
+    // Stop at MT4/MT5 non-position sections (Open Trades, Open Positions, Orders, Deals, Summary)
     if (
       rowTextLower.includes('open trades:') ||
+      rowTextLower.includes('open positions') ||
       rowTextLower.includes('未平仓交易') ||
+      rowTextLower.includes('未平仓头寸') ||
+      (rowTextLower.includes('未平仓') && cellValues.length <= 2) ||
       rowTextLower.includes('working orders:') ||
+      rowTextLower.includes('working orders') ||
       rowTextLower.includes('挂单交易') ||
+      (rowTextLower.includes('挂单') && cellValues.length <= 2) ||
       rowTextLower.includes('summary:') ||
       rowTextLower.includes('总结:') ||
       rowTextLower.includes('closed p/l:') ||
@@ -318,11 +327,11 @@ export function extractRowsFromHTML(htmlContent) {
       }
     }
 
-    // Check if this row is an MT5 Positions header (contains '持仓' or 'position' + '价位' or 'price' + '盈利' or 'profit')
+    // Check if this row is an MT5 Positions header (contains '持仓' or 'position' + '价位'/'价格'/'price')
     if (
       !mt5PositionsDone &&
       (rowTextLower.includes('持仓') || rowTextLower.includes('position')) &&
-      (rowTextLower.includes('价位') || rowTextLower.includes('price'))
+      (rowTextLower.includes('价位') || rowTextLower.includes('价格') || rowTextLower.includes('price'))
     ) {
       seenMT5Header = true;
       inClosedTradesSection = true;
@@ -348,17 +357,28 @@ export function extractRowsFromHTML(htmlContent) {
  */
 export function extractRowsFromSpreadsheetML(xmlContent) {
   const rows = [];
-  const rowRegex = /<Row[^>]*>([\s\S]*?)<\/Row>/gi;
+  const rowRegex = /<Row([^>]*)>([\s\S]*?)<\/Row>/gi;
   let rowMatch;
 
   while ((rowMatch = rowRegex.exec(xmlContent)) !== null) {
-    const rowXml = rowMatch[1];
-    const cellRegex = /<Cell[^>]*>([\s\S]*?)<\/Cell>/gi;
+    const rowXml = rowMatch[2];
+    const cellRegex = /<Cell([^>]*)>([\s\S]*?)<\/Cell>/gi;
     const cells = [];
     let cellMatch;
+    let colCursor = 0;
 
     while ((cellMatch = cellRegex.exec(rowXml)) !== null) {
-      const cellContent = cellMatch[1];
+      const cellAttrs = cellMatch[1] || '';
+      const idxMatch = cellAttrs.match(/ss:Index=["'](\d+)["']/i);
+      if (idxMatch) {
+        const targetIdx = parseInt(idxMatch[1], 10) - 1;
+        while (colCursor < targetIdx) {
+          cells.push('');
+          colCursor++;
+        }
+      }
+
+      const cellContent = cellMatch[2];
       const dataMatch = cellContent.match(/<Data[^>]*>([\s\S]*?)<\/Data>/i);
       let text = '';
       if (dataMatch) {
@@ -367,6 +387,7 @@ export function extractRowsFromSpreadsheetML(xmlContent) {
         text = cellContent.replace(/<[^>]+>/g, '');
       }
       cells.push(decodeHTMLEntities(text).trim());
+      colCursor++;
     }
 
     if (cells.length > 0 && cells.some(c => c.length > 0)) {
@@ -614,9 +635,16 @@ export function normalizeRowsToTrades(rows, detectedFormat = 'UNKNOWN', original
   const commissionIdx = lowerHeaders.findIndex(h =>
     h.includes('commission') ||
     h.includes('佣金') ||
-    h.includes('fee') ||
     h.includes('手续费') ||
     h.includes('fee paid')
+  );
+
+  const feeIdx = lowerHeaders.findIndex((h, idx) =>
+    idx !== commissionIdx && (
+      h === 'fee' ||
+      h.includes('费用') ||
+      h.includes('清算费')
+    )
   );
 
   const taxesIdx = lowerHeaders.findIndex(h =>
@@ -651,6 +679,37 @@ export function normalizeRowsToTrades(rows, detectedFormat = 'UNKNOWN', original
   for (let i = headerRowIndex + 1; i < rows.length; i++) {
     const row = rows[i];
     if (!row || row.length === 0) continue;
+
+    const nonEmptyCells = row.map(c => String(c || '').trim()).filter(Boolean);
+    const rowJoinedLower = nonEmptyCells.join(' ').toLowerCase();
+
+    // Stop if MT5/MT4 report moves from closed Positions into Orders, Deals, Open Positions, or Summary sections
+    const isSectionBoundary =
+      rowJoinedLower.includes('open trades:') ||
+      rowJoinedLower.includes('open positions') ||
+      rowJoinedLower.includes('未平仓交易') ||
+      rowJoinedLower.includes('未平仓头寸') ||
+      (rowJoinedLower.includes('未平仓') && nonEmptyCells.length <= 2) ||
+      rowJoinedLower.includes('working orders') ||
+      rowJoinedLower.includes('挂单交易') ||
+      (rowJoinedLower.includes('挂单') && nonEmptyCells.length <= 2) ||
+      (nonEmptyCells.length <= 2 && (
+        rowJoinedLower === 'orders' ||
+        rowJoinedLower === '订单' ||
+        rowJoinedLower === 'deals' ||
+        rowJoinedLower === '成交' ||
+        rowJoinedLower === 'results' ||
+        rowJoinedLower === '总结' ||
+        rowJoinedLower.startsWith('summary')
+      )) ||
+      (
+        (rowJoinedLower.includes('order') || rowJoinedLower.includes('deal') || rowJoinedLower.includes('订单') || rowJoinedLower.includes('成交')) &&
+        (rowJoinedLower.includes('state') || rowJoinedLower.includes('状态') || rowJoinedLower.includes('direction') || rowJoinedLower.includes('方向'))
+      );
+
+    if (isSectionBoundary) {
+      break;
+    }
 
     const symbolRaw = row[symbolIdx] ? String(row[symbolIdx]).trim() : '';
     const symbolLower = symbolRaw.toLowerCase();
@@ -697,11 +756,12 @@ export function normalizeRowsToTrades(rows, detectedFormat = 'UNKNOWN', original
     const rawProfit = profitIdx >= 0 ? cleanNumber(row[profitIdx]) : null;
     const swap = swapIdx >= 0 ? (cleanNumber(row[swapIdx]) || 0) : 0;
     const commission = commissionIdx >= 0 ? (cleanNumber(row[commissionIdx]) || 0) : 0;
+    const fee = feeIdx >= 0 ? (cleanNumber(row[feeIdx]) || 0) : 0;
     const taxes = taxesIdx >= 0 ? (cleanNumber(row[taxesIdx]) || 0) : 0;
 
     let manualPnl = null;
     if (rawProfit !== null) {
-      manualPnl = Math.round((rawProfit + swap + commission + taxes) * 100) / 100;
+      manualPnl = Math.round((rawProfit + swap + commission + fee + taxes) * 100) / 100;
     }
 
     const entryTime = openTimeIdx >= 0 ? convertToShanghaiTime(row[openTimeIdx], timezone) : null;

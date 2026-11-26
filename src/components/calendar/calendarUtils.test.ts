@@ -332,7 +332,7 @@ describe('calendarUtils', () => {
       expect(getTradeTradingDate({ entry_time: '2026-11-13' } as any)).toBe('2026-11-13');
     });
 
-    it('supports 00:00 natural day cutoff to 100% align with MT5 terminal history', () => {
+    it('supports 00:00 natural day cutoff and DST-aware MT5 server day alignment', () => {
       const earlyMorningTrade: Trade = {
         id: 107,
         symbol: 'XAUUSD',
@@ -340,10 +340,51 @@ describe('calendarUtils', () => {
         size: 1,
         entry_time: '2026-11-20T03:15:00',
       };
-      // In default 06:00 trading day mode, rolls back to 2026-11-19
+      // In default winter MT5 trading day mode (06:00 cutoff), rolls back to 2026-11-19
       expect(getTradeTradingDate(earlyMorningTrade)).toBe('2026-11-19');
-      // In 00:00 natural day mode (cutoff = 0), stays on 2026-11-20
+      // In 00:00 Beijing natural day mode (cutoff = 0), stays on 2026-11-20
       expect(getTradeTradingDate(earlyMorningTrade, 0)).toBe('2026-11-20');
+
+      // In summer US DST (July: EEST UTC+3 -> Beijing UTC+8 is +5h, so MT5 00:00 = Beijing 05:00)
+      const summer0530Beijing: Trade = {
+        id: 108,
+        symbol: 'XAUUSD',
+        direction: 'long',
+        size: 1,
+        exit_time: '2026-07-15T05:30:00', // MT5 server 2026-07-15 00:30:00
+      };
+      expect(getTradeTradingDate(summer0530Beijing)).toBe('2026-07-15');
+      expect(isTradeOvernightSession(summer0530Beijing)).toBe(false);
+
+      const summer0430Beijing: Trade = {
+        id: 109,
+        symbol: 'XAUUSD',
+        direction: 'long',
+        size: 1,
+        exit_time: '2026-07-15T04:30:00', // MT5 server 2026-07-14 23:30:00
+      };
+      expect(getTradeTradingDate(summer0430Beijing)).toBe('2026-07-14');
+      expect(isTradeOvernightSession(summer0430Beijing)).toBe(true);
+
+      // Nov 1 00:30 MT5 server time (still before 02:00 DST end -> Beijing 05:30) stays on Nov 1!
+      const nov1TransitionTrade: Trade = {
+        id: 110,
+        symbol: 'EURUSD',
+        direction: 'buy' as any,
+        size: 1,
+        exit_time: '2026-11-01T05:30:00',
+      };
+      expect(getTradeTradingDate(nov1TransitionTrade)).toBe('2026-11-01');
+
+      // UTC+0 broker (MT5 00:00 = Beijing 08:00)
+      const utcBrokerTrade: Trade = {
+        id: 111,
+        symbol: 'EURUSD',
+        direction: 'long',
+        size: 1,
+        exit_time: '2026-11-20T07:30:00', // UTC 2026-11-19 23:30
+      };
+      expect(getTradeTradingDate(utcBrokerTrade, 'mt5', 'utc')).toBe('2026-11-19');
     });
 
     it('calculates trading day helpers accurately', () => {

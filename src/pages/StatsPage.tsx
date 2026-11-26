@@ -19,6 +19,11 @@ import {
   getTradeTakeProfit,
   calculateTradePnL,
   isTradeMistake,
+  BrokerTimezoneMode,
+  BROKER_TIMEZONE_STORAGE_KEY,
+  TRADING_DAY_CUTOFF_STORAGE_KEY,
+  getEffectiveBrokerTimezone,
+  getCurrentMT5CutoffLabel,
 } from '../components/calendar/calendarUtils';
 import { CalendarDayDrawer } from '../components/calendar/CalendarDayDrawer';
 import { CalendarWeekModal } from '../components/calendar/CalendarWeekModal';
@@ -139,22 +144,34 @@ const StatsPage: React.FC = () => {
     fetchTrades();
   });
 
-  // 交易日切日模式：默认美盘 06:00 切日（与 MT5 服务器结算一致），支持切换 MT5 原生自然日
+  // 交易日切日模式：默认 MT5 交易日（精确对齐 MT5 服务器 00:00~23:59，自动夏令时 05:00/冬令时 06:00），支持切换北京时间自然日
   const [cutoffMode, setCutoffMode] = useState<'trading' | 'natural'>(() => {
     try {
       if (typeof localStorage !== 'undefined') {
-        const saved = localStorage.getItem('tradezella_trading_day_cutoff');
+        const saved = localStorage.getItem(TRADING_DAY_CUTOFF_STORAGE_KEY);
         if (saved === '0') return 'natural';
       }
     } catch {}
     return 'trading';
   });
 
+  const [brokerTz, setBrokerTz] = useState<BrokerTimezoneMode>(() => getEffectiveBrokerTimezone());
+
   const handleCutoffChange = (mode: 'trading' | 'natural') => {
     setCutoffMode(mode);
     try {
       if (typeof localStorage !== 'undefined') {
-        localStorage.setItem('tradezella_trading_day_cutoff', mode === 'trading' ? '6' : '0');
+        localStorage.setItem(TRADING_DAY_CUTOFF_STORAGE_KEY, mode === 'trading' ? '6' : '0');
+        window.dispatchEvent(new Event('tradezella_cutoff_changed'));
+      }
+    } catch {}
+  };
+
+  const handleBrokerTzChange = (tz: BrokerTimezoneMode) => {
+    setBrokerTz(tz);
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(BROKER_TIMEZONE_STORAGE_KEY, tz);
         window.dispatchEvent(new Event('tradezella_cutoff_changed'));
       }
     } catch {}
@@ -165,8 +182,9 @@ const StatsPage: React.FC = () => {
     const onCutoffChange = () => {
       try {
         if (typeof localStorage !== 'undefined') {
-          const saved = localStorage.getItem('tradezella_trading_day_cutoff');
+          const saved = localStorage.getItem(TRADING_DAY_CUTOFF_STORAGE_KEY);
           setCutoffMode(saved === '0' ? 'natural' : 'trading');
+          setBrokerTz(getEffectiveBrokerTimezone());
         }
       } catch {}
     };
@@ -177,15 +195,15 @@ const StatsPage: React.FC = () => {
   // Group trades by trading day: "YYYY-MM-DD"
   const tradesByDay = useMemo(() => {
     const map: Record<string, Trade[]> = {};
-    const cutoff = cutoffMode === 'trading' ? 6 : 0;
+    const cutoffParam = cutoffMode === 'trading' ? 'mt5' : 0;
     trades.forEach((trade) => {
-      const dateStr = getTradeTradingDate(trade, cutoff);
+      const dateStr = getTradeTradingDate(trade, cutoffParam, brokerTz);
       if (!dateStr || dateStr.length < 10) return;
       if (!map[dateStr]) map[dateStr] = [];
       map[dateStr].push(trade);
     });
     return map;
-  }, [trades, cutoffMode]);
+  }, [trades, cutoffMode, brokerTz]);
 
   // Calendar Days (Monday first)
   const calendarRows = useMemo<(string | null)[][]>(() => {
@@ -231,8 +249,9 @@ const StatsPage: React.FC = () => {
   };
 
   const todayStr = useMemo(() => {
-    return getCurrentTradingDate();
-  }, []);
+    const cutoffParam = cutoffMode === 'trading' ? 'mt5' : 0;
+    return getCurrentTradingDate(cutoffParam, brokerTz);
+  }, [cutoffMode, brokerTz]);
 
   const isCurrentMonthAndYear = useMemo(() => {
     const today = new Date();
@@ -299,34 +318,49 @@ const StatsPage: React.FC = () => {
               )}
             </div>
 
-            {/* Right: Cutoff Mode Switch & Next Month Arrow */}
-            <div className="flex items-center space-x-2">
-              <div className="hidden sm:flex items-center p-0.5 bg-gray-100 dark:bg-[#070a13] rounded-xl border border-gray-200/80 dark:border-white/10 text-xs">
+            {/* Right: Cutoff Mode Switch, Broker TZ & Next Month Arrow */}
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <div className="flex items-center p-0.5 bg-gray-100 dark:bg-[#070a13] rounded-xl border border-gray-200/80 dark:border-white/10 text-xs">
                 <button
                   type="button"
                   onClick={() => handleCutoffChange('trading')}
-                  className={`px-2.5 py-1.5 rounded-lg font-medium transition cursor-pointer ${
+                  className={`px-2.5 py-1.5 rounded-lg font-medium transition cursor-pointer whitespace-nowrap ${
                     cutoffMode === 'trading'
                       ? 'bg-white dark:bg-purple-600 text-purple-700 dark:text-white font-semibold shadow-xs'
                       : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
                   }`}
-                  title="美盘交易日（默认）：以美盘结算（北京时间 06:00）作为切日点，00:00~06:00 归属前一交易日（跨夜单合并）"
+                  title="与 MT5 统计 1:1 对齐：按 MT5 服务器 00:00~23:59 归集（折算北京时间：夏令时 05:00 / 冬令时 06:00 切日），界面时间显示为北京时间"
                 >
-                  美盘交易日 (06:00)
+                  MT5 交易日 ({getCurrentMT5CutoffLabel(brokerTz)})
                 </button>
                 <button
                   type="button"
                   onClick={() => handleCutoffChange('natural')}
-                  className={`px-2.5 py-1.5 rounded-lg font-medium transition cursor-pointer ${
+                  className={`px-2.5 py-1.5 rounded-lg font-medium transition cursor-pointer whitespace-nowrap ${
                     cutoffMode === 'natural'
                       ? 'bg-white dark:bg-purple-600 text-purple-700 dark:text-white font-semibold shadow-xs'
                       : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
                   }`}
-                  title="MT5 自然日：与 MT5 客户端历史记录日期完全 1:1 精确对齐，严格按 00:00~23:59 统计"
+                  title="按北京时间 00:00~23:59 自然日统计（注：MT5 晚间 18:00~23:59 订单在此模式下会归入北京次日）"
                 >
-                  MT5 自然日 (00:00)
+                  北京自然日 (00:00)
                 </button>
               </div>
+
+              {cutoffMode === 'trading' && (
+                <select
+                  aria-label="券商服务器时区"
+                  value={brokerTz}
+                  onChange={(e) => handleBrokerTzChange(e.target.value as BrokerTimezoneMode)}
+                  className="hidden md:block h-[34px] px-2 rounded-xl border border-gray-200/80 dark:border-white/10 bg-white dark:bg-[#070a13] text-[11px] font-mono text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-1 focus:ring-purple-500 cursor-pointer"
+                  title="选择 MT5 券商服务器时区，使统计日历与 MT5 完全对齐"
+                >
+                  <option value="eet">MT5: EET/EEST (自动夏05/冬06)</option>
+                  <option value="utc">MT5: UTC+0 零时区 (08:00切日)</option>
+                  <option value="utc3">MT5: UTC+3 固定 (05:00切日)</option>
+                  <option value="utc2">MT5: UTC+2 固定 (06:00切日)</option>
+                </select>
+              )}
 
               <button
                 onClick={nextMonth}
@@ -624,6 +658,8 @@ const StatsPage: React.FC = () => {
               currentYear={currentDate.getFullYear()}
               currentMonth={currentDate.getMonth()}
               notesRevision={notesRevision}
+              cutoffMode={cutoffMode}
+              brokerTimezone={brokerTz}
               onSelectMonth={(year, month) => {
                 setCurrentDate(new Date(year, month, 1));
                 calendarCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -643,6 +679,7 @@ const StatsPage: React.FC = () => {
           onClose={() => setSelectedDay(null)}
           onOpenChart={(trade) => setChartModalTrade(trade)}
           cutoffMode={cutoffMode}
+          brokerTimezone={brokerTz}
         />
 
         {/* 4. Week Summary Modal */}

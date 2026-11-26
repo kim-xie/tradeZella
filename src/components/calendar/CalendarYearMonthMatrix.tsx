@@ -6,6 +6,7 @@ import {
   getTradeEntryTime,
   getTradeTradingDate,
   getAllDailyJournalScores,
+  BrokerTimezoneMode,
 } from './calendarUtils';
 import { Calendar, BarChart2, TrendingUp, ChevronRight, AlertTriangle } from 'lucide-react';
 
@@ -14,6 +15,8 @@ interface CalendarYearMonthMatrixProps {
   currentYear: number;
   currentMonth: number; // 0-indexed (0 = Jan, 11 = Dec)
   notesRevision?: number;
+  cutoffMode?: 'trading' | 'natural';
+  brokerTimezone?: BrokerTimezoneMode;
   onSelectMonth: (year: number, month: number) => void;
   onSelectYear: (year: number) => void;
 }
@@ -37,6 +40,8 @@ export const CalendarYearMonthMatrix: React.FC<CalendarYearMonthMatrixProps> = (
   currentYear,
   currentMonth,
   notesRevision,
+  cutoffMode,
+  brokerTimezone,
   onSelectMonth,
   onSelectYear,
 }) => {
@@ -65,8 +70,9 @@ export const CalendarYearMonthMatrix: React.FC<CalendarYearMonthMatrixProps> = (
     const dailyScores = getAllDailyJournalScores();
 
     // Collect years from actual trade data using trading day
+    const cutoffParam = cutoffMode ? (cutoffMode === 'trading' ? 'mt5' : 0) : undefined;
     trades.forEach((t) => {
-      const timeStr = getTradeTradingDate(t);
+      const timeStr = getTradeTradingDate(t, cutoffParam, brokerTimezone);
       if (!timeStr || timeStr.length < 7) return;
       const y = parseInt(timeStr.substring(0, 4), 10);
       const m = parseInt(timeStr.substring(5, 7), 10) - 1;
@@ -211,7 +217,7 @@ export const CalendarYearMonthMatrix: React.FC<CalendarYearMonthMatrixProps> = (
       h2Data: h2,
       yearlyData: years,
     };
-  }, [trades, currentYear, currentMonth, notesRevision, internalRev]);
+  }, [trades, currentYear, currentMonth, notesRevision, internalRev, cutoffMode, brokerTimezone]);
 
   return (
     <div className="space-y-6">

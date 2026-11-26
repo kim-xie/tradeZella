@@ -607,10 +607,12 @@ const CSVUploader: React.FC<CSVUploaderProps> = ({ onUploadSuccess }) => {
               onChange={(e) => setSourceTimezone(e.target.value)}
               className="px-2.5 py-1.5 bg-gray-50 dark:bg-navy-900 border border-gray-300 dark:border-gray-600 rounded-md text-xs text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-1 focus:ring-purple-500 font-medium"
             >
-              <option value="broker">券商服务器时区 (EET/EEST 智能夏令时: 冬+6h/夏+5h) - 默认推荐</option>
-              <option value="utc">UTC 零时区 (+8h 换算为上海时间)</option>
-              <option value="est">美东时间 (EST/EDT: 冬+13h/夏+12h 换算为上海时间)</option>
-              <option value="shanghai">原报表已是上海时间 (无需转换)</option>
+              <option value="broker">券商服务器时区 (EET/EEST 美式夏令时: 冬+6h/夏+5h) - 默认推荐</option>
+              <option value="utc">UTC+0 零时区 (+8h 换算为北京时间)</option>
+              <option value="utc3">UTC+3 固定时区 (+5h 换算为北京时间)</option>
+              <option value="utc2">UTC+2 固定时区 (+6h 换算为北京时间)</option>
+              <option value="est">美东时间 (EST/EDT: 冬+13h/夏+12h 换算为北京时间)</option>
+              <option value="shanghai">原报表已是北京时间 (无需转换)</option>
             </select>
           </div>
 

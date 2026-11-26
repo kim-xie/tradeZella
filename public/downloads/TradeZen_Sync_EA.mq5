@@ -27,10 +27,22 @@ enum ENUM_CANDLE_SYNC_MODE
    CANDLE_SYNC_ALL_HISTORY  = 2  // 全量历史 (同步当前品种所有可用K线)
 };
 
+//--- 券商服务器时区枚举
+enum ENUM_BROKER_TIMEZONE
+{
+   BROKER_TZ_AUTO      = 0, // 自动检测服务器时区 (推荐)
+   BROKER_TZ_EET_USDST = 1, // 标准 EET/EEST 美式夏令时 (冬UTC+2 / 夏UTC+3)
+   BROKER_TZ_UTC0      = 2, // UTC+0 零时区 (如部分外汇/加密券商)
+   BROKER_TZ_UTC3      = 3, // UTC+3 固定时区 (无夏令时)
+   BROKER_TZ_UTC2      = 4, // UTC+2 固定时区 (无夏令时)
+   BROKER_TZ_SHANGHAI  = 5  // UTC+8 北京/上海时间
+};
+
 //--- 输入参数
 input group "=== 远程服务连接设置 ==="
 input string InpServerUrl          = "http://localhost:3000/api"; // 远程服务 API 地址 (勿以斜杠结尾)
 input string InpApiToken           = "";                          // 平台专属同步密钥 (仅限本人使用！请勿转给他人，以防账单数据混淆)
+input ENUM_BROKER_TIMEZONE InpBrokerTimezone = BROKER_TZ_AUTO;    // 券商服务器时区 (用于精确换算北京时间)
 
 input group "=== 订单同步配置 ==="
 input bool   InpSyncOrders         = true;                        // 启用订单自动同步
@@ -62,6 +74,117 @@ datetime g_last_live_candle_time    = 0;
 datetime g_last_bar_time            = 0;
 bool     g_initial_candle_sync_done = false;
 ulong    g_synced_tickets[];
+
+//+------------------------------------------------------------------+
+//| 辅助函数: JSON 字符串转义                                           |
+//+------------------------------------------------------------------+
+string EscapeJsonString(const string src)
+{
+   string out = src;
+   StringReplace(out, "\\", "\\\\");
+   StringReplace(out, "\"", "\\\"");
+   StringReplace(out, "\r", " ");
+   StringReplace(out, "\n", " ");
+   StringReplace(out, "\t", " ");
+   return out;
+}
+
+//+------------------------------------------------------------------+
+//| 辅助函数: 判断是否处于美式夏令时 (EET/EEST 切换参照)                  |
+//+------------------------------------------------------------------+
+bool IsUSDST(const datetime dt)
+{
+   MqlDateTime m;
+   TimeToStruct(dt, m);
+   if(m.mon < 3 || m.mon > 11) return false;
+   if(m.mon > 3 && m.mon < 11) return true;
+
+   MqlDateTime firstDay = m;
+   firstDay.day = 1;
+   firstDay.hour = 0;
+   firstDay.min = 0;
+   firstDay.sec = 0;
+   MqlDateTime firstDayResolved;
+   TimeToStruct(StructToTime(firstDay), firstDayResolved);
+   int firstSunday = 1 + ((7 - firstDayResolved.day_of_week) % 7);
+
+   if(m.mon == 3)
+   {
+      int secondSunday = firstSunday + 7;
+      if(m.day < secondSunday) return false;
+      if(m.day > secondSunday) return true;
+      return m.hour >= 2;
+   }
+   if(m.mon == 11)
+   {
+      if(m.day < firstSunday) return true;
+      if(m.day > firstSunday) return false;
+      return m.hour < 2;
+   }
+   return false;
+}
+
+//+------------------------------------------------------------------+
+//| 辅助函数: 构建时区参数字符串用于精确换算北京时间                        |
+//+------------------------------------------------------------------+
+void ResolveBrokerTimezonePayload(string &tzOut, long &gmtOffsetSecOut)
+{
+   gmtOffsetSecOut = 0;
+   if(InpBrokerTimezone == BROKER_TZ_EET_USDST)
+   {
+      tzOut = "broker";
+      return;
+   }
+   if(InpBrokerTimezone == BROKER_TZ_UTC0)
+   {
+      tzOut = "utc";
+      gmtOffsetSecOut = 0;
+      return;
+   }
+   if(InpBrokerTimezone == BROKER_TZ_UTC3)
+   {
+      tzOut = "offset";
+      gmtOffsetSecOut = 10800;
+      return;
+   }
+   if(InpBrokerTimezone == BROKER_TZ_UTC2)
+   {
+      tzOut = "offset";
+      gmtOffsetSecOut = 7200;
+      return;
+   }
+   if(InpBrokerTimezone == BROKER_TZ_SHANGHAI)
+   {
+      tzOut = "shanghai";
+      gmtOffsetSecOut = 28800;
+      return;
+   }
+
+   // BROKER_TZ_AUTO: 使用 TimeTradeServer() - TimeGMT() 检测当前服务器偏移
+   if(MQLInfoInteger(MQL_TESTER))
+   {
+      tzOut = "broker";
+      return;
+   }
+
+   datetime srvTime = TimeTradeServer();
+   datetime gmtTime = TimeGMT();
+   long rawDiff = (long)srvTime - (long)gmtTime;
+   long roundedOffset = (long)MathRound((double)rawDiff / 1800.0) * 1800;
+
+   // 若与当前美式夏令时 EET(+2h)/EEST(+3h) 一致，采用按订单成交日期判定夏令时的 broker 模式，历史跨季订单更准确
+   long expectedEet = IsUSDST(srvTime) ? 10800 : 7200;
+   if(roundedOffset == expectedEet)
+   {
+      tzOut = "broker";
+      gmtOffsetSecOut = roundedOffset;
+   }
+   else
+   {
+      tzOut = "offset";
+      gmtOffsetSecOut = roundedOffset;
+   }
+}
 
 //+------------------------------------------------------------------+
 //| 辅助函数: 判断 Ticket 是否已同步过                                    |
@@ -239,7 +362,7 @@ void SyncOrders()
       if(ticket == 0) continue;
 
       long entryType = HistoryDealGetInteger(ticket, DEAL_ENTRY);
-      if(entryType != DEAL_ENTRY_OUT && entryType != DEAL_ENTRY_INOUT)
+      if(entryType != DEAL_ENTRY_OUT && entryType != DEAL_ENTRY_INOUT && entryType != DEAL_ENTRY_OUT_BY)
       {
          continue;
       }
@@ -278,10 +401,12 @@ void SyncOrders()
          double closePrice = HistoryDealGetDouble(ticket, DEAL_PRICE);
          double profit = HistoryDealGetDouble(ticket, DEAL_PROFIT);
          double commission = HistoryDealGetDouble(ticket, DEAL_COMMISSION);
+         double fee = HistoryDealGetDouble(ticket, DEAL_FEE);
          double swap = HistoryDealGetDouble(ticket, DEAL_SWAP);
          datetime closeTime = (datetime)HistoryDealGetInteger(ticket, DEAL_TIME);
          string comment = HistoryDealGetString(ticket, DEAL_COMMENT);
          long posId = HistoryDealGetInteger(ticket, DEAL_POSITION_ID);
+         long dealReason = HistoryDealGetInteger(ticket, DEAL_REASON);
 
          double openPrice = closePrice;
          datetime openTime = closeTime;
@@ -290,20 +415,51 @@ void SyncOrders()
          double takeProfit = 0.0;
          string finalTrigger = "";
 
+         double inVolSum = 0.0;
+         double inPriceVolSum = 0.0;
+         double outVolSum = 0.0;
+         double inCommSum = 0.0;
+         double inFeeSum = 0.0;
+         double inSwapSum = 0.0;
+         bool hasInDeal = false;
+
          if(posId > 0 && HistorySelectByPosition(posId))
          {
             int posDeals = HistoryDealsTotal();
             for(int j = 0; j < posDeals; j++)
             {
-               ulong inTicket = HistoryDealGetTicket(j);
-               if(HistoryDealGetInteger(inTicket, DEAL_ENTRY) == DEAL_ENTRY_IN)
+               ulong posDealTicket = HistoryDealGetTicket(j);
+               if(posDealTicket == 0) continue;
+               long dEntry = HistoryDealGetInteger(posDealTicket, DEAL_ENTRY);
+               double dVol = HistoryDealGetDouble(posDealTicket, DEAL_VOLUME);
+
+               if(dEntry == DEAL_ENTRY_IN)
                {
-                  openPrice = HistoryDealGetDouble(inTicket, DEAL_PRICE);
-                  openTime = (datetime)HistoryDealGetInteger(inTicket, DEAL_TIME);
-                  long inType = HistoryDealGetInteger(inTicket, DEAL_TYPE);
-                  direction = (inType == DEAL_TYPE_BUY) ? "long" : "short";
-                  break;
+                  double dPrice = HistoryDealGetDouble(posDealTicket, DEAL_PRICE);
+                  datetime dTime = (datetime)HistoryDealGetInteger(posDealTicket, DEAL_TIME);
+                  long dType = HistoryDealGetInteger(posDealTicket, DEAL_TYPE);
+
+                  if(!hasInDeal || dTime < openTime)
+                  {
+                     openTime = dTime;
+                     direction = (dType == DEAL_TYPE_BUY) ? "long" : "short";
+                     hasInDeal = true;
+                  }
+                  inVolSum += dVol;
+                  inPriceVolSum += dVol * dPrice;
+                  inCommSum += HistoryDealGetDouble(posDealTicket, DEAL_COMMISSION);
+                  inFeeSum += HistoryDealGetDouble(posDealTicket, DEAL_FEE);
+                  inSwapSum += HistoryDealGetDouble(posDealTicket, DEAL_SWAP);
                }
+               else if(dEntry == DEAL_ENTRY_OUT || dEntry == DEAL_ENTRY_INOUT || dEntry == DEAL_ENTRY_OUT_BY)
+               {
+                  outVolSum += dVol;
+               }
+            }
+
+            if(inVolSum > 0.0)
+            {
+               openPrice = inPriceVolSum / inVolSum;
             }
 
             int posOrders = HistoryOrdersTotal();
@@ -320,7 +476,6 @@ void SyncOrders()
             }
          }
 
-         long dealReason = HistoryDealGetInteger(ticket, DEAL_REASON);
          if(dealReason == DEAL_REASON_SL || StringFind(comment, "[sl") >= 0)
          {
             finalTrigger = "stopLoss";
@@ -358,13 +513,22 @@ void SyncOrders()
             }
          }
 
-         double netPnl = profit + commission + swap;
+         // 完整净盈亏：包含出场及按比例分摊的入场佣金(DEAL_COMMISSION)、额外费用(DEAL_FEE)与隔夜利息(DEAL_SWAP)
+         double denomVol = MathMax(inVolSum, outVolSum);
+         double allocRatio = (denomVol > 0.0) ? (volume / denomVol) : 1.0;
+         double totalCommAndFee = commission + fee + (inCommSum + inFeeSum) * allocRatio;
+         double totalSwap = swap + inSwapSum * allocRatio;
+         double netPnl = profit + totalCommAndFee + totalSwap;
+
+         string safeSymbol = EscapeJsonString(symbol);
+         string safeComment = EscapeJsonString(comment);
 
          if(batchValid > 0) jsonItems += ",";
          jsonItems += StringFormat(
-            "{\"ticket\":\"%I64u\",\"symbol\":\"%s\",\"direction\":\"%s\",\"size\":%.2f,\"entryPrice\":%.5f,\"exitPrice\":%.5f,\"stopLoss\":%.5f,\"takeProfit\":%.5f,\"finalTrigger\":\"%s\",\"entryTime\":\"%s\",\"exitTime\":\"%s\",\"manualPnl\":%.2f,\"profit\":%.2f,\"commission\":%.2f,\"swap\":%.2f,\"notes\":\"%s\"}",
+            "{\"ticket\":\"%I64u\",\"positionId\":\"%I64d\",\"symbol\":\"%s\",\"direction\":\"%s\",\"size\":%.4f,\"entryPrice\":%.5f,\"exitPrice\":%.5f,\"stopLoss\":%.5f,\"takeProfit\":%.5f,\"finalTrigger\":\"%s\",\"entryTime\":\"%s\",\"exitTime\":\"%s\",\"manualPnl\":%.2f,\"profit\":%.2f,\"commission\":%.2f,\"fee\":%.2f,\"swap\":%.2f,\"notes\":\"%s\"}",
             ticket,
-            symbol,
+            posId,
+            safeSymbol,
             direction,
             volume,
             openPrice,
@@ -376,9 +540,10 @@ void SyncOrders()
             TimeToString(closeTime, TIME_DATE | TIME_SECONDS),
             netPnl,
             profit,
-            commission,
-            swap,
-            comment
+            totalCommAndFee,
+            fee + inFeeSum * allocRatio,
+            totalSwap,
+            safeComment
          );
 
          batchValid++;
@@ -386,7 +551,15 @@ void SyncOrders()
 
       if(batchValid > 0)
       {
-         string payload = StringFormat("{\"platform\":\"MT5 EA Direct\",\"trades\":[%s]}", jsonItems);
+         string payloadTz = "broker";
+         long payloadGmtOffsetSec = 0;
+         ResolveBrokerTimezonePayload(payloadTz, payloadGmtOffsetSec);
+         string payload = StringFormat(
+            "{\"platform\":\"MT5 EA Direct\",\"timezone\":\"%s\",\"gmtOffsetSec\":%I64d,\"trades\":[%s]}",
+            payloadTz,
+            payloadGmtOffsetSec,
+            jsonItems
+         );
          string resp;
          if(SendJsonRequest("/trades/sync", payload, resp))
          {

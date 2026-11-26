@@ -340,6 +340,93 @@ describe('Universal Trade Parser', () => {
       // With default broker option: winter +6h
       const res2 = await parseUniversalTradeFile(Buffer.from(csv, 'utf8'), 'test.csv');
       expect(res2.trades[0].entryTime).toBe('2026-11-14T14:00:00');
+
+      // With utc3 / utc2 / fractional offset
+      expect(convertToShanghaiTime('2026.11.14 10:00:00', 'utc3')).toBe('2026-11-14T15:00:00');
+      expect(convertToShanghaiTime('2026.11.14 10:00:00', 'utc2')).toBe('2026-11-14T16:00:00');
+      expect(convertToShanghaiTime('2026.11.14 10:00:00', '2.5')).toBe('2026-11-14T12:30:00');
+    });
+  });
+
+  // Test 11: Stop before Orders / Deals / Open Positions and align ss:Index cells
+  describe('MT5 Section Isolation & Empty Cell Alignment', () => {
+    test('should ignore Orders, Deals, and Open Positions sections in Chinese HTML with 价格 header', async () => {
+      const html = `<!DOCTYPE html><html><body><table>
+        <tr><th colspan="13">持仓</th></tr>
+        <tr>
+          <th>时间</th><th>持仓</th><th>交易品种</th><th>类型</th><th>交易量</th><th>价格</th><th>止损</th><th>止盈</th><th>时间</th><th>价格</th><th>佣金</th><th>库存费</th><th>利润</th>
+        </tr>
+        <tr>
+          <td>2026.11.14 10:00:00</td><td>5001</td><td>XAUUSD</td><td>buy</td><td>0.50</td><td>2650.00</td><td>2640.00</td><td>2670.00</td><td>2026.11.14 11:00:00</td><td>2660.00</td><td>-3.50</td><td>0.00</td><td>500.00</td>
+        </tr>
+        <tr><th colspan="13">订单</th></tr>
+        <tr>
+          <td>2026.11.14 10:00:00</td><td>7001</td><td>XAUUSD</td><td>buy</td><td>0.50 / 0.50</td><td>2650.00</td><td>2640.00</td><td>2670.00</td><td>2026.11.14 10:00:01</td><td>filled</td><td></td><td></td><td></td>
+        </tr>
+        <tr><th colspan="13">成交</th></tr>
+        <tr>
+          <td>2026.11.14 11:00:00</td><td>8001</td><td>XAUUSD</td><td>sell</td><td>0.50</td><td>2660.00</td><td>0.00</td><td>0.00</td><td>2026.11.14 11:00:00</td><td>2660.00</td><td>-3.50</td><td>0.00</td><td>500.00</td>
+        </tr>
+      </table></body></html>`;
+
+      const res = await parseUniversalTradeFile(Buffer.from(html, 'utf8'), 'MT5_CN.html');
+      expect(res.trades).toHaveLength(1);
+      expect(res.trades[0].ticket).toBe('5001');
+      expect(res.trades[0].manualPnl).toBe(496.5);
+    });
+
+    test('should handle ss:Index skipped cells and stop before Orders/Deals in MT5 XML', async () => {
+      const xml = `<?xml version="1.0"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+ <Worksheet ss:Name="Sheet1"><Table>
+  <Row>
+   <Cell><Data ss:Type="String">Time</Data></Cell>
+   <Cell><Data ss:Type="String">Position</Data></Cell>
+   <Cell><Data ss:Type="String">Symbol</Data></Cell>
+   <Cell><Data ss:Type="String">Type</Data></Cell>
+   <Cell><Data ss:Type="String">Volume</Data></Cell>
+   <Cell><Data ss:Type="String">Price</Data></Cell>
+   <Cell><Data ss:Type="String">S / L</Data></Cell>
+   <Cell><Data ss:Type="String">T / P</Data></Cell>
+   <Cell><Data ss:Type="String">Time</Data></Cell>
+   <Cell><Data ss:Type="String">Price</Data></Cell>
+   <Cell><Data ss:Type="String">Commission</Data></Cell>
+   <Cell><Data ss:Type="String">Fee</Data></Cell>
+   <Cell><Data ss:Type="String">Swap</Data></Cell>
+   <Cell><Data ss:Type="String">Profit</Data></Cell>
+  </Row>
+  <Row>
+   <Cell><Data ss:Type="String">2026.11.14 10:00:00</Data></Cell>
+   <Cell><Data ss:Type="Number">6001</Data></Cell>
+   <Cell><Data ss:Type="String">EURUSD</Data></Cell>
+   <Cell><Data ss:Type="String">buy</Data></Cell>
+   <Cell><Data ss:Type="Number">1.00</Data></Cell>
+   <Cell><Data ss:Type="Number">1.0800</Data></Cell>
+   <Cell ss:Index="9"><Data ss:Type="String">2026.11.14 12:00:00</Data></Cell>
+   <Cell><Data ss:Type="Number">1.0850</Data></Cell>
+   <Cell><Data ss:Type="Number">-5.00</Data></Cell>
+   <Cell><Data ss:Type="Number">-1.00</Data></Cell>
+   <Cell><Data ss:Type="Number">-0.50</Data></Cell>
+   <Cell><Data ss:Type="Number">500.00</Data></Cell>
+  </Row>
+  <Row><Cell><Data ss:Type="String">Orders</Data></Cell></Row>
+  <Row>
+   <Cell><Data ss:Type="String">2026.11.14 10:00:00</Data></Cell>
+   <Cell><Data ss:Type="Number">9901</Data></Cell>
+   <Cell><Data ss:Type="String">EURUSD</Data></Cell>
+   <Cell><Data ss:Type="String">buy</Data></Cell>
+   <Cell><Data ss:Type="Number">1.00</Data></Cell>
+   <Cell><Data ss:Type="Number">1.0800</Data></Cell>
+  </Row>
+ </Table></Worksheet>
+</Workbook>`;
+
+      const res = await parseUniversalTradeFile(Buffer.from(xml, 'utf8'), 'Report.xml');
+      expect(res.trades).toHaveLength(1);
+      expect(res.trades[0].ticket).toBe('6001');
+      expect(res.trades[0].exitTime).toBe('2026-11-14T18:00:00');
+      expect(res.trades[0].exitPrice).toBe(1.085);
+      expect(res.trades[0].manualPnl).toBe(493.5); // 500 - 5 - 1 - 0.5
     });
   });
 });

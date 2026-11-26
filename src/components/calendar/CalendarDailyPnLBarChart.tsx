@@ -39,7 +39,7 @@ export const CalendarDailyPnLBarChart: React.FC<CalendarDailyPnLBarChartProps> =
   const [hoveredDay, setHoveredDay] = useState<DayBarData | null>(null);
 
   // Compute daily stats for every day of current month (按交易日时间统计)
-  const { days, totalPnL, greenDays, redDays, breakevenDays, winDayRate, bestDay, worstDay, maxAbsPnl, activeDaysCount, totalTradesCount, avgTradesPerDay } = useMemo(() => {
+  const { days, totalPnL, greenDays, redDays, breakevenDays, winDayRate, tradeWinRate, totalTradeWins, totalTradeLosses, bestDay, worstDay, maxAbsPnl, activeDaysCount, totalTradesCount, avgTradesPerDay } = useMemo(() => {
     const todayStr = getCurrentTradingDate();
     
     // Total days in the current month
@@ -53,6 +53,9 @@ export const CalendarDailyPnLBarChart: React.FC<CalendarDailyPnLBarChartProps> =
     let best: { dateStr: string; pnl: number } | null = null;
     let worst: { dateStr: string; pnl: number } | null = null;
     let totalTrades = 0;
+    let totalCompleted = 0;
+    let tradeWins = 0;
+    let tradeLosses = 0;
 
     for (let d = 1; d <= totalDays; d++) {
       const dateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
@@ -65,12 +68,15 @@ export const CalendarDailyPnLBarChart: React.FC<CalendarDailyPnLBarChartProps> =
       const pnl = Math.round(stats.pnl * 100) / 100;
 
       if (hasTrades) {
-        sumPnL += pnl;
+        sumPnL += stats.pnl;
         totalTrades += stats.count;
-        if (pnl > 0) {
+        totalCompleted += stats.completedCount;
+        tradeWins += stats.wins;
+        tradeLosses += stats.losses;
+        if (stats.pnl > 0.001) {
           greenCount++;
           if (!best || pnl > best.pnl) best = { dateStr, pnl };
-        } else if (pnl < 0) {
+        } else if (stats.pnl < -0.001) {
           redCount++;
           if (!worst || pnl < worst.pnl) worst = { dateStr, pnl };
         } else {
@@ -98,6 +104,7 @@ export const CalendarDailyPnLBarChart: React.FC<CalendarDailyPnLBarChartProps> =
     const maxAbs = Math.max(20, ...dayList.map(item => Math.abs(item.pnl)));
     const active = greenCount + redCount + beCount;
     const dayWinPct = (greenCount + redCount) > 0 ? (greenCount / (greenCount + redCount)) * 100 : 0;
+    const orderWinPct = totalCompleted > 0 ? (tradeWins / totalCompleted) * 100 : 0;
     const avgTrades = active > 0 ? Number((totalTrades / active).toFixed(1)) : 0;
 
     return {
@@ -107,6 +114,9 @@ export const CalendarDailyPnLBarChart: React.FC<CalendarDailyPnLBarChartProps> =
       redDays: redCount,
       breakevenDays: beCount,
       winDayRate: dayWinPct,
+      tradeWinRate: orderWinPct,
+      totalTradeWins: tradeWins,
+      totalTradeLosses: tradeLosses,
       bestDay: best,
       worstDay: worst,
       maxAbsPnl: maxAbs,
@@ -128,12 +138,15 @@ export const CalendarDailyPnLBarChart: React.FC<CalendarDailyPnLBarChartProps> =
           <div className="p-1.5 rounded-lg bg-purple-100 dark:bg-purple-950/80 text-purple-600 dark:text-purple-400 border border-purple-200/80 dark:border-purple-800/40 shadow-2xs">
             <BarChart3 className="w-4 h-4" />
           </div>
-          <div className="flex items-center space-x-2">
+          <div className="flex flex-wrap items-center gap-2">
             <h3 className="text-sm font-bold text-gray-900 dark:text-white">
               月盈亏统计
             </h3>
             <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800/50">
               {currentYear}年 {currentMonth + 1}月
+            </span>
+            <span className="hidden md:inline-flex px-2 py-0.5 rounded text-[10px] font-mono text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-white/5 border border-gray-200/70 dark:border-white/10" title="界面订单时间按北京时间 (UTC+8) 展示，日历切日与统计与 MT5 对齐">
+              北京时间展示 · MT5统计对齐
             </span>
           </div>
         </div>
@@ -159,16 +172,16 @@ export const CalendarDailyPnLBarChart: React.FC<CalendarDailyPnLBarChartProps> =
               <span className="w-2 h-2 rounded-full bg-rose-500 inline-block" />
               <span className="text-rose-700 dark:text-rose-400 font-bold">{redDays}红</span>
             </div>
-            <span className="text-[10px] text-gray-400">
-              ({winDayRate.toFixed(0)}% 胜率)
+            <span className="text-[10px] text-gray-400" title="盈利交易日占盈亏交易日比例">
+              ({winDayRate.toFixed(0)}% 日胜率)
             </span>
           </div>
 
-          {/* Total Trades & Avg Trades Per Day */}
+          {/* Total Trades, Order Win Rate & Avg Trades Per Day */}
           <div 
             data-testid="trades-count-kpi"
             className="px-3 py-1.5 rounded-xl bg-white dark:bg-navy-900 border border-gray-200 dark:border-white/10 shadow-2xs flex items-center space-x-2"
-            title={activeDaysCount > 0 ? `当月交易总笔数: ${totalTradesCount} 笔，在 ${activeDaysCount} 个活跃交易日中平均每天 ${avgTradesPerDay} 笔` : '当月暂无交易'}
+            title={activeDaysCount > 0 ? `当月交易总笔数: ${totalTradesCount} 笔 (${totalTradeWins}胜/${totalTradeLosses}负, 订单胜率 ${tradeWinRate.toFixed(1)}%)，在 ${activeDaysCount} 个活跃交易日中平均每天 ${avgTradesPerDay} 笔` : '当月暂无交易'}
           >
             <div className="flex items-center space-x-1">
               <span className="text-[11px] text-gray-500 dark:text-gray-400">交易总笔数:</span>
@@ -181,6 +194,15 @@ export const CalendarDailyPnLBarChart: React.FC<CalendarDailyPnLBarChartProps> =
               <span className="font-bold text-sm text-purple-600 dark:text-purple-400">{avgTradesPerDay}</span>
               <span className="text-[10px] text-gray-400">笔</span>
             </div>
+            {totalTradesCount > 0 && (
+              <>
+                <span className="text-gray-300 dark:text-gray-600 hidden sm:inline">/</span>
+                <div className="hidden sm:flex items-center space-x-1" title="与 MT5 报告一致的订单胜率 (盈利单 / 已平仓总单数)">
+                  <span className="text-[11px] text-gray-500 dark:text-gray-400">订单胜率:</span>
+                  <span className="font-bold text-sm text-emerald-600 dark:text-emerald-400">{tradeWinRate.toFixed(1)}%</span>
+                </div>
+              </>
+            )}
           </div>
 
           {/* Best Day */}

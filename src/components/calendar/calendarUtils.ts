@@ -25,20 +25,140 @@ export const getTradeExitTime = (t: Trade): string => {
   return t.exit_time || t.exitTime || '';
 };
 
+export type BrokerTimezoneMode = 'eet' | 'utc' | 'utc3' | 'utc2' | 'shanghai';
+export const TRADING_DAY_CUTOFF_STORAGE_KEY = 'tradezella_trading_day_cutoff';
+export const BROKER_TIMEZONE_STORAGE_KEY = 'tradezella_broker_timezone';
+
 /**
- * 获取交易所属的“交易日”（Trading Day / Session Date），格式为 YYYY-MM-DD。
+ * 判断指定服务器时间 (year, month 1-12, day, hour) 是否处于美式夏令时 (US DST)
+ * 与后端 universalTradeParser.js / mt5_sync_trades.py 保持 100% 同一标准：
+ * 3月第2个周日 02:00 开始，11月第1个周日 02:00 结束
+ */
+export const isUSDST = (year: number, month: number, day: number, hour: number = 0): boolean => {
+  if (month < 3 || month > 11) return false;
+  if (month > 3 && month < 11) return true;
+
+  if (month === 3) {
+    const march1Day = new Date(Date.UTC(year, 2, 1)).getUTCDay();
+    const firstSunday = 1 + ((7 - march1Day) % 7);
+    const secondSunday = firstSunday + 7;
+    if (day < secondSunday) return false;
+    if (day > secondSunday) return true;
+    return hour >= 2;
+  }
+
+  if (month === 11) {
+    const nov1Day = new Date(Date.UTC(year, 10, 1)).getUTCDay();
+    const firstSunday = 1 + ((7 - nov1Day) % 7);
+    if (day < firstSunday) return true;
+    if (day > firstSunday) return false;
+    return hour < 2;
+  }
+
+  return false;
+};
+
+export const getEffectiveBrokerTimezone = (): BrokerTimezoneMode => {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      const saved = localStorage.getItem(BROKER_TIMEZONE_STORAGE_KEY);
+      if (saved === 'eet' || saved === 'utc' || saved === 'utc3' || saved === 'utc2' || saved === 'shanghai') {
+        return saved;
+      }
+    }
+  } catch {}
+  return 'eet';
+};
+
+/**
+ * 根据北京时间 (UTC+8) 推算当前时刻对应的 MT5 服务器切日小时点 (北京时间小时)。
+ * - 标准 EET/EEST 券商：夏令时 (UTC+3) 对应北京时间 05:00，冬令时 (UTC+2) 对应北京时间 06:00
+ * - UTC+0 券商：对应北京时间 08:00
+ * - UTC+3 固定：05:00；UTC+2 固定：06:00；UTC+8 北京自然日：00:00
+ */
+export const getEffectiveCutoffHour = (
+  year: number,
+  month: number,
+  day: number,
+  hour: number,
+  minute: number = 0,
+  second: number = 0,
+  cutoffHour?: number | 'mt5',
+  brokerTimezone?: BrokerTimezoneMode
+): number => {
+  if (typeof cutoffHour === 'number' && !isNaN(cutoffHour)) {
+    return cutoffHour;
+  }
+
+  if (cutoffHour !== 'mt5') {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        const savedCutoff = localStorage.getItem(TRADING_DAY_CUTOFF_STORAGE_KEY);
+        if (savedCutoff !== null && !isNaN(Number(savedCutoff))) {
+          const val = Number(savedCutoff);
+          if (val === 0) return 0;
+          if (val > 0 && val !== 6) return val;
+        }
+      }
+    } catch {}
+  }
+
+  const tz = brokerTimezone || getEffectiveBrokerTimezone();
+  if (tz === 'utc') return 8;
+  if (tz === 'utc3') return 5;
+  if (tz === 'utc2') return 6;
+  if (tz === 'shanghai') return 0;
+
+  // 'eet' 默认模式：精确判定该成交时间对应的 MT5 服务器是否处于美式夏令时
+  const probeUtc = new Date(Date.UTC(year, month - 1, day, hour - 5, minute, second));
+  const inDst = isUSDST(
+    probeUtc.getUTCFullYear(),
+    probeUtc.getUTCMonth() + 1,
+    probeUtc.getUTCDate(),
+    probeUtc.getUTCHours()
+  );
+  return inDst ? 5 : 6;
+};
+
+/**
+ * 获取当前切换模式下（用于界面展示）对应的切日小时标签
+ */
+export const getCurrentMT5CutoffLabel = (brokerTimezone?: BrokerTimezoneMode): string => {
+  const tz = brokerTimezone || getEffectiveBrokerTimezone();
+  if (tz === 'utc') return '08:00 (UTC+0)';
+  if (tz === 'utc3') return '05:00 (UTC+3)';
+  if (tz === 'utc2') return '06:00 (UTC+2)';
+  if (tz === 'shanghai') return '00:00 (UTC+8)';
+  const now = new Date();
+  const h = getEffectiveCutoffHour(
+    now.getFullYear(),
+    now.getMonth() + 1,
+    now.getDate(),
+    now.getHours(),
+    now.getMinutes(),
+    now.getSeconds(),
+    'mt5',
+    'eet'
+  );
+  return h === 5 ? '夏令时05:00' : '冬令时06:00';
+};
+
+/**
+ * 获取交易所属的“交易日”（Trading Day / MT5 Server Date），格式为 YYYY-MM-DD。
  *
- * 核心金融逻辑与行业标准 (TradeZella / TraderSync / MT5)：
- * 全球金融市场（外汇、美股大盘指数、黄金原油等大宗商品）美盘交易跨越北京时间零点（前一日 21:00 至次日凌晨 05:00/06:00 闭市）。
- * 国际主流交易日志平台统一以每日清算结算休市时间（美东 17:00 / 冬令时北京时间 06:00，夏令时 05:00）作为交易日切日点。
- * 1. 已平仓订单：以【平仓出场时间 exit_time】归集所属交易日（因为已实现盈亏 Realized P&L 在出场时刻结算）。
- * 2. 未平仓持仓/挂单：回退以【开仓入场时间 entry_time】归集。
- * 3. 因此，北京时间凌晨 00:00:00 ~ 05:59:59 间出场的交易，实质上属于前一天的交易日（特别是周五美盘下半夜延续至周六清晨的订单统一归属【周五交易日】，周六休市无交易）。
+ * 核心逻辑：数据库和前端均以北京时间 (UTC+8) 存储并展示成交时间，
+ * 统计日历/维度归集时将北京时间精确回算至 MT5 券商服务器 00:00~23:59 日期（自动处理夏令时 05:00 / 冬令时 06:00），
+ * 从而实现：界面显示北京时间，同时每日/每周/每月统计口径与 MT5 1:1 一致。
  *
  * @param trade 交易记录对象
- * @param cutoffHour 切日小时（默认 6，即 06:00:00 前归属前一交易日）
+ * @param cutoffHour 可选显式切日小时 (0=北京自然日, 'mt5'=强制MT5服务器日, 数字=固定小时)
+ * @param brokerTimezone 可选券商时区覆盖
  */
-export const getTradeTradingDate = (trade: Trade, cutoffHour?: number): string => {
+export const getTradeTradingDate = (
+  trade: Trade,
+  cutoffHour?: number | 'mt5',
+  brokerTimezone?: BrokerTimezoneMode
+): string => {
   const rawDate = getTradeExitTime(trade) || getTradeEntryTime(trade);
   if (!rawDate) return '';
 
@@ -51,78 +171,87 @@ export const getTradeTradingDate = (trade: Trade, cutoffHour?: number): string =
   const year = parseInt(match[1], 10);
   const month = parseInt(match[2], 10);
   const day = parseInt(match[3], 10);
-  const hour = match[4] !== undefined ? parseInt(match[4], 10) : 12;
-
-  let effectiveCutoff = 6;
-  if (typeof cutoffHour === 'number' && !isNaN(cutoffHour)) {
-    effectiveCutoff = cutoffHour;
-  } else {
-    try {
-      if (typeof localStorage !== 'undefined') {
-        const savedCutoff = localStorage.getItem('tradezella_trading_day_cutoff');
-        if (savedCutoff !== null && !isNaN(Number(savedCutoff))) {
-          const val = Number(savedCutoff);
-          if (val >= 0) effectiveCutoff = val;
-        }
-      }
-    } catch {}
-  }
+  const hasTime = match[4] !== undefined;
+  const hour = hasTime ? parseInt(match[4], 10) : 12;
+  const minute = match[5] !== undefined ? parseInt(match[5], 10) : 0;
+  const second = match[6] !== undefined ? parseInt(match[6], 10) : 0;
 
   const pad = (n: number) => String(n).padStart(2, '0');
-
-  // 若在切日点前（如 00:00 ~ 05:59），回退归入上一日交易日
-  if (hour < effectiveCutoff) {
-    const prevDate = new Date(year, month - 1, day - 1);
-    return `${prevDate.getFullYear()}-${pad(prevDate.getMonth() + 1)}-${pad(prevDate.getDate())}`;
+  if (!hasTime) {
+    return `${year}-${pad(month)}-${pad(day)}`;
   }
 
-  return `${year}-${pad(month)}-${pad(day)}`;
+  const effectiveCutoff = getEffectiveCutoffHour(
+    year,
+    month,
+    day,
+    hour,
+    minute,
+    second,
+    cutoffHour,
+    brokerTimezone
+  );
+
+  const shifted = new Date(Date.UTC(year, month - 1, day, hour - effectiveCutoff, minute, second));
+  return `${shifted.getUTCFullYear()}-${pad(shifted.getUTCMonth() + 1)}-${pad(shifted.getUTCDate())}`;
 };
 
 /**
- * 判断某笔交易是否属于跨夜美盘交易（北京时间 00:00 ~ 05:59:59）
+ * 判断某笔交易是否属于跨夜美盘/MT5 同日交易（北京时间凌晨 00:00 ~ 切日点前，归属 MT5 前一自然日）
  */
-export const isTradeOvernightSession = (trade: Trade, cutoffHour?: number): boolean => {
+export const isTradeOvernightSession = (
+  trade: Trade,
+  cutoffHour?: number | 'mt5',
+  brokerTimezone?: BrokerTimezoneMode
+): boolean => {
   const rawDate = getTradeExitTime(trade) || getTradeEntryTime(trade);
   if (!rawDate) return false;
-  const match = String(rawDate).trim().match(/[T\s](\d{1,2}):/);
+  const match = String(rawDate).trim().match(/^(\d{4})[./-](\d{1,2})[./-](\d{1,2})[T\s](\d{1,2}):(\d{1,2})(?::(\d{1,2}))?/);
   if (!match) return false;
-  const hour = parseInt(match[1], 10);
+  const year = parseInt(match[1], 10);
+  const month = parseInt(match[2], 10);
+  const day = parseInt(match[3], 10);
+  const hour = parseInt(match[4], 10);
+  const minute = parseInt(match[5], 10);
+  const second = match[6] !== undefined ? parseInt(match[6], 10) : 0;
 
-  let effectiveCutoff = 6;
-  if (typeof cutoffHour === 'number' && !isNaN(cutoffHour)) {
-    effectiveCutoff = cutoffHour;
-  } else {
-    try {
-      if (typeof localStorage !== 'undefined') {
-        const savedCutoff = localStorage.getItem('tradezella_trading_day_cutoff');
-        if (savedCutoff !== null && !isNaN(Number(savedCutoff))) {
-          const val = Number(savedCutoff);
-          if (val >= 0) effectiveCutoff = val;
-        }
-      }
-    } catch {}
-  }
-  return hour < effectiveCutoff;
+  const effectiveCutoff = getEffectiveCutoffHour(
+    year,
+    month,
+    day,
+    hour,
+    minute,
+    second,
+    cutoffHour,
+    brokerTimezone
+  );
+  return effectiveCutoff > 0 && hour < effectiveCutoff;
 };
 
 /**
  * 获取当前时刻所属的交易日（格式 YYYY-MM-DD）。
  * 例如：周六凌晨 02:00（美盘下半夜），当前交易日属于【周五】。
  */
-export const getCurrentTradingDate = (cutoffHour?: number): string => {
+export const getCurrentTradingDate = (
+  cutoffHour?: number | 'mt5',
+  brokerTimezone?: BrokerTimezoneMode
+): string => {
   const now = new Date();
   const pad = (n: number) => String(n).padStart(2, '0');
   const localNowStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
-  return getTradeTradingDate({ entry_time: localNowStr } as any, cutoffHour);
+  return getTradeTradingDate({ entry_time: localNowStr } as any, cutoffHour, brokerTimezone);
 };
 
 /**
  * 获取上一交易日（跳过周末闭市）。
  * 例如：周一的前一交易日为【周五】；周五的前一交易日为【周四】。
  */
-export const getPreviousTradingDate = (currentTradingDateStr?: string, cutoffHour?: number): string => {
-  const baseDateStr = currentTradingDateStr || getCurrentTradingDate(cutoffHour);
+export const getPreviousTradingDate = (
+  currentTradingDateStr?: string,
+  cutoffHour?: number | 'mt5',
+  brokerTimezone?: BrokerTimezoneMode
+): string => {
+  const baseDateStr = currentTradingDateStr || getCurrentTradingDate(cutoffHour, brokerTimezone);
   const parts = baseDateStr.split('-');
   const y = parseInt(parts[0], 10);
   const m = parseInt(parts[1], 10) - 1;
@@ -147,9 +276,10 @@ export const getPreviousTradingDate = (currentTradingDateStr?: string, cutoffHou
  */
 export const getTradingWeekRange = (
   referenceTradingDate?: string,
-  cutoffHour?: number
+  cutoffHour?: number | 'mt5',
+  brokerTimezone?: BrokerTimezoneMode
 ): { start: string; end: string } => {
-  const baseDateStr = referenceTradingDate || getCurrentTradingDate(cutoffHour);
+  const baseDateStr = referenceTradingDate || getCurrentTradingDate(cutoffHour, brokerTimezone);
   const parts = baseDateStr.split('-');
   const y = parseInt(parts[0], 10);
   const m = parseInt(parts[1], 10) - 1;
@@ -172,10 +302,14 @@ export const getTradingWeekRange = (
 
 /**
  * 获取订单在交易日体系下的星期几（1 = 周一, 2 = 周二 ... 5 = 周五, 6 = 周六, 0 = 周日）。
- * 周五跨夜美盘订单（周六 00:00~06:00 成交）归属为 5 (周五交易日)。
+ * 周五跨夜美盘订单（周六 00:00~切日点前 成交）归属为 5 (周五交易日)。
  */
-export const getTradeDayOfWeek = (trade: Trade, cutoffHour?: number): number => {
-  const tradingDate = getTradeTradingDate(trade, cutoffHour);
+export const getTradeDayOfWeek = (
+  trade: Trade,
+  cutoffHour?: number | 'mt5',
+  brokerTimezone?: BrokerTimezoneMode
+): number => {
+  const tradingDate = getTradeTradingDate(trade, cutoffHour, brokerTimezone);
   if (!tradingDate || tradingDate.length < 10) return -1;
   const parts = tradingDate.split('-');
   const y = parseInt(parts[0], 10);
@@ -191,9 +325,10 @@ export const getTradeDayOfWeek = (trade: Trade, cutoffHour?: number): number => 
  */
 export const getTradeMonthAndYear = (
   trade: Trade,
-  cutoffHour?: number
+  cutoffHour?: number | 'mt5',
+  brokerTimezone?: BrokerTimezoneMode
 ): { year: number; month: number } => {
-  const tradingDate = getTradeTradingDate(trade, cutoffHour);
+  const tradingDate = getTradeTradingDate(trade, cutoffHour, brokerTimezone);
   if (!tradingDate || tradingDate.length < 7) {
     const d = new Date();
     return { year: d.getFullYear(), month: d.getMonth() };

@@ -85,7 +85,7 @@ export const buildTradeFingerprint = (trade) => {
   return `${sym}|${dir}|${ep}|${xp}|${sz}|${et}|${xt}`;
 };
 
-// 从交易对象或 notes 中提取 ticket/position_id
+// 从交易对象或 notes 中提取 ticket
 export const extractTradeTicket = (trade) => {
   if (!trade) return null;
   if (trade.ticket) return String(trade.ticket).trim();
@@ -93,6 +93,9 @@ export const extractTradeTicket = (trade) => {
   if (trade.pos_id) return String(trade.pos_id).trim();
 
   const notes = trade.notes || '';
+  const dealMatch = notes.match(/Deal #([0-9]+)/);
+  if (dealMatch) return dealMatch[1];
+
   const mt5Match = notes.match(/MT5 Position #([0-9]+)/);
   if (mt5Match) return mt5Match[1];
 
@@ -102,12 +105,28 @@ export const extractTradeTicket = (trade) => {
   return null;
 };
 
+// 从交易对象或 notes 中提取 MT5 Position ID（用于区分或关联 EA Deal 与报表 Position）
+export const extractPositionId = (trade) => {
+  if (!trade) return null;
+  if (trade.positionId && String(trade.positionId).trim() !== '0') {
+    return String(trade.positionId).trim();
+  }
+  if (trade.pos_id && String(trade.pos_id).trim() !== '0') {
+    return String(trade.pos_id).trim();
+  }
+  const notes = trade.notes || '';
+  const mt5Match = notes.match(/MT5 Position #([0-9]+)/);
+  if (mt5Match) return mt5Match[1];
+  return null;
+};
+
 /**
  * 智能模糊/容差订单防重判定函数
  * 适用于不同数据源（EA直推、CSV报表导入、手动记账）平仓时间微差、秒级精度丢失或止损止盈缺失的情况
  */
-export const areTradesFuzzyDuplicate = (tradeA, tradeB) => {
+export const areTradesFuzzyDuplicate = (tradeA, tradeB, options = {}) => {
   if (!tradeA || !tradeB) return false;
+  const { strictTicket = false } = options;
 
   // 1. 品种必须一致 (容差后缀如 .m / .raw)
   const symA = cleanSymbol(tradeA.symbol);
@@ -121,18 +140,47 @@ export const areTradesFuzzyDuplicate = (tradeA, tradeB) => {
   const dirB = (rawDirB === 'short' || rawDirB === 'sell' || rawDirB === '1') ? 'short' : 'long';
   if (dirA !== dirB) return false;
 
-  // 3. 手数必须一致 (容差 0.005)
+  // 3. 手数必须一致 (容差 0.005，避免把部分平仓误判为重复)
   const szA = parseFloat(tradeA.size ?? tradeA.sz);
   const szB = parseFloat(tradeB.size ?? tradeB.sz);
   if (!isNaN(szA) && !isNaN(szB) && Math.abs(szA - szB) > 0.005) {
     return false;
   }
 
-  // 4. Ticket 单号比对 (若均有单号且相同，直接确认重复)
+  // 4. Ticket 单号与 Position ID 比对
   const ticketA = extractTradeTicket(tradeA);
   const ticketB = extractTradeTicket(tradeB);
   if (ticketA && ticketB && ticketA === ticketB) {
     return true;
+  }
+
+  const posA = extractPositionId(tradeA);
+  const posB = extractPositionId(tradeB);
+  const isDealA = Boolean((tradeA.notes || '').includes('Deal #') || (ticketA && posA && ticketA !== posA));
+  const isDealB = Boolean((tradeB.notes || '').includes('Deal #') || (ticketB && posB && ticketB !== posB));
+
+  if (posA && posB) {
+    if (posA !== posB) return false;
+    // 同一个 MT5 Position 下的两笔不同 Deal Ticket（如分批平仓），不可合并！
+    if (isDealA && isDealB && ticketA && ticketB && ticketA !== ticketB) {
+      return false;
+    }
+    // 同批次内有不同 Ticket 不可合并
+    if (strictTicket && ticketA && ticketB && ticketA !== ticketB) {
+      return false;
+    }
+    // 跨来源（一侧为 Deal 记录、一侧为 Position 报表记录）且手数一致（即完整单笔平仓），确认同一笔
+    if (isDealA !== isDealB) {
+      return true;
+    }
+  }
+
+  // 同批次内部或同源均有明确不同 Ticket 时，不进行模糊合并，防止连续拆单/加仓被误删
+  if (strictTicket && ticketA && ticketB && ticketA !== ticketB) {
+    return false;
+  }
+  if (isDealA && isDealB && ticketA && ticketB && ticketA !== ticketB) {
+    return false;
   }
 
   // 5. 开仓入场时间比对 (容差 150 秒 / 2.5分钟)
@@ -170,36 +218,39 @@ export const areTradesFuzzyDuplicate = (tradeA, tradeB) => {
   const pnlA = parseFloat(tradeA.manualPnl ?? tradeA.manual_pnl ?? tradeA.pnl);
   const pnlB = parseFloat(tradeB.manualPnl ?? tradeB.manual_pnl ?? tradeB.pnl);
   let pnlMatch = false;
+  let pnlConflict = false;
   if (!isNaN(pnlA) && !isNaN(pnlB)) {
     pnlMatch = Math.abs(pnlA - pnlB) <= 0.05;
+    // 若两笔单均有不同 Ticket 且净盈亏差异显著 (> $1 或正负相反)，通常为不同成交单
+    if (ticketA && ticketB && ticketA !== ticketB && (Math.abs(pnlA - pnlB) > 1.0 || (pnlA * pnlB < 0))) {
+      pnlConflict = true;
+    }
   }
 
-  // 8. 价格比对 (开仓价 / 平仓价容差 0.1% 或 0.5 点)
+  // 8. 价格比对（严格收紧为相对价差 <= 0.01%，防止外汇等小报价品种 <= 0.5 全部误匹配）
+  const isPriceClose = (pA, pB) => {
+    if (isNaN(pA) || isNaN(pB) || pA <= 0 || pB <= 0) return false;
+    const tol = Math.max(1e-5, Math.max(pA, pB) * 0.0001);
+    return Math.abs(pA - pB) <= tol;
+  };
+
   const epA = parseFloat(tradeA.entryPrice ?? tradeA.entryprice ?? tradeA.ep);
   const epB = parseFloat(tradeB.entryPrice ?? tradeB.entryprice ?? tradeB.ep);
-  let epMatch = false;
-  if (!isNaN(epA) && !isNaN(epB) && epA > 0 && epB > 0) {
-    epMatch = Math.abs(epA - epB) <= 0.5 || (Math.abs(epA - epB) / epA) <= 0.001;
-  }
+  const epMatch = isPriceClose(epA, epB);
 
   const xpA = parseFloat(tradeA.exitPrice ?? tradeA.exitprice ?? tradeA.xp);
   const xpB = parseFloat(tradeB.exitPrice ?? tradeB.exitprice ?? tradeB.xp);
-  let xpMatch = false;
-  if (!isNaN(xpA) && !isNaN(xpB) && xpA > 0 && xpB > 0) {
-    xpMatch = Math.abs(xpA - xpB) <= 0.5 || (Math.abs(xpA - xpB) / xpA) <= 0.001;
+  const xpMatch = isPriceClose(xpA, xpB);
+
+  // 若双方均有不同 MT5 Ticket，必须同时满足入场价与出场价精密吻合且盈亏不冲突，避免短时间拆单被误删
+  if (ticketA && ticketB && ticketA !== ticketB) {
+    if (pnlConflict) return false;
+    return exitMatch && epMatch && xpMatch;
   }
 
-  // 综合判定规则：
-  // 若净盈亏完全吻合（如同为 +$3.72），且标的、多空、手数、入场时间相近，判定为同一笔交易
-  if (pnlMatch) return true;
-
-  // 出场时间相近且开仓价或平仓价吻合
-  if (exitMatch && (epMatch || xpMatch)) return true;
-
-  // 开平仓价格均紧密吻合
-  if (epMatch && xpMatch) return true;
-
-  // 两个未平仓在手订单，开仓价格吻合
+  // 综合判定规则（主要针对无 Ticket 的手动记账 / 旧报表与 EA 同步合并）：
+  if (pnlMatch && (epMatch || xpMatch || exitMatch)) return true;
+  if (exitMatch && epMatch && xpMatch) return true;
   if (!xtA && !xtB && epMatch) return true;
 
   return false;
@@ -691,10 +742,10 @@ export class TradeService {
           continue;
         }
 
-        // 4. 检查批次内自去重（避免单次推送包内含有重复订单）
+        // 4. 检查批次内自去重（避免单次推送包内含有重复订单，同批次内不同 Ticket 视为不同成交单）
         let isBatchDuplicate = false;
         for (const approved of tradesToInsert) {
-          if (approved.userId === uId && areTradesFuzzyDuplicate(approved, trade)) {
+          if (approved.userId === uId && areTradesFuzzyDuplicate(approved, trade, { strictTicket: true })) {
             isBatchDuplicate = true;
             break;
           }

@@ -114,7 +114,7 @@ describe('DashboardPage (TradeZella & TradeSync Style)', () => {
     expect(api.getUserTrades).toHaveBeenCalled();
   });
 
-  it('allows toggling global trading day cutoff between US session 06:00 and MT5 natural day 00:00', async () => {
+  it('allows toggling global trading day cutoff between MT5 aligned trading day and Beijing natural day 00:00', async () => {
     const today = new Date().toISOString().split('T')[0];
     const mockTrades = [
       {
@@ -135,16 +135,16 @@ describe('DashboardPage (TradeZella & TradeSync Style)', () => {
     renderWithProviders(<DashboardPage />);
 
     await waitFor(() => {
-      expect(screen.getByText('美盘交易日 (06:00)')).toBeInTheDocument();
-      expect(screen.getByText('MT5 自然日 (00:00)')).toBeInTheDocument();
+      expect(screen.getByText(/MT5 交易日/)).toBeInTheDocument();
+      expect(screen.getByText('北京自然日 (00:00)')).toBeInTheDocument();
     });
 
-    const naturalBtn = screen.getByText('MT5 自然日 (00:00)');
+    const naturalBtn = screen.getByText('北京自然日 (00:00)');
     fireEvent.click(naturalBtn);
 
     expect(localStorage.getItem('tradezella_trading_day_cutoff')).toBe('0');
 
-    const tradingBtn = screen.getByText('美盘交易日 (06:00)');
+    const tradingBtn = screen.getByText(/MT5 交易日/);
     fireEvent.click(tradingBtn);
 
     expect(localStorage.getItem('tradezella_trading_day_cutoff')).toBe('6');

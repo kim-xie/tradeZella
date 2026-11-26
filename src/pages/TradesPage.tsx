@@ -1495,7 +1495,7 @@ const TradesPage: React.FC = () => {
                             {isTradeOvernightSession(trade as any) && (
                               <span
                                 className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-purple-50 dark:bg-purple-950/60 text-purple-600 dark:text-purple-300 border border-purple-200 dark:border-purple-800/60 shrink-0"
-                                title={`美盘跨夜订单，归属交易日: ${getTradeTradingDate(trade as any)}`}
+                                title={`北京时间凌晨成交，按 MT5 交易日归属: ${getTradeTradingDate(trade as any)}`}
                               >
                                 交易日 {getTradeTradingDate(trade as any).substring(5)}
                               </span>

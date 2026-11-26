@@ -28,9 +28,21 @@ enum ENUM_CANDLE_SYNC_MODE
    CANDLE_SYNC_ALL_HISTORY  = 2  // 全量历史
 };
 
+//--- 券商服务器时区枚举
+enum ENUM_BROKER_TIMEZONE
+{
+   BROKER_TZ_AUTO      = 0, // 自动检测服务器时区 (推荐)
+   BROKER_TZ_EET_USDST = 1, // 标准 EET/EEST 美式夏令时 (冬UTC+2 / 夏UTC+3)
+   BROKER_TZ_UTC0      = 2, // UTC+0 零时区
+   BROKER_TZ_UTC3      = 3, // UTC+3 固定时区
+   BROKER_TZ_UTC2      = 4, // UTC+2 固定时区
+   BROKER_TZ_SHANGHAI  = 5  // UTC+8 北京/上海时间
+};
+
 //--- 输入参数
 input string InpServerUrl          = "http://localhost:3000/api"; // 远程服务 API 地址 (勿以斜杠结尾)
 input string InpApiToken           = "";                          // 平台专属同步密钥 (仅限本人使用！请勿转给他人，以防账单数据混淆)
+input ENUM_BROKER_TIMEZONE InpBrokerTimezone = BROKER_TZ_AUTO;    // 券商服务器时区 (用于精确换算北京时间)
 input bool   InpSyncOrders         = true;                        // 启用订单自动同步
 input bool   InpLiveOrderSync      = true;                        // 开启实时增量同步 (默认开启，设为false则仅同步历史订单)
 input ENUM_ORDER_SYNC_MODE InpOrderSyncMode = ORDER_SYNC_THIS_MONTH; // 首次加载同步范围 (本周/本月/今年/全部)
@@ -58,6 +70,83 @@ datetime g_last_live_candle_time    = 0;
 datetime g_last_bar_time            = 0;
 bool     g_initial_candle_sync_done = false;
 int      g_synced_tickets[];
+
+//+------------------------------------------------------------------+
+//| 辅助函数: JSON 字符串转义                                           |
+//+------------------------------------------------------------------+
+string EscapeJsonString(string src)
+{
+   string out = src;
+   StringReplace(out, "\\", "\\\\");
+   StringReplace(out, "\"", "\\\"");
+   StringReplace(out, "\r", " ");
+   StringReplace(out, "\n", " ");
+   StringReplace(out, "\t", " ");
+   return out;
+}
+
+bool IsUSDST(datetime dt)
+{
+   MqlDateTime m;
+   TimeToStruct(dt, m);
+   if(m.mon < 3 || m.mon > 11) return false;
+   if(m.mon > 3 && m.mon < 11) return true;
+
+   MqlDateTime firstDay = m;
+   firstDay.day = 1;
+   firstDay.hour = 0;
+   firstDay.min = 0;
+   firstDay.sec = 0;
+   MqlDateTime firstDayResolved;
+   TimeToStruct(StructToTime(firstDay), firstDayResolved);
+   int firstSunday = 1 + ((7 - firstDayResolved.day_of_week) % 7);
+
+   if(m.mon == 3)
+   {
+      int secondSunday = firstSunday + 7;
+      if(m.day < secondSunday) return false;
+      if(m.day > secondSunday) return true;
+      return m.hour >= 2;
+   }
+   if(m.mon == 11)
+   {
+      if(m.day < firstSunday) return true;
+      if(m.day > firstSunday) return false;
+      return m.hour < 2;
+   }
+   return false;
+}
+
+void ResolveBrokerTimezonePayload(string &tzOut, long &gmtOffsetSecOut)
+{
+   gmtOffsetSecOut = 0;
+   if(InpBrokerTimezone == BROKER_TZ_EET_USDST) { tzOut = "broker"; return; }
+   if(InpBrokerTimezone == BROKER_TZ_UTC0)      { tzOut = "utc"; gmtOffsetSecOut = 0; return; }
+   if(InpBrokerTimezone == BROKER_TZ_UTC3)      { tzOut = "offset"; gmtOffsetSecOut = 10800; return; }
+   if(InpBrokerTimezone == BROKER_TZ_UTC2)      { tzOut = "offset"; gmtOffsetSecOut = 7200; return; }
+   if(InpBrokerTimezone == BROKER_TZ_SHANGHAI)  { tzOut = "shanghai"; gmtOffsetSecOut = 28800; return; }
+
+   if(IsTesting())
+   {
+      tzOut = "broker";
+      return;
+   }
+   datetime srvTime = TimeCurrent();
+   datetime gmtTime = TimeGMT();
+   long rawDiff = (long)srvTime - (long)gmtTime;
+   long roundedOffset = (long)MathRound((double)rawDiff / 1800.0) * 1800;
+   long expectedEet = IsUSDST(srvTime) ? 10800 : 7200;
+   if(roundedOffset == expectedEet)
+   {
+      tzOut = "broker";
+      gmtOffsetSecOut = roundedOffset;
+   }
+   else
+   {
+      tzOut = "offset";
+      gmtOffsetSecOut = roundedOffset;
+   }
+}
 
 //+------------------------------------------------------------------+
 //| 辅助函数: 判断 Ticket 是否已同步过                                    |
@@ -254,11 +343,14 @@ void SyncOrders()
          finalTrigger = "takeProfit";
       }
 
+      string safeSymbol = EscapeJsonString(symbol);
+      string safeComment = EscapeJsonString(comment);
+
       if(validCount > 0) jsonItems += ",";
       jsonItems += StringFormat(
-         "{\"ticket\":\"%d\",\"symbol\":\"%s\",\"direction\":\"%s\",\"size\":%.2f,\"entryPrice\":%.5f,\"exitPrice\":%.5f,\"stopLoss\":%.5f,\"takeProfit\":%.5f,\"finalTrigger\":\"%s\",\"entryTime\":\"%s\",\"exitTime\":\"%s\",\"manualPnl\":%.2f,\"profit\":%.2f,\"commission\":%.2f,\"swap\":%.2f,\"notes\":\"%s\"}",
+         "{\"ticket\":\"%d\",\"symbol\":\"%s\",\"direction\":\"%s\",\"size\":%.4f,\"entryPrice\":%.5f,\"exitPrice\":%.5f,\"stopLoss\":%.5f,\"takeProfit\":%.5f,\"finalTrigger\":\"%s\",\"entryTime\":\"%s\",\"exitTime\":\"%s\",\"manualPnl\":%.2f,\"profit\":%.2f,\"commission\":%.2f,\"swap\":%.2f,\"notes\":\"%s\"}",
          ticket,
-         symbol,
+         safeSymbol,
          direction,
          lots,
          openPrice,
@@ -272,7 +364,7 @@ void SyncOrders()
          profit,
          commission,
          swap,
-         comment
+         safeComment
       );
 
       batchTickets[validCount] = ticket;
@@ -281,7 +373,15 @@ void SyncOrders()
 
    if(validCount > 0)
    {
-      string payload = StringFormat("{\"platform\":\"MT4 EA Direct\",\"trades\":[%s]}", jsonItems);
+      string payloadTz = "broker";
+      long payloadGmtOffsetSec = 0;
+      ResolveBrokerTimezonePayload(payloadTz, payloadGmtOffsetSec);
+      string payload = StringFormat(
+         "{\"platform\":\"MT4 EA Direct\",\"timezone\":\"%s\",\"gmtOffsetSec\":%d,\"trades\":[%s]}",
+         payloadTz,
+         (int)payloadGmtOffsetSec,
+         jsonItems
+      );
       string resp;
       if(SendJsonRequest("/trades/sync", payload, resp))
       {

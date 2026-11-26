@@ -225,7 +225,10 @@ export class TradeController {
       }
 
       const platform = req.body.platform || 'MQL EA';
-      const timezone = req.body.timezone || 'broker';
+      const payloadTimezone = req.body.timezone || 'broker';
+      const payloadGmtOffsetSec = req.body.gmtOffsetSec !== undefined && req.body.gmtOffsetSec !== null
+        ? Number(req.body.gmtOffsetSec)
+        : null;
 
       const tradesToCreate = rawTrades.map(t => {
         const symbol = String(t.symbol || '').trim().toUpperCase();
@@ -235,20 +238,37 @@ export class TradeController {
         const exitPrice = parseFloat(t.exitPrice || t.closePrice) || entryPrice;
         const rawEntryTime = t.entryTime || t.openTime || null;
         const rawExitTime = t.exitTime || t.closeTime || rawEntryTime;
-        const entryTime = rawEntryTime ? convertToShanghaiTime(rawEntryTime, timezone) : null;
-        const exitTime = rawExitTime ? convertToShanghaiTime(rawExitTime, timezone) : (entryTime || null);
+
+        const tradeTz = t.timezone || payloadTimezone;
+        const tradeGmtOffsetSec = t.gmtOffsetSec !== undefined && t.gmtOffsetSec !== null
+          ? Number(t.gmtOffsetSec)
+          : payloadGmtOffsetSec;
+        const effectiveTz = (tradeTz === 'offset' && Number.isFinite(tradeGmtOffsetSec))
+          ? String((28800 - tradeGmtOffsetSec) / 3600)
+          : tradeTz;
+
+        const entryTime = rawEntryTime ? convertToShanghaiTime(rawEntryTime, effectiveTz) : null;
+        const exitTime = rawExitTime ? convertToShanghaiTime(rawExitTime, effectiveTz) : (entryTime || null);
         const ticket = t.ticket ? String(t.ticket).trim() : null;
+        const positionId = t.positionId ? String(t.positionId).trim() : null;
 
         const profit = parseFloat(t.profit) || 0;
         const commission = parseFloat(t.commission) || 0;
+        const fee = parseFloat(t.fee) || 0;
         const swap = parseFloat(t.swap) || 0;
         const manualPnl = t.manualPnl !== undefined && t.manualPnl !== null
           ? parseFloat(t.manualPnl)
-          : Math.round((profit + commission + swap) * 100) / 100;
+          : Math.round((profit + commission + fee + swap) * 100) / 100;
+
+        const baseNotes = t.notes ? String(t.notes).trim() : '';
+        const defaultNotes = positionId && positionId !== '0'
+          ? `MT5 Position #${positionId}${ticket ? ` | Deal #${ticket}` : ''}${baseNotes ? ` | ${baseNotes}` : ''}`
+          : (baseNotes || (ticket ? `Ticket/ID: ${ticket} | EA Auto Sync` : 'EA Auto Sync'));
 
         return {
           userId: req.user.id,
           ticket,
+          positionId,
           symbol,
           direction,
           size,
@@ -260,7 +280,7 @@ export class TradeController {
           manualPnl,
           stopLoss: parseFloat(t.stopLoss || t.sl) || null,
           takeProfit: parseFloat(t.takeProfit || t.tp) || null,
-          notes: t.notes || (ticket ? `Ticket/ID: ${ticket} | EA Auto Sync` : 'EA Auto Sync'),
+          notes: defaultNotes,
           tags: [platform, symbol],
           finalTrigger: (t.finalTrigger === 'takeProfit' || t.finalTrigger === 'stopLoss') ? t.finalTrigger : null,
         };

@@ -96,5 +96,28 @@ describe('CalendarDailyPnLBarChart', () => {
     expect(tradesKpi).toBeDefined();
     expect(tradesKpi.textContent).toContain('交易总笔数:3笔');
     expect(tradesKpi.textContent).toContain('平均每天:1.5笔');
+    expect(tradesKpi.textContent).toContain('订单胜率:66.7%');
+  });
+
+  it('sums exact trade PnLs without per-day rounding drift', () => {
+    const subCentTradesByDay: Record<string, Trade[]> = {
+      '2026-11-04': [
+        { id: 1, symbol: 'EURUSD', direction: 'long', size: 1, entryprice: 1.08, exitprice: 1.09, entry_time: '2026-11-04T10:00:00', manual_pnl: 10.004 },
+      ],
+      '2026-11-05': [
+        { id: 2, symbol: 'EURUSD', direction: 'long', size: 1, entryprice: 1.08, exitprice: 1.09, entry_time: '2026-11-05T10:00:00', manual_pnl: 10.004 },
+      ],
+    };
+
+    render(
+      <CalendarDailyPnLBarChart
+        currentYear={2026}
+        currentMonth={10}
+        tradesByDay={subCentTradesByDay}
+      />
+    );
+
+    // 10.004 + 10.004 = 20.008 -> +$20.01 (not 10.00 + 10.00 = 20.00)
+    expect(screen.getByText('+$20.01')).toBeDefined();
   });
 });

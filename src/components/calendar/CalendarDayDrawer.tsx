@@ -16,6 +16,8 @@ import {
   isTradeMistake,
   isTradeOvernightSession,
   getTradeTags,
+  formatDateTime,
+  BrokerTimezoneMode,
 } from './calendarUtils';
 import {
   X,
@@ -43,6 +45,7 @@ interface CalendarDayDrawerProps {
   onOpenChart?: (trade: Trade) => void;
   onSelectTrade?: (trade: Trade) => void;
   cutoffMode?: 'trading' | 'natural';
+  brokerTimezone?: BrokerTimezoneMode;
 }
 
 const convertTradeToDetailTrade = (t: Trade): DetailTrade => {
@@ -142,6 +145,7 @@ export const CalendarDayDrawer: React.FC<CalendarDayDrawerProps> = ({
   onOpenChart,
   onSelectTrade,
   cutoffMode = 'trading',
+  brokerTimezone,
 }) => {
   const [dailyNote, setDailyNote] = useState('');
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
@@ -532,7 +536,7 @@ export const CalendarDayDrawer: React.FC<CalendarDayDrawerProps> = ({
                 <Layers className="w-4 h-4 text-purple-500" />
                 <span>当日执行订单明细 ({trades.length} 笔)</span>
                 <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-normal bg-purple-50 dark:bg-purple-950/60 text-purple-600 dark:text-purple-300 border border-purple-200/80 dark:border-purple-800/60">
-                  {cutoffMode === 'natural' ? '00:00 自然日' : '06:00 美盘交易日'}
+                  {cutoffMode === 'natural' ? '北京时间 00:00 自然日' : 'MT5 交易日 · 界面北京时间'}
                 </span>
               </h3>
               <span className="text-[11px] text-gray-400">点击订单查看详情</span>
@@ -615,15 +619,15 @@ export const CalendarDayDrawer: React.FC<CalendarDayDrawerProps> = ({
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-1 text-[11px] text-gray-500 dark:text-gray-400 font-mono border-t border-gray-100 dark:border-white/5 pt-1.5 min-w-0">
                         <div className="truncate">入场: <span className="text-gray-800 dark:text-gray-200 font-bold">{entry || '-'}</span></div>
                         <div className="truncate">出场: <span className="text-gray-800 dark:text-gray-200 font-bold">{exit || '-'}</span></div>
-                        <div className="truncate flex items-center">
-                          <span>时间: </span>
-                          <span className="text-gray-600 dark:text-gray-300 ml-1">{getTradeEntryTime(t).substring(11, 16) || '-'}</span>
-                          {isTradeOvernightSession(t) && (
+                        <div className="truncate flex items-center" title={`北京时间 (UTC+8) | 开仓: ${formatDateTime(getTradeEntryTime(t))} / 平仓: ${formatDateTime(getTradeExitTime(t))}`}>
+                          <span>北京: </span>
+                          <span className="text-gray-600 dark:text-gray-300 ml-1">{(getTradeExitTime(t) || getTradeEntryTime(t)).substring(5, 16).replace('T', ' ') || '-'}</span>
+                          {isTradeOvernightSession(t, cutoffMode === 'natural' ? 0 : 'mt5', brokerTimezone) && (
                             <span
                               className="ml-1 px-1 py-0.2 rounded text-[9px] font-medium bg-purple-50 dark:bg-purple-950/60 text-purple-600 dark:text-purple-300 border border-purple-200 dark:border-purple-800/60 shrink-0"
-                              title="北京时间凌晨 00:00~06:00 间成交的跨夜美盘交易，归属前一交易日"
+                              title="北京时间凌晨成交，按 MT5 服务器自然日归属当前交易日统计"
                             >
-                              跨夜美盘
+                              跨夜归属MT5当日
                             </span>
                           )}
                         </div>

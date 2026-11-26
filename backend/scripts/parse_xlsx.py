@@ -18,6 +18,24 @@ def get_text_no_ns(element, tag_name):
             return child.text
     return None
 
+def col_ref_to_index(cell_ref):
+    """Convert Excel cell reference like 'J2' or 'AA15' to 0-based column index."""
+    if not cell_ref:
+        return None
+    col_idx = 0
+    found_letter = False
+    for ch in cell_ref:
+        if 'A' <= ch <= 'Z':
+            col_idx = col_idx * 26 + (ord(ch) - ord('A') + 1)
+            found_letter = True
+        elif 'a' <= ch <= 'z':
+            col_idx = col_idx * 26 + (ord(ch) - ord('a') + 1)
+            found_letter = True
+        else:
+            break
+    return (col_idx - 1) if found_letter else None
+
+
 def parse_xlsx(file_path):
     with zipfile.ZipFile(file_path, 'r') as z:
         # 1. Load shared strings if present
@@ -36,7 +54,10 @@ def parse_xlsx(file_path):
                     shared_strings.append(''.join(texts))
 
         # 2. Find target worksheet (prefer "Positions" or first sheet)
-        sheet_names = [name for name in z.namelist() if name.startswith('xl/worksheets/sheet') and name.endswith('.xml')]
+        sheet_names = sorted(
+            name for name in z.namelist()
+            if name.startswith('xl/worksheets/sheet') and name.endswith('.xml')
+        )
         if not sheet_names:
             return []
         
@@ -51,7 +72,7 @@ def parse_xlsx(file_path):
                 continue
 
             row_cells = []
-            for cell in row.iter():
+            for cell in row:
                 cell_tag = cell.tag.split('}')[-1] if '}' in cell.tag else cell.tag
                 if cell_tag != 'c':
                     continue
@@ -71,7 +92,16 @@ def parse_xlsx(file_path):
                 else:
                     val = raw_v if raw_v is not None else (raw_t or '')
 
-                row_cells.append(str(val).strip())
+                col_idx = col_ref_to_index(cell.attrib.get('r', ''))
+                if col_idx is not None:
+                    while len(row_cells) < col_idx:
+                        row_cells.append('')
+                    if col_idx < len(row_cells):
+                        row_cells[col_idx] = str(val).strip()
+                    else:
+                        row_cells.append(str(val).strip())
+                else:
+                    row_cells.append(str(val).strip())
 
             if any(row_cells):
                 rows_data.append(row_cells)
