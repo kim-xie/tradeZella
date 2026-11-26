@@ -312,11 +312,12 @@ export default function DashboardPage() {
     const lossDurations: number[] = [];
     const allDurations: number[] = [];
 
-    // Sort chronologically for equity curve & drawdown
+    // Sort chronologically by close time for MT5-aligned equity curve & max drawdown
     const sortedCompleted = [...completedTrades].sort((a, b) => {
-      const timeA = new Date(getTradeEntryTime(a) || 0).getTime();
-      const timeB = new Date(getTradeEntryTime(b) || 0).getTime();
-      return timeA - timeB;
+      const timeA = new Date(String(getTradeExitTime(a) || getTradeEntryTime(a) || 0).replace(' ', 'T')).getTime();
+      const timeB = new Date(String(getTradeExitTime(b) || getTradeEntryTime(b) || 0).replace(' ', 'T')).getTime();
+      if (timeA !== timeB) return timeA - timeB;
+      return (Number(a.id) || 0) - (Number(b.id) || 0);
     });
 
     let peak = 0;
@@ -380,13 +381,13 @@ export default function DashboardPage() {
       totalVolume += getTradeSize(t);
     });
 
-    const closedCount = winningTrades + losingTrades;
-    const winRate = closedCount > 0 ? (winningTrades / closedCount) * 100 : 0;
+    const totalCompleted = completedTrades.length;
+    const winRate = totalCompleted > 0 ? (winningTrades / totalCompleted) * 100 : 0;
     const avgWin = winningTrades > 0 ? grossProfit / winningTrades : 0;
     const avgLoss = losingTrades > 0 ? grossLoss / losingTrades : 0;
     const profitFactor = grossLoss > 0 ? grossProfit / grossLoss : (grossProfit > 0 ? 99.9 : 0);
     const winLossRatio = avgLoss > 0 ? avgWin / avgLoss : (avgWin > 0 ? avgWin : 0);
-    const expectancy = closedCount > 0 ? totalProfitLoss / closedCount : 0;
+    const expectancy = totalCompleted > 0 ? totalProfitLoss / totalCompleted : 0;
 
     const avgWinDuration = winDurations.length > 0 ? winDurations.reduce((a, b) => a + b, 0) / winDurations.length : 0;
     const avgLossDuration = lossDurations.length > 0 ? lossDurations.reduce((a, b) => a + b, 0) / lossDurations.length : 0;
@@ -539,7 +540,7 @@ export default function DashboardPage() {
     const totalLosses = list.reduce((acc, d) => acc + d.losses, 0);
 
     return { list, greenDays, redDays, totalGrossProfit, totalGrossLoss, totalWins, totalLosses };
-  }, [metrics.sortedCompleted, cutoffMode]);
+  }, [metrics.sortedCompleted, cutoffMode, brokerTz]);
 
   // Session Analytics breakdown (TradeSync Signature)
   const sessionData = useMemo(() => {

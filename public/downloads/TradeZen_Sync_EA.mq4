@@ -6,7 +6,7 @@
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, TradeZen Platform Master"
 #property link      "https://your-domain.com"
-#property version   "1.20"
+#property version   "1.30"
 #property strict
 #property description "自动将 MT4 历史与实时平仓订单、历史全量与实时增量K线流直推同步到远程 TradeZen 服务端"
 
@@ -45,7 +45,7 @@ input string InpApiToken           = "";                          // 平台专�
 input ENUM_BROKER_TIMEZONE InpBrokerTimezone = BROKER_TZ_AUTO;    // 券商服务器时区 (用于精确换算北京时间)
 input bool   InpSyncOrders         = true;                        // 启用订单自动同步
 input bool   InpLiveOrderSync      = true;                        // 开启实时增量同步 (默认开启，设为false则仅同步历史订单)
-input ENUM_ORDER_SYNC_MODE InpOrderSyncMode = ORDER_SYNC_THIS_MONTH; // 首次加载同步范围 (本周/本月/今年/全部)
+input ENUM_ORDER_SYNC_MODE InpOrderSyncMode = ORDER_SYNC_ALL_HISTORY; // 首次加载同步范围 (默认全部历史，与HTML报表一致)
 input int    InpSyncHistoryDays    = 30;                          // 固定天数模式下的历史天数
 input int    InpSyncIntervalSec    = 30;                          // 周期轮询检查间隔(秒)
 
@@ -133,8 +133,19 @@ void ResolveBrokerTimezonePayload(string &tzOut, long &gmtOffsetSecOut)
    }
    datetime srvTime = TimeCurrent();
    datetime gmtTime = TimeGMT();
+   if(srvTime <= 0 || gmtTime <= 0)
+   {
+      tzOut = "broker";
+      return;
+   }
    long rawDiff = (long)srvTime - (long)gmtTime;
    long roundedOffset = (long)MathRound((double)rawDiff / 1800.0) * 1800;
+   // 周末停盘期间 TimeCurrent() 停留在周五收盘而 TimeGMT() 继续前进，差值超出合法时区范围时回退 broker 规则
+   if(MathAbs(roundedOffset) > 50400)
+   {
+      tzOut = "broker";
+      return;
+   }
    long expectedEet = IsUSDST(srvTime) ? 10800 : 7200;
    if(roundedOffset == expectedEet)
    {
@@ -499,10 +510,15 @@ void SyncCandles()
          );
       }
 
+      string candleTz = "broker";
+      long candleOffsetSec = 0;
+      ResolveBrokerTimezonePayload(candleTz, candleOffsetSec);
       string payload = StringFormat(
-         "{\"symbol\":\"%s\",\"timeframe\":\"%s\",\"candles\":[%s]}",
-         _Symbol,
+         "{\"symbol\":\"%s\",\"timeframe\":\"%s\",\"timezone\":\"%s\",\"gmtOffsetSec\":%d,\"candles\":[%s]}",
+         EscapeJsonString(_Symbol),
          tfStr,
+         candleTz,
+         (int)candleOffsetSec,
          candlesJson
       );
 
@@ -566,10 +582,15 @@ void SyncLiveCandles(int barsCount = 2)
       );
    }
 
+   string candleTz = "broker";
+   long candleOffsetSec = 0;
+   ResolveBrokerTimezonePayload(candleTz, candleOffsetSec);
    string payload = StringFormat(
-      "{\"symbol\":\"%s\",\"timeframe\":\"%s\",\"candles\":[%s]}",
-      _Symbol,
+      "{\"symbol\":\"%s\",\"timeframe\":\"%s\",\"timezone\":\"%s\",\"gmtOffsetSec\":%d,\"candles\":[%s]}",
+      EscapeJsonString(_Symbol),
       tfStr,
+      candleTz,
+      (int)candleOffsetSec,
       candlesJson
    );
 
@@ -586,7 +607,7 @@ void SyncLiveCandles(int barsCount = 2)
 int OnInit()
 {
    Print("==================================================");
-   Print("[TradeZen EA MT4] 正在启动 (v1.20 实时增量流同步版)...");
+   Print("[TradeZen EA MT4] 正在启动 (v1.30 统一仓位口径 + 实时增量流同步版)...");
    Print("[TradeZen EA MT4] [安全提示] 当前使用的 API Token 为个人专属密钥，请勿转给他人使用以防账单数据被污染。");
    PrintFormat("[TradeZen EA MT4] 远程目标: %s", InpServerUrl);
    PrintFormat("[TradeZen EA MT4] 品种: %s | 周期: %s (已锁定为 1M 基础原子周期，服务端自动向上聚合多周期)", _Symbol, TimeframeToStr(InpCandleTf));

@@ -3,7 +3,7 @@ import TradeDetailDrawer from '../components/TradeDetailDrawer';
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { X, Star, ChevronLeft, ChevronRight, RefreshCw, Upload, Database, CheckCircle2, BarChart2, Calendar, PenLine, Trash2, AlertTriangle, ArrowUpDown, ArrowUp, ArrowDown, Zap, ChevronDown, Check, Sparkles } from 'lucide-react';
+import { X, Star, ChevronLeft, ChevronRight, RefreshCw, Upload, Database, CheckCircle2, BarChart2, Calendar, PenLine, Trash2, AlertTriangle, ArrowUpDown, ArrowUp, ArrowDown, Zap, ChevronDown, Check } from 'lucide-react';
 import Button from '../components/common/Button';
 import Select from '../components/common/Select';
 import DateRangePicker from '../components/common/DateRangePicker';
@@ -13,7 +13,7 @@ import ErrorBoundary from '../components/common/ErrorBoundary';
 import TradeRatingModal from '../components/TradeRatingModal';
 import TradeRatingAnimationOverlay, { RatingAnimationData } from '../components/TradeRatingAnimationOverlay';
 import FinalTriggerModal from '../components/FinalTriggerModal';
-import { getUserTrades, updateTrade, clearAllTrades, cleanupDuplicateTrades, autoEvaluateTradeTriggers, SERVER_BASE_URL as API_BASE_URL } from '../services/api';
+import { getUserTrades, updateTrade, clearAllTrades, autoEvaluateTradeTriggers, SERVER_BASE_URL as API_BASE_URL } from '../services/api';
 import { useRealtimeTrades, RealtimeTradeEvent } from '../services/realtime';
 import {
   getTradeTradingDate,
@@ -442,27 +442,6 @@ const TradesPage: React.FC = () => {
     }
   };
 
-  const [cleaningDuplicates, setCleaningDuplicates] = useState(false);
-  const [cleanDupToast, setCleanDupToast] = useState<{ message: string; type: 'success' | 'info' } | null>(null);
-
-  const handleCleanDuplicates = async () => {
-    try {
-      setCleaningDuplicates(true);
-      const res = await cleanupDuplicateTrades();
-      const count = res?.data?.cleanedCount ?? res?.cleanedCount ?? 0;
-      const msg = res?.message || (count > 0 
-        ? `成功智能合并清理了 ${count} 笔重复订单！` 
-        : '未检测到重复订单，账单数据健康完整。');
-      setCleanDupToast({ message: msg, type: count > 0 ? 'success' : 'info' });
-      setTimeout(() => setCleanDupToast(null), 5000);
-      await fetchTrades();
-    } catch (err: any) {
-      alert(err.message || '智能清理重复订单失败');
-    } finally {
-      setCleaningDuplicates(false);
-    }
-  };
-
   // 实时订单推送状态与自动刷新
   const [livePushToast, setLivePushToast] = useState<{
     message: string;
@@ -631,7 +610,12 @@ const TradesPage: React.FC = () => {
 
       // Automatically evaluate final triggers for manual trades with SL/TP
       const hasUnresolvedManual = data.some(
-        (t) => !t.final_trigger && t.exitprice && t.stop_loss && t.take_profit
+        (t) =>
+          !t.final_trigger &&
+          t.exitprice &&
+          Number(t.stop_loss) > 0 &&
+          Number(t.take_profit) > 0 &&
+          calculateExitMethod(t) === 'manual'
       );
       if (hasUnresolvedManual) {
         autoEvaluateTradeTriggers(token)
@@ -1359,26 +1343,6 @@ const TradesPage: React.FC = () => {
                 {trades.length}
               </span>
               <span>笔交易记录</span>
-            </div>
-
-            <div className="flex items-center space-x-2.5">
-              {cleanDupToast && (
-                <span className={`text-[11px] font-sans font-medium animate-in fade-in ${cleanDupToast.type === 'success' ? 'text-emerald-600 dark:text-emerald-400' : 'text-purple-600 dark:text-purple-400'}`}>
-                  ✓ {cleanDupToast.message}
-                </span>
-              )}
-              {trades.length > 1 && (
-                <button
-                  type="button"
-                  onClick={handleCleanDuplicates}
-                  disabled={cleaningDuplicates}
-                  className="text-[11px] text-gray-500 dark:text-gray-400 hover:text-purple-600 dark:hover:text-purple-400 transition-colors flex items-center space-x-1 px-2.5 py-0.5 rounded-lg hover:bg-purple-50/70 dark:hover:bg-purple-950/30 border border-transparent hover:border-purple-200 dark:hover:border-purple-800/40 cursor-pointer disabled:opacity-50"
-                  title="智能检测并清理合并时间相近、标的相同的重复订单（优先保留含止损止盈及精确出场的记录）"
-                >
-                  <Sparkles className={`w-3 h-3 text-purple-500 ${cleaningDuplicates ? 'animate-spin' : ''}`} />
-                  <span>{cleaningDuplicates ? '正在智能清理...' : '智能清理重复'}</span>
-                </button>
-              )}
             </div>
           </div>
         )}

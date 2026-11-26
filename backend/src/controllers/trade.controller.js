@@ -6,7 +6,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
-import { parseUniversalTradeFile, convertToShanghaiTime } from '../parsers/universalTradeParser.js';
+import { parseUniversalTradeFile, convertToShanghaiTime, calculateMarketSession, resolveCanonicalBrokerTimezone } from '../parsers/universalTradeParser.js';
 
 const execFileAsync = promisify(execFile);
 const __filename = fileURLToPath(import.meta.url);
@@ -41,10 +41,16 @@ export class TradeController {
         const page = Math.max(1, parseInt(req.query.page, 10));
         options.offset = (page - 1) * parseInt(req.query.limit, 10);
       }
-      const trades = await TradeService.getTradesByUserId(req.user.id, options);
+      const [trades, brokerTimezone] = await Promise.all([
+        TradeService.getTradesByUserId(req.user.id, options),
+        typeof TradeService.getUserBrokerTimezone === 'function'
+          ? TradeService.getUserBrokerTimezone(req.user.id).catch(() => null)
+          : Promise.resolve(null),
+      ]);
       res.status(200).json({ 
         success: true,
-        data: trades 
+        data: trades,
+        meta: { brokerTimezone },
       });
     } catch (error) {
       next(error);
@@ -148,8 +154,9 @@ export class TradeController {
 
       const originalFilename = req.file.originalname || '';
       const timezone = req.body.timezone || 'broker';
-      const parsedResult = await parseUniversalTradeFile(req.file.buffer, originalFilename, { timezone });
-      const { platform, trades: extractedTrades } = parsedResult;
+      const fallbackTimezone = req.body.fallbackTimezone || 'broker';
+      const parsedResult = await parseUniversalTradeFile(req.file.buffer, originalFilename, { timezone, fallbackTimezone });
+      const { platform, trades: extractedTrades, detectedTimezone } = parsedResult;
 
       if (!extractedTrades || extractedTrades.length === 0) {
         return res.status(400).json({
@@ -190,10 +197,17 @@ export class TradeController {
         });
       }
 
+      if ((insertedCount > 0 || enrichedCount > 0) && typeof TradeService.autoEvaluateTriggers === 'function') {
+        TradeService.autoEvaluateTriggers(req.user.id).catch((err) => {
+          console.warn('Auto evaluation after report upload failed:', err.message);
+        });
+      }
+
       res.status(200).json({
         success: true,
         message: msg,
         platform,
+        detectedTimezone: detectedTimezone || null,
         count: insertedCount,
         skippedCount,
         data: newTrades,
@@ -233,7 +247,8 @@ export class TradeController {
       const tradesToCreate = rawTrades.map(t => {
         const symbol = String(t.symbol || '').trim().toUpperCase();
         const direction = (t.direction === 'short' || t.type === 'sell' || String(t.type) === '1') ? 'short' : 'long';
-        const size = parseFloat(t.size || t.volume) || 1.0;
+        const parsedSize = parseFloat(t.size ?? t.volume);
+        const size = Number.isFinite(parsedSize) && parsedSize > 0 ? parsedSize : 1.0;
         const entryPrice = parseFloat(t.entryPrice || t.price || t.openPrice) || null;
         const exitPrice = parseFloat(t.exitPrice || t.closePrice) || entryPrice;
         const rawEntryTime = t.entryTime || t.openTime || null;
@@ -257,17 +272,18 @@ export class TradeController {
         const fee = parseFloat(t.fee) || 0;
         const swap = parseFloat(t.swap) || 0;
         const manualPnl = t.manualPnl !== undefined && t.manualPnl !== null
-          ? parseFloat(t.manualPnl)
+          ? Math.round(parseFloat(t.manualPnl) * 100) / 100
           : Math.round((profit + commission + fee + swap) * 100) / 100;
 
         const baseNotes = t.notes ? String(t.notes).trim() : '';
+        const hasDistinctDealTicket = ticket && positionId && positionId !== '0' && ticket !== positionId;
         const defaultNotes = positionId && positionId !== '0'
-          ? `MT5 Position #${positionId}${ticket ? ` | Deal #${ticket}` : ''}${baseNotes ? ` | ${baseNotes}` : ''}`
+          ? `MT5 Position #${positionId}${hasDistinctDealTicket ? ` | Deal #${ticket}` : ''}${baseNotes ? ` | ${baseNotes}` : ''}`
           : (baseNotes || (ticket ? `Ticket/ID: ${ticket} | EA Auto Sync` : 'EA Auto Sync'));
 
         return {
           userId: req.user.id,
-          ticket,
+          ticket: ticket || (positionId && positionId !== '0' ? positionId : null),
           positionId,
           symbol,
           direction,
@@ -282,6 +298,7 @@ export class TradeController {
           takeProfit: parseFloat(t.takeProfit || t.tp) || null,
           notes: defaultNotes,
           tags: [platform, symbol],
+          session: calculateMarketSession(entryTime),
           finalTrigger: (t.finalTrigger === 'takeProfit' || t.finalTrigger === 'stopLoss') ? t.finalTrigger : null,
         };
       });
@@ -290,6 +307,11 @@ export class TradeController {
       const skippedCount = newTrades.skippedCount || 0;
       const insertedCount = newTrades.length;
       const enrichedCount = newTrades.enrichedCount || 0;
+      const detectedBrokerTimezone = resolveCanonicalBrokerTimezone(payloadTimezone, payloadGmtOffsetSec);
+
+      if (detectedBrokerTimezone && typeof TradeService.saveUserBrokerTimezone === 'function') {
+        await TradeService.saveUserBrokerTimezone(req.user.id, detectedBrokerTimezone).catch(() => null);
+      }
 
       let msg = '';
       if (insertedCount > 0 && (skippedCount > 0 || enrichedCount > 0)) {
@@ -309,14 +331,22 @@ export class TradeController {
           platform,
           count: insertedCount,
           skippedCount,
+          brokerTimezone: detectedBrokerTimezone || undefined,
           message: msg,
           trades: newTrades,
+        });
+      }
+
+      if ((insertedCount > 0 || enrichedCount > 0) && typeof TradeService.autoEvaluateTriggers === 'function') {
+        TradeService.autoEvaluateTriggers(req.user.id).catch((err) => {
+          console.warn('Auto evaluation after EA sync failed:', err.message);
         });
       }
 
       res.status(200).json({
         success: true,
         message: msg,
+        brokerTimezone: detectedBrokerTimezone || null,
         count: insertedCount,
         skippedCount,
         data: newTrades,
@@ -338,7 +368,8 @@ export class TradeController {
       const endDate = req.body.endDate ? String(req.body.endDate).trim() : null;
 
       const scriptPath = path.join(__dirname, '../../scripts/mt5_sync_trades.py');
-      const args = [scriptPath, '--limit', String(limit), '--json'];
+      const sourceTimezone = req.body.timezone ? String(req.body.timezone).trim() : 'broker';
+      const args = [scriptPath, '--limit', String(limit), '--source-tz', sourceTimezone, '--json'];
       if (allHistory) {
         args.push('--all');
       } else if (startDate) {

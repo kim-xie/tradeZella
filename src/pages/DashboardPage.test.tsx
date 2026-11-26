@@ -578,5 +578,74 @@ describe('DashboardPage (TradeZella & TradeSync Style)', () => {
       // Should show '-' for uncalculable RR when SL is trailed into profit
       expect(within(rows[2]).getByText('-')).toBeInTheDocument();
     });
+
+    it('calculates win rate including breakeven trades and drawdown by exit time (matching MT5)', async () => {
+      const mockTrades = [
+        // Opened first, closed LAST (-60) -> exit order settles +100 -> -50 -> 0 -> -60 (DD = $110.00)
+        // Entry order would give -60 -> +100 -> -50 -> 0 (DD = $60.00)
+        {
+          id: 1,
+          symbol: 'XAUUSD',
+          direction: 'long' as const,
+          size: 1.0,
+          entryprice: 2650,
+          exitprice: 2644,
+          entry_time: '2026-11-10T09:00:00',
+          exit_time: '2026-11-15T15:00:00',
+          manual_pnl: -60,
+        },
+        // Closed first (+100)
+        {
+          id: 2,
+          symbol: 'EURUSD',
+          direction: 'long' as const,
+          size: 1.0,
+          entryprice: 1.08,
+          exitprice: 1.09,
+          entry_time: '2026-11-10T10:00:00',
+          exit_time: '2026-11-10T12:00:00',
+          manual_pnl: 100,
+        },
+        // Closed second (-50)
+        {
+          id: 3,
+          symbol: 'USDJPY',
+          direction: 'long' as const,
+          size: 1.0,
+          entryprice: 150,
+          exitprice: 149.5,
+          entry_time: '2026-11-11T10:00:00',
+          exit_time: '2026-11-11T12:00:00',
+          manual_pnl: -50,
+        },
+        // Breakeven (0) -> must be counted in MT5 total trades denominator (1/4 = 25.0%, NOT 1/3 = 33.3%)
+        {
+          id: 4,
+          symbol: 'GBPUSD',
+          direction: 'long' as const,
+          size: 1.0,
+          entryprice: 1.25,
+          exitprice: 1.25,
+          entry_time: '2026-11-12T10:00:00',
+          exit_time: '2026-11-12T12:00:00',
+          manual_pnl: 0,
+        },
+      ];
+
+      vi.spyOn(api, 'getUserTrades').mockResolvedValue(mockTrades);
+      localStorage.setItem('token', 'test-token');
+      localStorage.setItem(TIME_RANGE_STORAGE_KEY, 'all');
+
+      renderWithProviders(<DashboardPage />);
+
+      await waitFor(() => {
+        expect(screen.getByText('净利润 (Net P&L)')).toBeInTheDocument();
+      });
+
+      // Win rate: 1 win out of 4 total completed trades = 25.0%
+      expect(screen.getByText('25.0%')).toBeInTheDocument();
+      // Max drawdown by exit order (+100 -> +50 -> +50 -> -10): -$110.00
+      expect(screen.getByText('-$110.00')).toBeInTheDocument();
+    });
   });
 });

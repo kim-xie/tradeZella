@@ -428,5 +428,52 @@ describe('Universal Trade Parser', () => {
       expect(res.trades[0].exitPrice).toBe(1.085);
       expect(res.trades[0].manualPnl).toBe(493.5); // 500 - 5 - 1 - 0.5
     });
+
+    test('should parse slash volume cells and avoid double-counting swap/profit columns with fee keywords', async () => {
+      const html = `<!DOCTYPE html><html><body><table>
+        <tr>
+          <th>时间</th><th>持仓</th><th>交易品种</th><th>类型</th><th>交易量</th><th>价格</th><th>止损</th><th>止盈</th><th>时间</th><th>价格</th><th>手续费</th><th>费用</th><th>利息费用</th><th>获利</th>
+        </tr>
+        <tr>
+          <td>2026.11.14 10:00:00</td><td>6002</td><td>XAUUSD</td><td>buy</td><td>1.50 / 1.50</td><td>2650.00</td><td>2640.00</td><td>2670.00</td><td>2026.11.14 12:00:00</td><td>2660.00</td><td>-6.00</td><td>-1.50</td><td>-2.50</td><td>1500.00</td>
+        </tr>
+      </table></body></html>`;
+
+      const res = await parseUniversalTradeFile(Buffer.from(html, 'utf8'), 'MT5_SlashVol.html');
+      expect(res.trades).toHaveLength(1);
+      expect(res.trades[0].size).toBe(1.5);
+      expect(res.trades[0].manualPnl).toBe(1490); // 1500 - 6 - 1.5 - 2.5
+    });
+
+    test('should auto-detect explicit ISO offsets, header timezones, and Sunday FX open in auto mode', async () => {
+      // 1. Explicit ISO timestamp offsets (Z and +03:00) override sourceTimezone accurately
+      expect(convertToShanghaiTime('2026-11-20T10:00:00Z', 'broker')).toBe('2026-11-20T18:00:00');
+      expect(convertToShanghaiTime('2026-11-20T10:00:00+03:00', 'broker')).toBe('2026-11-20T15:00:00');
+      expect(convertToShanghaiTime('2026-11-20T10:00:00+08:00', 'broker')).toBe('2026-11-20T10:00:00');
+
+      // 2. Column header Date(UTC) / (北京时间) auto-detected in auto mode
+      const csvUtc = 'Date(UTC),Symbol,Direction,Volume,Open Price,Close Price,Profit\n2026-11-20 10:00:00,EURUSD,buy,0.1,1.0800,1.0850,50';
+      const utcRes = await parseUniversalTradeFile(Buffer.from(csvUtc, 'utf8'), 'utc_export.csv', { timezone: 'auto' });
+      expect(utcRes.detectedTimezone).toBe('utc');
+      expect(utcRes.trades[0].entryTime).toBe('2026-11-20T18:00:00');
+
+      // 3. Sunday 22:10 non-crypto FX trade detected as UTC+0 in auto mode
+      const sundayFxHtml = `<!DOCTYPE html><html><body><table>
+        <tr><th>Time</th><th>Position</th><th>Symbol</th><th>Type</th><th>Volume</th><th>Price</th><th>Time</th><th>Price</th><th>Profit</th></tr>
+        <tr><td>2026.11.22 22:10:00</td><td>7001</td><td>XAUUSD</td><td>buy</td><td>0.50</td><td>2680.00</td><td>2026.11.22 22:30:00</td><td>2685.00</td><td>250.00</td></tr>
+      </table></body></html>`;
+      const fxRes = await parseUniversalTradeFile(Buffer.from(sundayFxHtml, 'utf8'), 'sunday_fx.html', { timezone: 'auto' });
+      expect(fxRes.detectedTimezone).toBe('utc');
+      expect(fxRes.trades[0].entryTime).toBe('2026-11-23T06:10:00');
+
+      // 4. Unlabelled weekday report falls back to EA-provided fallbackTimezone in auto mode
+      const weekdayHtml = `<!DOCTYPE html><html><body><table>
+        <tr><th>Time</th><th>Position</th><th>Symbol</th><th>Type</th><th>Volume</th><th>Price</th><th>Time</th><th>Price</th><th>Profit</th></tr>
+        <tr><td>2026.11.19 10:00:00</td><td>7002</td><td>EURUSD</td><td>buy</td><td>0.50</td><td>1.0800</td><td>2026.11.19 11:00:00</td><td>1.0820</td><td>100.00</td></tr>
+      </table></body></html>`;
+      const fallbackRes = await parseUniversalTradeFile(Buffer.from(weekdayHtml, 'utf8'), 'weekday.html', { timezone: 'auto', fallbackTimezone: 'utc3' });
+      expect(fallbackRes.detectedTimezone).toBe('utc3');
+      expect(fallbackRes.trades[0].entryTime).toBe('2026-11-19T15:00:00');
+    });
   });
 });

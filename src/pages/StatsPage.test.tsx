@@ -191,4 +191,48 @@ describe('StatsPage (Trading Calendar)', () => {
     expect(localStorage.getItem('tradezella_trading_day_cutoff')).toBe('6');
     expect(findDayCell('14')).toHaveTextContent('+$123.45');
   });
+
+  it('auto-applies EA-detected broker timezone badge and allows manual override & reset', async () => {
+    localStorage.clear();
+    localStorage.setItem('token', 'test-token');
+    localStorage.setItem('tradezella_detected_broker_timezone', 'utc');
+
+    vi.spyOn(api, 'getUserTrades').mockResolvedValue([
+      {
+        id: 201,
+        symbol: 'EURUSD',
+        direction: 'long',
+        size: 1.0,
+        entryprice: 1.08,
+        exitprice: 1.09,
+        entry_time: '2026-11-15T06:30:00',
+        exit_time: '2026-11-15T07:30:00', // UTC+0 08:00 cutoff -> 07:30 Beijing maps to Nov 14
+        manual_pnl: 88.0,
+      },
+    ] as any);
+
+    render(
+      <MemoryRouter initialEntries={['/calendar?date=2026-11-15']}>
+        <StatsPage />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('EA自动')).toBeInTheDocument();
+      expect(screen.getByText(/08:00 \(UTC\+0\)/)).toBeInTheDocument();
+    });
+
+    const tzSelect = screen.getByLabelText('券商服务器时区') as HTMLSelectElement;
+    expect(tzSelect.value).toBe('utc');
+
+    // Manual switch disables EAauto badge and shows 恢复自动
+    fireEvent.change(tzSelect, { target: { value: 'utc3' } });
+    expect(screen.getByText('恢复自动')).toBeInTheDocument();
+    expect(localStorage.getItem('tradezella_broker_timezone_manual')).toBe('1');
+
+    // Restore EA auto-detected timezone
+    fireEvent.click(screen.getByText('恢复自动'));
+    expect(screen.getByText('EA自动')).toBeInTheDocument();
+    expect(tzSelect.value).toBe('utc');
+  });
 });

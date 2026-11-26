@@ -508,6 +508,39 @@ export class TradeService {
     }
   }
 
+  static async getUserBrokerTimezone(userId) {
+    const client = await pool.connect();
+    try {
+      const result = await client.query(
+        'SELECT broker_timezone FROM users WHERE id = $1',
+        [userId]
+      );
+      return result.rows[0]?.broker_timezone || null;
+    } catch (err) {
+      if (err?.code === '42703') return null;
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
+  static async saveUserBrokerTimezone(userId, brokerTimezone) {
+    if (!userId || !brokerTimezone) return null;
+    const client = await pool.connect();
+    try {
+      await client.query(
+        'UPDATE users SET broker_timezone = $1 WHERE id = $2',
+        [brokerTimezone, userId]
+      );
+      return brokerTimezone;
+    } catch (err) {
+      if (err?.code === '42703') return null;
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
   static async getTradeById(id, userId) {
     const client = await pool.connect();
     try {
@@ -1027,7 +1060,9 @@ export class TradeService {
           AND exitprice IS NOT NULL
           AND exit_time IS NOT NULL
           AND stop_loss IS NOT NULL
+          AND stop_loss > 0
           AND take_profit IS NOT NULL
+          AND take_profit > 0
           AND final_trigger IS NULL
       `;
       const params = [userId];

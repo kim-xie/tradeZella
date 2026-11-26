@@ -6,8 +6,8 @@
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, TradeZen Platform Master"
 #property link      "https://your-domain.com"
-#property version   "1.20"
-#property description "自动将 MT5 历史与实时平仓订单、历史全量与实时增量K线流直推同步到远程 TradeZen 服务端"
+#property version   "1.30"
+#property description "自动将 MT5 历史与实时已平仓持仓(Position级，口径与HTML报表一致)、历史全量与实时增量K线流直推同步到远程 TradeZen 服务端"
 
 //--- 订单同步范围枚举
 enum ENUM_ORDER_SYNC_MODE
@@ -47,7 +47,7 @@ input ENUM_BROKER_TIMEZONE InpBrokerTimezone = BROKER_TZ_AUTO;    // 券商服�
 input group "=== 订单同步配置 ==="
 input bool   InpSyncOrders         = true;                        // 启用订单自动同步
 input bool   InpLiveOrderSync      = true;                        // 开启实时增量同步 (默认开启，设为false则仅同步历史订单)
-input ENUM_ORDER_SYNC_MODE InpOrderSyncMode = ORDER_SYNC_THIS_MONTH; // 首次加载同步范围 (本周/本月/今年/全部)
+input ENUM_ORDER_SYNC_MODE InpOrderSyncMode = ORDER_SYNC_ALL_HISTORY; // 首次加载同步范围 (默认全部历史，与HTML报表一致)
 input int    InpSyncHistoryDays    = 30;                          // 固定天数模式下的历史天数
 input int    InpSyncIntervalSec    = 30;                          // 周期轮询检查间隔(秒)
 
@@ -73,7 +73,7 @@ datetime g_last_candle_sync_time    = 0;
 datetime g_last_live_candle_time    = 0;
 datetime g_last_bar_time            = 0;
 bool     g_initial_candle_sync_done = false;
-ulong    g_synced_tickets[];
+long     g_synced_positions[];
 
 //+------------------------------------------------------------------+
 //| 辅助函数: JSON 字符串转义                                           |
@@ -169,8 +169,18 @@ void ResolveBrokerTimezonePayload(string &tzOut, long &gmtOffsetSecOut)
 
    datetime srvTime = TimeTradeServer();
    datetime gmtTime = TimeGMT();
+   if(srvTime <= 0 || gmtTime <= 0)
+   {
+      tzOut = "broker";
+      return;
+   }
    long rawDiff = (long)srvTime - (long)gmtTime;
    long roundedOffset = (long)MathRound((double)rawDiff / 1800.0) * 1800;
+   if(MathAbs(roundedOffset) > 50400)
+   {
+      tzOut = "broker";
+      return;
+   }
 
    // 若与当前美式夏令时 EET(+2h)/EEST(+3h) 一致，采用按订单成交日期判定夏令时的 broker 模式，历史跨季订单更准确
    long expectedEet = IsUSDST(srvTime) ? 10800 : 7200;
@@ -187,26 +197,45 @@ void ResolveBrokerTimezonePayload(string &tzOut, long &gmtOffsetSecOut)
 }
 
 //+------------------------------------------------------------------+
-//| 辅助函数: 判断 Ticket 是否已同步过                                    |
+//| 辅助函数: 判断 Position ID 是否已同步过                             |
 //+------------------------------------------------------------------+
-bool IsTicketSynced(ulong ticket)
+bool IsPositionSynced(const long posId)
 {
-   int total = ArraySize(g_synced_tickets);
+   int total = ArraySize(g_synced_positions);
    for(int i = 0; i < total; i++)
    {
-      if(g_synced_tickets[i] == ticket) return true;
+      if(g_synced_positions[i] == posId) return true;
    }
    return false;
 }
 
 //+------------------------------------------------------------------+
-//| 辅助函数: 记录已同步 Ticket                                        |
+//| 辅助函数: 记录已同步 Position ID                                   |
 //+------------------------------------------------------------------+
-void RecordSyncedTicket(ulong ticket)
+void RecordSyncedPosition(const long posId)
 {
-   int size = ArraySize(g_synced_tickets);
-   ArrayResize(g_synced_tickets, size + 1);
-   g_synced_tickets[size] = ticket;
+   if(IsPositionSynced(posId)) return;
+   int size = ArraySize(g_synced_positions);
+   ArrayResize(g_synced_positions, size + 1);
+   g_synced_positions[size] = posId;
+}
+
+//+------------------------------------------------------------------+
+//| 辅助函数: 检查该 Position 是否仍处于未完全平仓持仓中                 |
+//+------------------------------------------------------------------+
+bool IsPositionStillOpen(const long posId)
+{
+   int openTotal = PositionsTotal();
+   for(int i = 0; i < openTotal; i++)
+   {
+      ulong openTicket = PositionGetTicket(i);
+      if(openTicket == 0) continue;
+      if(PositionGetInteger(POSITION_IDENTIFIER) == posId)
+      {
+         return true;
+      }
+   }
+   return false;
 }
 
 //+------------------------------------------------------------------+
@@ -352,30 +381,47 @@ void SyncOrders()
    int totalDeals = HistoryDealsTotal();
    if(totalDeals == 0) return;
 
-   // 1. 先用数组将所有需要同步的平仓 deal ticket 暂存，彻底解决 HistorySelectByPosition 破坏外层循环查询缓存的重大 Bug
-   ulong candidateTickets[];
+   // 1. 按仓位 Position ID 去重收集所有「已完全平仓」的仓位，避免 HistorySelectByPosition 破坏外层缓存，同时与 HTML Positions 报表保持完全一致口径
+   long candidatePosIds[];
    int candidateCount = 0;
 
    for(int i = 0; i < totalDeals; i++)
    {
-      ulong ticket = HistoryDealGetTicket(i);
-      if(ticket == 0) continue;
+      ulong dealTicket = HistoryDealGetTicket(i);
+      if(dealTicket == 0) continue;
 
-      long entryType = HistoryDealGetInteger(ticket, DEAL_ENTRY);
+      long dealType = HistoryDealGetInteger(dealTicket, DEAL_TYPE);
+      if(dealType != DEAL_TYPE_BUY && dealType != DEAL_TYPE_SELL) continue;
+
+      long entryType = HistoryDealGetInteger(dealTicket, DEAL_ENTRY);
       if(entryType != DEAL_ENTRY_OUT && entryType != DEAL_ENTRY_INOUT && entryType != DEAL_ENTRY_OUT_BY)
       {
          continue;
       }
 
-      if(IsTicketSynced(ticket)) continue;
+      long posId = HistoryDealGetInteger(dealTicket, DEAL_POSITION_ID);
+      if(posId <= 0) continue;
+      if(IsPositionSynced(posId)) continue;
+      if(IsPositionStillOpen(posId)) continue;
 
-      ArrayResize(candidateTickets, candidateCount + 1);
-      candidateTickets[candidateCount++] = ticket;
+      bool alreadyQueued = false;
+      for(int q = 0; q < candidateCount; q++)
+      {
+         if(candidatePosIds[q] == posId)
+         {
+            alreadyQueued = true;
+            break;
+         }
+      }
+      if(alreadyQueued) continue;
+
+      ArrayResize(candidatePosIds, candidateCount + 1);
+      candidatePosIds[candidateCount++] = posId;
    }
 
    if(candidateCount == 0) return;
 
-   // 2. 分批推送订单（每批 100 笔，避免单包过大超时）
+   // 2. 按 Position 整仓维度聚合后分批推送（每批 100 笔，与 MT5 Positions 报表粒度/均价/净盈亏 100% 一致）
    int batchSize = 100;
    int totalBatches = (candidateCount + batchSize - 1) / batchSize;
    int totalSyncedTrades = 0;
@@ -386,147 +432,174 @@ void SyncOrders()
       int count = MathMin(batchSize, candidateCount - startIdx);
       string jsonItems = "";
       int batchValid = 0;
-      ulong batchTickets[];
-      ArrayResize(batchTickets, count);
+      long batchPosIds[];
+      ArrayResize(batchPosIds, count);
 
       for(int i = 0; i < count; i++)
       {
-         ulong ticket = candidateTickets[startIdx + i];
-         batchTickets[i] = ticket;
+         long posId = candidatePosIds[startIdx + i];
+         if(!HistorySelectByPosition(posId)) continue;
 
-         HistoryDealSelect(ticket);
-         string symbol = HistoryDealGetString(ticket, DEAL_SYMBOL);
-         long dealType = HistoryDealGetInteger(ticket, DEAL_TYPE);
-         double volume = HistoryDealGetDouble(ticket, DEAL_VOLUME);
-         double closePrice = HistoryDealGetDouble(ticket, DEAL_PRICE);
-         double profit = HistoryDealGetDouble(ticket, DEAL_PROFIT);
-         double commission = HistoryDealGetDouble(ticket, DEAL_COMMISSION);
-         double fee = HistoryDealGetDouble(ticket, DEAL_FEE);
-         double swap = HistoryDealGetDouble(ticket, DEAL_SWAP);
-         datetime closeTime = (datetime)HistoryDealGetInteger(ticket, DEAL_TIME);
-         string comment = HistoryDealGetString(ticket, DEAL_COMMENT);
-         long posId = HistoryDealGetInteger(ticket, DEAL_POSITION_ID);
-         long dealReason = HistoryDealGetInteger(ticket, DEAL_REASON);
+         int posDeals = HistoryDealsTotal();
+         if(posDeals == 0) continue;
 
-         double openPrice = closePrice;
-         datetime openTime = closeTime;
-         string direction = (dealType == DEAL_TYPE_BUY) ? "short" : "long";
-         double stopLoss = 0.0;
-         double takeProfit = 0.0;
-         string finalTrigger = "";
+         string symbol = "";
+         string direction = "long";
+         datetime openTime = 0;
+         datetime closeTime = 0;
+         bool hasInDeal = false;
+         bool hasOutDeal = false;
 
          double inVolSum = 0.0;
          double inPriceVolSum = 0.0;
          double outVolSum = 0.0;
-         double inCommSum = 0.0;
-         double inFeeSum = 0.0;
-         double inSwapSum = 0.0;
-         bool hasInDeal = false;
+         double outPriceVolSum = 0.0;
+         double profitSum = 0.0;
+         double commSum = 0.0;
+         double feeSum = 0.0;
+         double swapSum = 0.0;
 
-         if(posId > 0 && HistorySelectByPosition(posId))
+         double stopLoss = 0.0;
+         double takeProfit = 0.0;
+         string finalTrigger = "";
+         string lastOutComment = "";
+         string firstComment = "";
+         long lastOutReason = -1;
+
+         for(int j = 0; j < posDeals; j++)
          {
-            int posDeals = HistoryDealsTotal();
-            for(int j = 0; j < posDeals; j++)
+            ulong dTicket = HistoryDealGetTicket(j);
+            if(dTicket == 0) continue;
+
+            long dType = HistoryDealGetInteger(dTicket, DEAL_TYPE);
+            if(dType != DEAL_TYPE_BUY && dType != DEAL_TYPE_SELL) continue;
+
+            long dEntry = HistoryDealGetInteger(dTicket, DEAL_ENTRY);
+            double dVol = HistoryDealGetDouble(dTicket, DEAL_VOLUME);
+            double dPrice = HistoryDealGetDouble(dTicket, DEAL_PRICE);
+            datetime dTime = (datetime)HistoryDealGetInteger(dTicket, DEAL_TIME);
+            string dSymbol = HistoryDealGetString(dTicket, DEAL_SYMBOL);
+            string dComment = HistoryDealGetString(dTicket, DEAL_COMMENT);
+
+            if(StringLen(symbol) == 0 && StringLen(dSymbol) > 0) symbol = dSymbol;
+            if(StringLen(firstComment) == 0 && StringLen(dComment) > 0) firstComment = dComment;
+
+            profitSum += HistoryDealGetDouble(dTicket, DEAL_PROFIT);
+            commSum   += HistoryDealGetDouble(dTicket, DEAL_COMMISSION);
+            feeSum    += HistoryDealGetDouble(dTicket, DEAL_FEE);
+            swapSum   += HistoryDealGetDouble(dTicket, DEAL_SWAP);
+
+            if(dEntry == DEAL_ENTRY_IN)
             {
-               ulong posDealTicket = HistoryDealGetTicket(j);
-               if(posDealTicket == 0) continue;
-               long dEntry = HistoryDealGetInteger(posDealTicket, DEAL_ENTRY);
-               double dVol = HistoryDealGetDouble(posDealTicket, DEAL_VOLUME);
-
-               if(dEntry == DEAL_ENTRY_IN)
+               if(!hasInDeal || dTime < openTime)
                {
-                  double dPrice = HistoryDealGetDouble(posDealTicket, DEAL_PRICE);
-                  datetime dTime = (datetime)HistoryDealGetInteger(posDealTicket, DEAL_TIME);
-                  long dType = HistoryDealGetInteger(posDealTicket, DEAL_TYPE);
-
-                  if(!hasInDeal || dTime < openTime)
-                  {
-                     openTime = dTime;
-                     direction = (dType == DEAL_TYPE_BUY) ? "long" : "short";
-                     hasInDeal = true;
-                  }
-                  inVolSum += dVol;
-                  inPriceVolSum += dVol * dPrice;
-                  inCommSum += HistoryDealGetDouble(posDealTicket, DEAL_COMMISSION);
-                  inFeeSum += HistoryDealGetDouble(posDealTicket, DEAL_FEE);
-                  inSwapSum += HistoryDealGetDouble(posDealTicket, DEAL_SWAP);
+                  openTime = dTime;
+                  direction = (dType == DEAL_TYPE_BUY) ? "long" : "short";
+                  hasInDeal = true;
                }
-               else if(dEntry == DEAL_ENTRY_OUT || dEntry == DEAL_ENTRY_INOUT || dEntry == DEAL_ENTRY_OUT_BY)
-               {
-                  outVolSum += dVol;
-               }
+               inVolSum += dVol;
+               inPriceVolSum += dVol * dPrice;
             }
-
-            if(inVolSum > 0.0)
+            else if(dEntry == DEAL_ENTRY_OUT || dEntry == DEAL_ENTRY_INOUT || dEntry == DEAL_ENTRY_OUT_BY)
             {
-               openPrice = inPriceVolSum / inVolSum;
-            }
-
-            int posOrders = HistoryOrdersTotal();
-            for(int j = 0; j < posOrders; j++)
-            {
-               ulong ordTicket = HistoryOrderGetTicket(j);
-               if(ordTicket > 0)
+               double effOutVol = dVol;
+               if(dEntry == DEAL_ENTRY_INOUT && inVolSum > outVolSum && dVol > (inVolSum - outVolSum))
                {
-                  double ordSl = HistoryOrderGetDouble(ordTicket, ORDER_SL);
-                  double ordTp = HistoryOrderGetDouble(ordTicket, ORDER_TP);
-                  if(stopLoss <= 0.0 && ordSl > 0.0) stopLoss = ordSl;
-                  if(takeProfit <= 0.0 && ordTp > 0.0) takeProfit = ordTp;
+                  effOutVol = inVolSum - outVolSum;
                }
+               if(!hasOutDeal || dTime >= closeTime)
+               {
+                  closeTime = dTime;
+                  lastOutReason = HistoryDealGetInteger(dTicket, DEAL_REASON);
+                  lastOutComment = dComment;
+                  hasOutDeal = true;
+                  #ifdef DEAL_SL
+                     double dSl = HistoryDealGetDouble(dTicket, DEAL_SL);
+                     double dTp = HistoryDealGetDouble(dTicket, DEAL_TP);
+                     if(dSl > 0.0) stopLoss = dSl;
+                     if(dTp > 0.0) takeProfit = dTp;
+                  #endif
+               }
+               outVolSum += effOutVol;
+               outPriceVolSum += effOutVol * dPrice;
             }
          }
 
-         if(dealReason == DEAL_REASON_SL || StringFind(comment, "[sl") >= 0)
+         if(!hasInDeal || !hasOutDeal || inVolSum <= 0.0 || outVolSum <= 0.0 || StringLen(symbol) == 0)
+         {
+            continue;
+         }
+
+         double volume = MathMin(inVolSum, outVolSum);
+         double openPrice = inPriceVolSum / inVolSum;
+         double closePrice = outPriceVolSum / outVolSum;
+
+         // 若 DEAL_SL / DEAL_TP 为 0，反向遍历该仓位关联历史订单取最近一次非 0 止损/止盈
+         int posOrders = HistoryOrdersTotal();
+         for(int j = posOrders - 1; j >= 0; j--)
+         {
+            ulong ordTicket = HistoryOrderGetTicket(j);
+            if(ordTicket > 0)
+            {
+               double ordSl = HistoryOrderGetDouble(ordTicket, ORDER_SL);
+               double ordTp = HistoryOrderGetDouble(ordTicket, ORDER_TP);
+               if(stopLoss <= 0.0 && ordSl > 0.0) stopLoss = ordSl;
+               if(takeProfit <= 0.0 && ordTp > 0.0) takeProfit = ordTp;
+               if(stopLoss > 0.0 && takeProfit > 0.0) break;
+            }
+         }
+
+         string mergedComment = (StringLen(lastOutComment) > 0) ? lastOutComment : firstComment;
+         string commentLower = mergedComment;
+         StringToLower(commentLower);
+
+         if(lastOutReason == DEAL_REASON_SL || StringFind(commentLower, "[sl") >= 0)
          {
             finalTrigger = "stopLoss";
          }
-         else if(dealReason == DEAL_REASON_TP || StringFind(comment, "[tp") >= 0)
+         else if(lastOutReason == DEAL_REASON_TP || StringFind(commentLower, "[tp") >= 0)
          {
             finalTrigger = "takeProfit";
          }
 
-         // 从出场 Deal 备注中解析可能记录的止损止盈（例如部分平台或自成交标记 [sl 2640.50] / [tp 2650.00]）
+         // 从出场 Deal 备注中解析可能记录的止损止盈（例如 [sl 2640.50] / [tp 2650.00]）
          if(stopLoss <= 0.0)
          {
-            int slIdx = StringFind(comment, "[sl ");
+            int slIdx = StringFind(commentLower, "[sl ");
             if(slIdx >= 0)
             {
-               int endIdx = StringFind(comment, "]", slIdx);
+               int endIdx = StringFind(mergedComment, "]", slIdx);
                if(endIdx > slIdx)
                {
-                  string slStr = StringSubstr(comment, slIdx + 4, endIdx - (slIdx + 4));
+                  string slStr = StringSubstr(mergedComment, slIdx + 4, endIdx - (slIdx + 4));
                   stopLoss = StringToDouble(slStr);
                }
             }
          }
          if(takeProfit <= 0.0)
          {
-            int tpIdx = StringFind(comment, "[tp ");
+            int tpIdx = StringFind(commentLower, "[tp ");
             if(tpIdx >= 0)
             {
-               int endIdx = StringFind(comment, "]", tpIdx);
+               int endIdx = StringFind(mergedComment, "]", tpIdx);
                if(endIdx > tpIdx)
                {
-                  string tpStr = StringSubstr(comment, tpIdx + 4, endIdx - (tpIdx + 4));
+                  string tpStr = StringSubstr(mergedComment, tpIdx + 4, endIdx - (tpIdx + 4));
                   takeProfit = StringToDouble(tpStr);
                }
             }
          }
 
-         // 完整净盈亏：包含出场及按比例分摊的入场佣金(DEAL_COMMISSION)、额外费用(DEAL_FEE)与隔夜利息(DEAL_SWAP)
-         double denomVol = MathMax(inVolSum, outVolSum);
-         double allocRatio = (denomVol > 0.0) ? (volume / denomVol) : 1.0;
-         double totalCommAndFee = commission + fee + (inCommSum + inFeeSum) * allocRatio;
-         double totalSwap = swap + inSwapSum * allocRatio;
-         double netPnl = profit + totalCommAndFee + totalSwap;
+         // 完整整仓净盈亏：Profit + Commission + Fee + Swap (与 MT5 HTML Positions 报表分毫不差)
+         double netPnl = profitSum + commSum + feeSum + swapSum;
 
          string safeSymbol = EscapeJsonString(symbol);
-         string safeComment = EscapeJsonString(comment);
+         string safeComment = EscapeJsonString(mergedComment);
 
          if(batchValid > 0) jsonItems += ",";
          jsonItems += StringFormat(
-            "{\"ticket\":\"%I64u\",\"positionId\":\"%I64d\",\"symbol\":\"%s\",\"direction\":\"%s\",\"size\":%.4f,\"entryPrice\":%.5f,\"exitPrice\":%.5f,\"stopLoss\":%.5f,\"takeProfit\":%.5f,\"finalTrigger\":\"%s\",\"entryTime\":\"%s\",\"exitTime\":\"%s\",\"manualPnl\":%.2f,\"profit\":%.2f,\"commission\":%.2f,\"fee\":%.2f,\"swap\":%.2f,\"notes\":\"%s\"}",
-            ticket,
+            "{\"ticket\":\"%I64d\",\"positionId\":\"%I64d\",\"symbol\":\"%s\",\"direction\":\"%s\",\"size\":%.4f,\"entryPrice\":%.5f,\"exitPrice\":%.5f,\"stopLoss\":%.5f,\"takeProfit\":%.5f,\"finalTrigger\":\"%s\",\"entryTime\":\"%s\",\"exitTime\":\"%s\",\"manualPnl\":%.2f,\"profit\":%.2f,\"commission\":%.2f,\"fee\":%.2f,\"swap\":%.2f,\"notes\":\"%s\"}",
+            posId,
             posId,
             safeSymbol,
             direction,
@@ -539,13 +612,14 @@ void SyncOrders()
             TimeToString(openTime, TIME_DATE | TIME_SECONDS),
             TimeToString(closeTime, TIME_DATE | TIME_SECONDS),
             netPnl,
-            profit,
-            totalCommAndFee,
-            fee + inFeeSum * allocRatio,
-            totalSwap,
+            profitSum,
+            commSum,
+            feeSum,
+            swapSum,
             safeComment
          );
 
+         batchPosIds[batchValid] = posId;
          batchValid++;
       }
 
@@ -563,16 +637,15 @@ void SyncOrders()
          string resp;
          if(SendJsonRequest("/trades/sync", payload, resp))
          {
-            // 只有成功发送后才记录 Ticket
             for(int k = 0; k < batchValid; k++)
             {
-               RecordSyncedTicket(batchTickets[k]);
+               RecordSyncedPosition(batchPosIds[k]);
             }
             totalSyncedTrades += batchValid;
          }
          else
          {
-            PrintFormat("[TradeZen EA] 第 %d/%d 批订单直推失败，终止本轮推送", b + 1, totalBatches);
+            PrintFormat("[TradeZen EA] 第 %d/%d 批持仓直推失败，终止本轮推送", b + 1, totalBatches);
             break;
          }
       }
@@ -684,10 +757,15 @@ void SyncCandles()
          );
       }
 
+      string candleTz = "broker";
+      long candleOffsetSec = 0;
+      ResolveBrokerTimezonePayload(candleTz, candleOffsetSec);
       string payload = StringFormat(
-         "{\"symbol\":\"%s\",\"timeframe\":\"%s\",\"timezone\":\"broker\",\"candles\":[%s]}",
-         _Symbol,
+         "{\"symbol\":\"%s\",\"timeframe\":\"%s\",\"timezone\":\"%s\",\"gmtOffsetSec\":%I64d,\"candles\":[%s]}",
+         EscapeJsonString(_Symbol),
          tfStr,
+         candleTz,
+         candleOffsetSec,
          candlesJson
       );
 
@@ -743,10 +821,15 @@ void SyncLiveCandles(int barsCount = 2)
       );
    }
 
+   string candleTz = "broker";
+   long candleOffsetSec = 0;
+   ResolveBrokerTimezonePayload(candleTz, candleOffsetSec);
    string payload = StringFormat(
-      "{\"symbol\":\"%s\",\"timeframe\":\"%s\",\"timezone\":\"broker\",\"candles\":[%s]}",
-      _Symbol,
+      "{\"symbol\":\"%s\",\"timeframe\":\"%s\",\"timezone\":\"%s\",\"gmtOffsetSec\":%I64d,\"candles\":[%s]}",
+      EscapeJsonString(_Symbol),
       tfStr,
+      candleTz,
+      candleOffsetSec,
       candlesJson
    );
 
@@ -763,7 +846,7 @@ void SyncLiveCandles(int barsCount = 2)
 int OnInit()
 {
    Print("==================================================");
-   Print("[TradeZen EA] 正在启动 (v1.20 实时增量流同步版)...");
+   Print("[TradeZen EA] 正在启动 (v1.30 统一仓位口径 + 实时增量流同步版)...");
    Print("[TradeZen EA] [安全提示] 当前使用的 API Token 为个人专属密钥，请勿转给他人使用以防账单数据被污染。");
    PrintFormat("[TradeZen EA] 远程目标: %s", InpServerUrl);
    PrintFormat("[TradeZen EA] 当前品种: %s | K线周期: %s (已锁定为 1M 基础原子周期，服务端自动向上聚合多周期)", _Symbol, TimeframeToString(InpCandleTf));

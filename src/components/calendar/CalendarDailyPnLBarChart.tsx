@@ -1,12 +1,14 @@
 import React, { useMemo, useState } from 'react';
 import { Trade } from './calendarTypes';
-import { computeDayStats, formatCurrency, getCurrentTradingDate } from './calendarUtils';
+import { BrokerTimezoneMode, computeDayStats, formatCurrency, getCurrentTradingDate } from './calendarUtils';
 import { BarChart3, TrendingUp, TrendingDown, Target, Award, Calendar, Zap } from 'lucide-react';
 
 interface CalendarDailyPnLBarChartProps {
   currentYear: number;
   currentMonth: number; // 0-indexed: 0 = Jan, 11 = Dec
   tradesByDay: Record<string, Trade[]>;
+  cutoffMode?: 'trading' | 'natural';
+  brokerTimezone?: BrokerTimezoneMode;
   onSelectDay?: (dateStr: string) => void;
   className?: string;
 }
@@ -33,6 +35,8 @@ export const CalendarDailyPnLBarChart: React.FC<CalendarDailyPnLBarChartProps> =
   currentYear,
   currentMonth,
   tradesByDay,
+  cutoffMode,
+  brokerTimezone,
   onSelectDay,
   className = '',
 }) => {
@@ -40,7 +44,8 @@ export const CalendarDailyPnLBarChart: React.FC<CalendarDailyPnLBarChartProps> =
 
   // Compute daily stats for every day of current month (按交易日时间统计)
   const { days, totalPnL, greenDays, redDays, breakevenDays, winDayRate, tradeWinRate, totalTradeWins, totalTradeLosses, bestDay, worstDay, maxAbsPnl, activeDaysCount, totalTradesCount, avgTradesPerDay } = useMemo(() => {
-    const todayStr = getCurrentTradingDate();
+    const cutoffParam = cutoffMode ? (cutoffMode === 'trading' ? 'mt5' : 0) : undefined;
+    const todayStr = getCurrentTradingDate(cutoffParam, brokerTimezone);
     
     // Total days in the current month
     const totalDays = new Date(currentYear, currentMonth + 1, 0).getDate();
@@ -124,7 +129,7 @@ export const CalendarDailyPnLBarChart: React.FC<CalendarDailyPnLBarChartProps> =
       totalTradesCount: totalTrades,
       avgTradesPerDay: avgTrades,
     };
-  }, [currentYear, currentMonth, tradesByDay]);
+  }, [currentYear, currentMonth, tradesByDay, cutoffMode, brokerTimezone]);
 
   const isNetProfit = totalPnL >= 0;
 

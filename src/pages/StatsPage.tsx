@@ -21,8 +21,12 @@ import {
   isTradeMistake,
   BrokerTimezoneMode,
   BROKER_TIMEZONE_STORAGE_KEY,
+  BROKER_TIMEZONE_MANUAL_STORAGE_KEY,
   TRADING_DAY_CUTOFF_STORAGE_KEY,
   getEffectiveBrokerTimezone,
+  getDetectedBrokerTimezone,
+  isBrokerTimezoneAutoDetected,
+  clearManualBrokerTimezoneOverride,
   getCurrentMT5CutoffLabel,
 } from '../components/calendar/calendarUtils';
 import { CalendarDayDrawer } from '../components/calendar/CalendarDayDrawer';
@@ -156,6 +160,7 @@ const StatsPage: React.FC = () => {
   });
 
   const [brokerTz, setBrokerTz] = useState<BrokerTimezoneMode>(() => getEffectiveBrokerTimezone());
+  const [isAutoTz, setIsAutoTz] = useState<boolean>(() => isBrokerTimezoneAutoDetected());
 
   const handleCutoffChange = (mode: 'trading' | 'natural') => {
     setCutoffMode(mode);
@@ -169,11 +174,22 @@ const StatsPage: React.FC = () => {
 
   const handleBrokerTzChange = (tz: BrokerTimezoneMode) => {
     setBrokerTz(tz);
+    setIsAutoTz(false);
     try {
       if (typeof localStorage !== 'undefined') {
         localStorage.setItem(BROKER_TIMEZONE_STORAGE_KEY, tz);
+        localStorage.setItem(BROKER_TIMEZONE_MANUAL_STORAGE_KEY, '1');
         window.dispatchEvent(new Event('tradezella_cutoff_changed'));
       }
+    } catch {}
+  };
+
+  const handleResetAutoBrokerTz = () => {
+    clearManualBrokerTimezoneOverride();
+    setBrokerTz(getEffectiveBrokerTimezone());
+    setIsAutoTz(isBrokerTimezoneAutoDetected());
+    try {
+      window.dispatchEvent(new Event('tradezella_cutoff_changed'));
     } catch {}
   };
 
@@ -185,6 +201,7 @@ const StatsPage: React.FC = () => {
           const saved = localStorage.getItem(TRADING_DAY_CUTOFF_STORAGE_KEY);
           setCutoffMode(saved === '0' ? 'natural' : 'trading');
           setBrokerTz(getEffectiveBrokerTimezone());
+          setIsAutoTz(isBrokerTimezoneAutoDetected());
         }
       } catch {}
     };
@@ -277,6 +294,8 @@ const StatsPage: React.FC = () => {
             currentYear={currentDate.getFullYear()}
             currentMonth={currentDate.getMonth()}
             tradesByDay={tradesByDay}
+            cutoffMode={cutoffMode}
+            brokerTimezone={brokerTz}
             onSelectDay={(dateStr) => setSelectedDay(dateStr)}
           />
 
@@ -348,18 +367,38 @@ const StatsPage: React.FC = () => {
               </div>
 
               {cutoffMode === 'trading' && (
-                <select
-                  aria-label="券商服务器时区"
-                  value={brokerTz}
-                  onChange={(e) => handleBrokerTzChange(e.target.value as BrokerTimezoneMode)}
-                  className="hidden md:block h-[34px] px-2 rounded-xl border border-gray-200/80 dark:border-white/10 bg-white dark:bg-[#070a13] text-[11px] font-mono text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-1 focus:ring-purple-500 cursor-pointer"
-                  title="选择 MT5 券商服务器时区，使统计日历与 MT5 完全对齐"
-                >
-                  <option value="eet">MT5: EET/EEST (自动夏05/冬06)</option>
-                  <option value="utc">MT5: UTC+0 零时区 (08:00切日)</option>
-                  <option value="utc3">MT5: UTC+3 固定 (05:00切日)</option>
-                  <option value="utc2">MT5: UTC+2 固定 (06:00切日)</option>
-                </select>
+                <div className="hidden md:flex items-center space-x-1.5">
+                  <select
+                    aria-label="券商服务器时区"
+                    value={brokerTz}
+                    onChange={(e) => handleBrokerTzChange(e.target.value as BrokerTimezoneMode)}
+                    className="h-[34px] px-2 rounded-xl border border-gray-200/80 dark:border-white/10 bg-white dark:bg-[#070a13] text-[11px] font-mono text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-1 focus:ring-purple-500 cursor-pointer"
+                    title="选择 MT5 券商服务器时区，使统计日历与 MT5 完全对齐"
+                  >
+                    <option value="eet">MT5: EET/EEST (自动夏05/冬06)</option>
+                    <option value="utc">MT5: UTC+0 零时区 (08:00切日)</option>
+                    <option value="utc3">MT5: UTC+3 固定 (05:00切日)</option>
+                    <option value="utc2">MT5: UTC+2 固定 (06:00切日)</option>
+                  </select>
+                  {isAutoTz && (
+                    <span
+                      className="px-1.5 py-0.5 rounded-md text-[10px] font-mono bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200/70 dark:border-emerald-800/40"
+                      title="已根据 EA 探测的券商服务器时间自动匹配"
+                    >
+                      EA自动
+                    </span>
+                  )}
+                  {!isAutoTz && getDetectedBrokerTimezone() && (
+                    <button
+                      type="button"
+                      onClick={handleResetAutoBrokerTz}
+                      className="px-1.5 py-0.5 rounded-md text-[10px] font-mono bg-gray-100 dark:bg-white/5 text-gray-500 dark:text-gray-400 hover:text-purple-600 dark:hover:text-purple-300 border border-gray-200 dark:border-white/10 cursor-pointer"
+                      title="恢复使用 EA 自动识别的券商服务器时区"
+                    >
+                      恢复自动
+                    </button>
+                  )}
+                </div>
               )}
 
               <button

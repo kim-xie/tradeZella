@@ -83,11 +83,68 @@ export function isUSDST(year, month, day, hour = 0) {
   return false;
 }
 
+export function resolveCanonicalBrokerTimezone(timezone, gmtOffsetSec = null) {
+  const tz = String(timezone || '').toLowerCase().trim();
+  const offset = gmtOffsetSec !== undefined && gmtOffsetSec !== null && gmtOffsetSec !== ''
+    ? Number(gmtOffsetSec)
+    : NaN;
+
+  if (tz === 'offset' && Number.isFinite(offset)) {
+    const rounded = Math.round(offset);
+    if (rounded === 0) return 'utc';
+    if (rounded === 10800) return 'utc3';
+    if (rounded === 7200) return 'utc2';
+    if (rounded === 28800) return 'shanghai';
+    return null;
+  }
+
+  if (tz === 'broker' || tz === 'mt' || tz === 'eet') return 'eet';
+  if (tz === 'utc' || tz === 'gmt' || tz === 'utc+0' || tz === 'utc0') return 'utc';
+  if (tz === 'utc3' || tz === 'utc+3') return 'utc3';
+  if (tz === 'utc2' || tz === 'utc+2') return 'utc2';
+  if (tz === 'shanghai' || tz === 'beijing' || tz === 'cst' || tz === 'utc+8' || tz === 'gmt+8') return 'shanghai';
+  return null;
+}
+
+function extractExplicitTimestampOffsetSec(raw) {
+  if (!raw) return null;
+  const trimmed = String(raw).trim();
+  // 匹配时间主体之后携带的显式时区后缀 (Z / UTC / GMT / UTC+3 / +03:00 / -0500)
+  const zoneMatch = trimmed.match(/(?:\d{1,2}:\d{2}(?::\d{2})?(?:\.\d+)?)\s*(Z|UTC(?:\s*[+-]\d{1,2}(?::?\d{2})?)?|GMT(?:\s*[+-]\d{1,2}(?::?\d{2})?)?|[+-]\d{1,2}(?::?\d{2})?)\s*$/i);
+  if (!zoneMatch) return null;
+
+  const token = zoneMatch[1].replace(/\s+/g, '').toUpperCase();
+  if (token === 'Z' || token === 'UTC' || token === 'GMT') {
+    return 0;
+  }
+
+  const offsetMatch = token.match(/^(?:UTC|GMT)?([+-])(\d{1,2})(?::?(\d{2}))?$/);
+  if (!offsetMatch) return null;
+  const sign = offsetMatch[1] === '-' ? -1 : 1;
+  const hh = parseInt(offsetMatch[2], 10);
+  const mm = offsetMatch[3] ? parseInt(offsetMatch[3], 10) : 0;
+  if (hh > 14 || mm >= 60) return null;
+  return sign * (hh * 3600 + mm * 60);
+}
+
+export function detectExplicitTimezoneLabel(text) {
+  if (!text) return null;
+  const s = String(text).toLowerCase();
+  if (/(?:utc|gmt)\s*\+\s*8(?::00)?\b|北京时间|上海时间|asia\/shanghai|\(\s*cst\s*\)/.test(s)) return 'shanghai';
+  if (/(?:utc|gmt)\s*\+\s*3(?::00)?\b|\(\s*eest\s*\)/.test(s)) return 'utc3';
+  if (/(?:utc|gmt)\s*\+\s*2(?::00)?\b/.test(s)) return 'utc2';
+  if (/(?:utc|gmt)\s*[+-]?\s*0(?::00)?\b|\(\s*(?:utc|gmt)\s*\)/.test(s)) return 'utc';
+  if (/\(\s*(?:est|edt)\s*\)|us\/eastern|america\/new_york/.test(s)) return 'est';
+  if (/\(\s*eet\s*\)|eet\/eest/.test(s)) return 'broker';
+  return null;
+}
+
 /**
  * Converts a raw date string into Shanghai Time (Asia/Shanghai, UTC+8) in ISO format (YYYY-MM-DDTHH:mm:ss).
  * Supported source timezones:
  * - 'broker' | 'mt' | 'eet': MT4/MT5 Broker Server Time (EET/EEST with US DST: winter UTC+2 -> +6h, summer UTC+3 -> +5h)
  * - 'utc' | 'gmt': UTC (UTC+0 -> +8h)
+ * - 'utc3' | 'utc2': Fixed UTC+3 (+5h) / UTC+2 (+6h)
  * - 'shanghai' | 'beijing' | 'none': Already Shanghai time (+0h)
  * - 'est' | 'us_eastern': US Eastern Time (winter UTC-5 -> +13h, summer UTC-4 -> +12h)
  * - number or numeric string: explicit offset hours to add (e.g. 6 or "+6")
@@ -116,27 +173,33 @@ export function convertToShanghaiTime(val, sourceTimezone = 'broker') {
   const second = match[6] ? parseInt(match[6], 10) : 0;
 
   let offsetSeconds = 0;
-  const tz = String(sourceTimezone || 'broker').toLowerCase().trim();
+  const explicitTimestampOffsetSec = extractExplicitTimestampOffsetSec(raw);
 
-  if (tz === 'broker' || tz === 'mt' || tz === 'eet') {
-    const inDST = isUSDST(year, month, day, hour);
-    offsetSeconds = (inDST ? 5 : 6) * 3600;
-  } else if (tz === 'utc' || tz === 'gmt' || tz === 'z' || tz === 'utc+0' || tz === 'utc0') {
-    offsetSeconds = 8 * 3600;
-  } else if (tz === 'utc3' || tz === 'utc+3') {
-    offsetSeconds = 5 * 3600;
-  } else if (tz === 'utc2' || tz === 'utc+2') {
-    offsetSeconds = 6 * 3600;
-  } else if (tz === 'shanghai' || tz === 'beijing' || tz === 'none' || tz === 'cst' || tz === 'utc+8' || tz === 'gmt+8') {
-    offsetSeconds = 0;
-  } else if (tz === 'est' || tz === 'us_eastern' || tz === 'edt') {
-    const inDST = isUSDST(year, month, day, hour);
-    offsetSeconds = (inDST ? 12 : 13) * 3600;
-  } else if (/^[+-]?\d+(?:\.\d+)?$/.test(tz)) {
-    offsetSeconds = Math.round(parseFloat(tz) * 3600);
+  if (explicitTimestampOffsetSec !== null) {
+    offsetSeconds = 8 * 3600 - explicitTimestampOffsetSec;
   } else {
-    const inDST = isUSDST(year, month, day, hour);
-    offsetSeconds = (inDST ? 5 : 6) * 3600;
+    const tz = String(sourceTimezone || 'broker').toLowerCase().trim();
+
+    if (tz === 'broker' || tz === 'mt' || tz === 'eet') {
+      const inDST = isUSDST(year, month, day, hour);
+      offsetSeconds = (inDST ? 5 : 6) * 3600;
+    } else if (tz === 'utc' || tz === 'gmt' || tz === 'z' || tz === 'utc+0' || tz === 'utc0') {
+      offsetSeconds = 8 * 3600;
+    } else if (tz === 'utc3' || tz === 'utc+3') {
+      offsetSeconds = 5 * 3600;
+    } else if (tz === 'utc2' || tz === 'utc+2') {
+      offsetSeconds = 6 * 3600;
+    } else if (tz === 'shanghai' || tz === 'beijing' || tz === 'none' || tz === 'cst' || tz === 'utc+8' || tz === 'gmt+8') {
+      offsetSeconds = 0;
+    } else if (tz === 'est' || tz === 'us_eastern' || tz === 'edt') {
+      const inDST = isUSDST(year, month, day, hour);
+      offsetSeconds = (inDST ? 12 : 13) * 3600;
+    } else if (/^[+-]?\d+(?:\.\d+)?$/.test(tz)) {
+      offsetSeconds = Math.round(parseFloat(tz) * 3600);
+    } else {
+      const inDST = isUSDST(year, month, day, hour);
+      offsetSeconds = (inDST ? 5 : 6) * 3600;
+    }
   }
 
   const d = new Date(Date.UTC(year, month - 1, day, hour, minute, second + offsetSeconds));
@@ -432,7 +495,9 @@ export function normalizeRowsToTrades(rows, detectedFormat = 'UNKNOWN', original
     throw new Error('报表数据为空或行数过少，无法解析。');
   }
 
-  const timezone = options.timezone || 'broker';
+  const requestedTimezone = String(options.timezone || 'broker').trim();
+  const fallbackTimezone = String(options.fallbackTimezone || 'broker').trim();
+  const rawText = options.rawText || '';
 
   // 1. Locate the header row
   let headerRowIndex = -1;
@@ -640,7 +705,11 @@ export function normalizeRowsToTrades(rows, detectedFormat = 'UNKNOWN', original
   );
 
   const feeIdx = lowerHeaders.findIndex((h, idx) =>
-    idx !== commissionIdx && (
+    idx !== commissionIdx &&
+    idx !== swapIdx &&
+    idx !== profitIdx &&
+    idx !== tpIdx &&
+    idx !== slIdx && (
       h === 'fee' ||
       h.includes('费用') ||
       h.includes('清算费')
@@ -673,6 +742,65 @@ export function normalizeRowsToTrades(rows, detectedFormat = 'UNKNOWN', original
   if (symbolIdx === -1 || (sizeIdx === -1 && openPriceIdx === -1)) {
     throw new Error('报表缺少必要字段（未识别到 品种、手数 或 价格列）。');
   }
+
+  // 自动识别表头 / 报表抬头中的显式时区标注
+  const openColHeaderTz = openTimeIdx >= 0 ? detectExplicitTimezoneLabel(rawHeaders[openTimeIdx]) : null;
+  const closeColHeaderTz = closeTimeIdx >= 0 ? detectExplicitTimezoneLabel(rawHeaders[closeTimeIdx]) : null;
+
+  let docDetectedTz = null;
+  if (requestedTimezone.toLowerCase() === 'auto') {
+    const preambleRowsText = rows.slice(0, headerRowIndex).map((r) => r.join(' ')).join('\n');
+    const cleanPreambleHtml = rawText
+      ? rawText.slice(0, 3000).replace(/<[^>]+>/g, ' ')
+      : '';
+    docDetectedTz = detectExplicitTimezoneLabel(`${preambleRowsText}\n${cleanPreambleHtml}`);
+  }
+
+  let baseTimezone = requestedTimezone.toLowerCase() === 'auto'
+    ? (docDetectedTz || openColHeaderTz || closeColHeaderTz || fallbackTimezone || 'broker')
+    : requestedTimezone;
+
+  const isCryptoSymbol = (sym) => /^(BTC|ETH|SOL|XRP|DOGE|BNB|ADA|LTC|DOT|AVAX|LINK|SHIB|TON|TRX|SUI|USDT|USDC)/.test(String(sym || '').toUpperCase());
+
+  if (requestedTimezone.toLowerCase() === 'auto' && !docDetectedTz && !openColHeaderTz && !closeColHeaderTz) {
+    let hasSundayFxOpen = false;
+    let hasSaturdayTrade = false;
+    let sawCrypto = false;
+
+    for (let i = headerRowIndex + 1; i < rows.length; i++) {
+      const r = rows[i];
+      if (!r || !r.length) continue;
+      const sym = r[symbolIdx] ? String(r[symbolIdx]).trim() : '';
+      if (!sym) continue;
+      if (isCryptoSymbol(sym)) {
+        sawCrypto = true;
+        break;
+      }
+      const candidates = [
+        openTimeIdx >= 0 ? r[openTimeIdx] : '',
+        closeTimeIdx >= 0 ? r[closeTimeIdx] : '',
+      ];
+      for (const rawDt of candidates) {
+        const m = String(rawDt || '').trim().match(/(\d{4})[./-](\d{1,2})[./-](\d{1,2})[T\s](\d{1,2}):(\d{1,2})/);
+        if (!m) continue;
+        const dt = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(m[4]), Number(m[5])));
+        const dow = dt.getUTCDay();
+        const mins = Number(m[4]) * 60 + Number(m[5]);
+        if (dow === 6 && mins >= 60 && mins <= 1410) hasSaturdayTrade = true;
+        // 全球外汇/贵金属仅在纽约17:00(UTC 21:00/22:00)开盘；仅当出现周日 20:30~23:30 成交且非周末加密货币时推断 UTC+0
+        if (dow === 0 && mins >= 1230 && mins <= 1410) hasSundayFxOpen = true;
+      }
+    }
+
+    if (!sawCrypto && !hasSaturdayTrade && hasSundayFxOpen) {
+      baseTimezone = 'utc';
+      docDetectedTz = 'utc';
+    }
+  }
+
+  const resolvedOpenTz = openColHeaderTz || baseTimezone;
+  const resolvedCloseTz = closeColHeaderTz || baseTimezone;
+  const detectedTimezone = openColHeaderTz || closeColHeaderTz || docDetectedTz || (requestedTimezone.toLowerCase() === 'auto' ? baseTimezone : null);
 
   const trades = [];
 
@@ -745,7 +873,8 @@ export function normalizeRowsToTrades(rows, detectedFormat = 'UNKNOWN', original
     }
 
     const direction = parseDirection(rawType);
-    const size = sizeIdx >= 0 ? cleanNumber(row[sizeIdx]) : 1.0;
+    const rawSizeCell = sizeIdx >= 0 ? String(row[sizeIdx] ?? '').split('/')[0] : '';
+    const size = sizeIdx >= 0 ? cleanNumber(rawSizeCell) : 1.0;
     const entryPrice = openPriceIdx >= 0 ? cleanNumber(row[openPriceIdx]) : null;
     const exitPrice = closePriceIdx >= 0 ? cleanNumber(row[closePriceIdx]) : (entryPrice || 0);
 
@@ -764,8 +893,8 @@ export function normalizeRowsToTrades(rows, detectedFormat = 'UNKNOWN', original
       manualPnl = Math.round((rawProfit + swap + commission + fee + taxes) * 100) / 100;
     }
 
-    const entryTime = openTimeIdx >= 0 ? convertToShanghaiTime(row[openTimeIdx], timezone) : null;
-    const exitTime = closeTimeIdx >= 0 ? convertToShanghaiTime(row[closeTimeIdx], timezone) : (entryTime || null);
+    const entryTime = openTimeIdx >= 0 ? convertToShanghaiTime(row[openTimeIdx], resolvedOpenTz) : null;
+    const exitTime = closeTimeIdx >= 0 ? convertToShanghaiTime(row[closeTimeIdx], resolvedCloseTz) : (entryTime || null);
     const stopLoss = slIdx >= 0 ? cleanNumber(row[slIdx]) : null;
     const takeProfit = tpIdx >= 0 ? cleanNumber(row[tpIdx]) : null;
 
@@ -804,6 +933,7 @@ export function normalizeRowsToTrades(rows, detectedFormat = 'UNKNOWN', original
     platform,
     trades,
     totalFound: trades.length,
+    detectedTimezone: detectedTimezone || null,
   };
 }
 
@@ -829,6 +959,7 @@ export async function parseUniversalTradeFile(buffer, originalFilename = '', opt
   // 2. Decode text buffer
   const textContent = decodeBufferToString(buffer);
   const textLower = textContent.toLowerCase();
+  const optionsWithRaw = { ...options, rawText: textContent };
 
   // 3. Check if XML / SpreadsheetML (<Workbook> or <?xml)
   if (
@@ -836,7 +967,7 @@ export async function parseUniversalTradeFile(buffer, originalFilename = '', opt
     fname.endsWith('.xml')
   ) {
     const rows = extractRowsFromSpreadsheetML(textContent);
-    return normalizeRowsToTrades(rows, 'MT5 XML (SpreadsheetML)', originalFilename, options);
+    return normalizeRowsToTrades(rows, 'MT5 XML (SpreadsheetML)', originalFilename, optionsWithRaw);
   }
 
   // 4. Check if HTML (<html, <!DOCTYPE, <table, Statement:, Report)
@@ -850,7 +981,7 @@ export async function parseUniversalTradeFile(buffer, originalFilename = '', opt
     fname.endsWith('.htm')
   ) {
     const rows = extractRowsFromHTML(textContent);
-    return normalizeRowsToTrades(rows, 'MT4/MT5 HTML', originalFilename, options);
+    return normalizeRowsToTrades(rows, 'MT4/MT5 HTML', originalFilename, optionsWithRaw);
   }
 
   // 5. Delimited text (CSV, TSV, TXT)
@@ -859,5 +990,5 @@ export async function parseUniversalTradeFile(buffer, originalFilename = '', opt
     skipEmptyLines: true,
   });
 
-  return normalizeRowsToTrades(parsed.data, 'CSV/TSV', originalFilename, options);
+  return normalizeRowsToTrades(parsed.data, 'CSV/TSV', originalFilename, optionsWithRaw);
 }

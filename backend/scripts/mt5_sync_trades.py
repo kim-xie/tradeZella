@@ -63,19 +63,38 @@ def is_us_dst(dt):
         return hour < 2
     return False
 
-def format_iso_time(ts, target_tz='shanghai'):
+def format_iso_time(ts, target_tz='shanghai', source_tz='broker'):
     if not ts:
         return None
     # MT5 deal.time represents Broker Server Time seconds since 1970-01-01
     dt_broker = datetime.datetime.fromtimestamp(ts, tz=datetime.timezone.utc).replace(tzinfo=None)
+    tz_mode = (source_tz or 'broker').lower().strip()
     if target_tz == 'shanghai':
-        offset_hours = 5 if is_us_dst(dt_broker) else 6
+        if tz_mode in ('utc', 'gmt', 'utc0', 'utc+0'):
+            offset_hours = 8
+        elif tz_mode in ('utc3', 'utc+3'):
+            offset_hours = 5
+        elif tz_mode in ('utc2', 'utc+2'):
+            offset_hours = 6
+        elif tz_mode in ('shanghai', 'beijing', 'none'):
+            offset_hours = 0
+        else:
+            offset_hours = 5 if is_us_dst(dt_broker) else 6
         dt_shanghai = dt_broker + datetime.timedelta(hours=offset_hours)
         return dt_shanghai.strftime('%Y-%m-%dT%H:%M:%S')
     elif target_tz in ('broker', 'raw'):
         return dt_broker.strftime('%Y-%m-%dT%H:%M:%S')
     elif target_tz == 'utc':
-        offset_hours = -3 if is_us_dst(dt_broker) else -2
+        if tz_mode in ('utc', 'gmt', 'utc0', 'utc+0'):
+            offset_hours = 0
+        elif tz_mode in ('utc3', 'utc+3'):
+            offset_hours = -3
+        elif tz_mode in ('utc2', 'utc+2'):
+            offset_hours = -2
+        elif tz_mode in ('shanghai', 'beijing', 'none'):
+            offset_hours = -8
+        else:
+            offset_hours = -3 if is_us_dst(dt_broker) else -2
         dt_utc = dt_broker + datetime.timedelta(hours=offset_hours)
         return dt_utc.strftime('%Y-%m-%dT%H:%M:%S')
     else:
@@ -83,7 +102,7 @@ def format_iso_time(ts, target_tz='shanghai'):
         dt_shanghai = dt_broker + datetime.timedelta(hours=offset_hours)
         return dt_shanghai.strftime('%Y-%m-%dT%H:%M:%S')
 
-def sync_trades(days=30, limit=None, all_history=False, from_date=None, to_date=None, target_tz='shanghai'):
+def sync_trades(days=30, limit=None, all_history=False, from_date=None, to_date=None, target_tz='shanghai', source_tz='broker'):
     if not mt5:
         return {
             "success": False,
@@ -132,18 +151,26 @@ def sync_trades(days=30, limit=None, all_history=False, from_date=None, to_date=
                 "trades": []
             }
 
+        # Collect currently open position identifiers so partially-closed open positions wait for full close (matching HTML Positions report)
+        open_positions = mt5.positions_get() or []
+        open_pos_ids = {getattr(p, 'identifier', 0) or getattr(p, 'ticket', 0) for p in open_positions}
+
         # Group deals by position_id
         pos_map = defaultdict(list)
         for deal in deals:
-            if deal.symbol and deal.position_id > 0:
+            if deal.symbol and deal.position_id > 0 and deal.type in (0, 1):
                 pos_map[deal.position_id].append(deal)
 
         trades = []
         for pos_id, deal_list in pos_map.items():
-            in_deals = [d for d in deal_list if d.entry == 0]
-            out_deals = [d for d in deal_list if d.entry in (1, 2, 3)]
+            if pos_id in open_pos_ids:
+                continue
 
-            # Only process closed or partially closed trades
+            deal_list_sorted = sorted(deal_list, key=lambda d: (d.time, d.ticket))
+            in_deals = [d for d in deal_list_sorted if d.entry == 0]
+            out_deals = [d for d in deal_list_sorted if d.entry in (1, 2, 3)]
+
+            # Only process closed trades
             if not in_deals or not out_deals:
                 continue
 
@@ -162,11 +189,16 @@ def sync_trades(days=30, limit=None, all_history=False, from_date=None, to_date=
             direction = 'long' if first_in.type == 0 else 'short'
             
             # Net profit = profit + swap + commission + fee
-            total_profit = sum(d.profit + d.swap + d.commission + getattr(d, 'fee', 0.0) for d in deal_list)
+            total_profit = sum(d.profit + d.swap + d.commission + getattr(d, 'fee', 0.0) for d in deal_list_sorted)
             
-            # SL / TP parsing
-            all_comments = " ".join(filter(None, [d.comment for d in deal_list]))
-            sl, tp = parse_sl_tp(all_comments)
+            # SL / TP parsing (prefer last out deal SL/TP if available, fallback to comments)
+            sl = getattr(last_out, 'sl', 0.0) or None
+            tp = getattr(last_out, 'tp', 0.0) or None
+            all_comments = " ".join(filter(None, [d.comment for d in deal_list_sorted]))
+            if not sl or not tp:
+                c_sl, c_tp = parse_sl_tp(all_comments)
+                sl = sl or c_sl
+                tp = tp or c_tp
 
             final_trigger = None
             if '[sl' in all_comments.lower() or any(d.reason == 4 for d in out_deals):
@@ -174,8 +206,8 @@ def sync_trades(days=30, limit=None, all_history=False, from_date=None, to_date=
             elif '[tp' in all_comments.lower() or any(d.reason == 5 for d in out_deals):
                 final_trigger = 'takeProfit'
 
-            entry_iso = format_iso_time(first_in.time, target_tz=target_tz)
-            exit_iso = format_iso_time(last_out.time, target_tz=target_tz)
+            entry_iso = format_iso_time(first_in.time, target_tz=target_tz, source_tz=source_tz)
+            exit_iso = format_iso_time(last_out.time, target_tz=target_tz, source_tz=source_tz)
 
             # Automatically derive market session from entry time hour (UTC+8)
             session = None
@@ -244,10 +276,11 @@ if __name__ == '__main__':
     parser.add_argument("--csv", type=str, default=None, help="Export to CSV file path")
     parser.add_argument("--json", action="store_true", help="Output JSON to stdout")
     parser.add_argument("--timezone", type=str, default="shanghai", help="Target timezone (default: shanghai)")
+    parser.add_argument("--source-tz", type=str, default="broker", help="Broker source timezone mode (broker, utc, utc3, utc2, shanghai)")
 
     args = parser.parse_args()
 
-    result = sync_trades(days=args.days, limit=args.limit, all_history=args.all, from_date=args.from_date, to_date=args.to_date, target_tz=args.timezone)
+    result = sync_trades(days=args.days, limit=args.limit, all_history=args.all, from_date=args.from_date, to_date=args.to_date, target_tz=args.timezone, source_tz=args.source_tz)
 
     if args.csv and result.get("success") and result.get("trades"):
         import csv

@@ -134,7 +134,7 @@ export class BacktestingController {
    */
   static async syncCandles(req, res, next) {
     try {
-      const { symbol, timeframe, candles, timezone = 'broker' } = req.body;
+      const { symbol, timeframe, candles, timezone = 'broker', gmtOffsetSec = null } = req.body;
       if (!symbol || !timeframe || !Array.isArray(candles)) {
         return res.status(400).json({
           success: false,
@@ -142,7 +142,12 @@ export class BacktestingController {
         });
       }
 
-      const result = await CandleService.saveBulkCandles({ symbol, timeframe, candles, timezone });
+      const parsedOffsetSec = gmtOffsetSec !== undefined && gmtOffsetSec !== null ? Number(gmtOffsetSec) : NaN;
+      const effectiveTz = (timezone === 'offset' && Number.isFinite(parsedOffsetSec))
+        ? String((28800 - parsedOffsetSec) / 3600)
+        : timezone;
+
+      const result = await CandleService.saveBulkCandles({ symbol, timeframe, candles, timezone: effectiveTz });
       res.status(200).json({
         success: true,
         message: `成功同步 ${symbol} (${timeframe}) ${result.insertedCount} 根K线数据到云端！`,

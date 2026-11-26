@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { uploadImage } from './cloudinary';
+import { setDetectedBrokerTimezone } from '../components/calendar/calendarUtils';
 
 // ============================================================
 // 全局唯一的环境变量与 URL 计算中心
@@ -110,6 +111,10 @@ export const getUserTrades = async (token: string) => {
         Authorization: `Bearer ${token}`,
       },
     });
+    const detectedTz = response.data?.meta?.brokerTimezone;
+    if (detectedTz && setDetectedBrokerTimezone(detectedTz) && typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('tradezella_cutoff_changed'));
+    }
     return response.data.data;
   } catch (error) {
     console.error('Error fetching user trades:', error);

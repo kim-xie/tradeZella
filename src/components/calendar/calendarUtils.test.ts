@@ -20,6 +20,13 @@ import {
   getTradeDurationMinutes,
   calculateMarketSession,
   evaluateFinalTriggerFromCandles,
+  getEffectiveBrokerTimezone,
+  setDetectedBrokerTimezone,
+  isBrokerTimezoneAutoDetected,
+  clearManualBrokerTimezoneOverride,
+  BROKER_TIMEZONE_STORAGE_KEY,
+  BROKER_TIMEZONE_MANUAL_STORAGE_KEY,
+  DETECTED_BROKER_TIMEZONE_STORAGE_KEY,
 } from './calendarUtils';
 import { Trade } from './calendarTypes';
 
@@ -588,6 +595,30 @@ describe('calendarUtils', () => {
         takeProfit: 105,
         candles: candlesLongTP,
       })).toBeNull();
+    });
+
+    it('resolves EA auto-detected broker timezone unless manually overridden', () => {
+      localStorage.clear();
+      expect(getEffectiveBrokerTimezone()).toBe('eet');
+      expect(isBrokerTimezoneAutoDetected()).toBe(false);
+
+      // EA auto-detected UTC+0 propagates automatically
+      expect(setDetectedBrokerTimezone('utc')).toBe(true);
+      expect(localStorage.getItem(DETECTED_BROKER_TIMEZONE_STORAGE_KEY)).toBe('utc');
+      expect(getEffectiveBrokerTimezone()).toBe('utc');
+      expect(isBrokerTimezoneAutoDetected()).toBe(true);
+
+      // Manual override takes priority over EA detection
+      localStorage.setItem(BROKER_TIMEZONE_STORAGE_KEY, 'utc3');
+      localStorage.setItem(BROKER_TIMEZONE_MANUAL_STORAGE_KEY, '1');
+      expect(getEffectiveBrokerTimezone()).toBe('utc3');
+      expect(isBrokerTimezoneAutoDetected()).toBe(false);
+
+      // Clearing manual override restores EA auto-detected timezone
+      clearManualBrokerTimezoneOverride();
+      expect(getEffectiveBrokerTimezone()).toBe('utc');
+      expect(isBrokerTimezoneAutoDetected()).toBe(true);
+      localStorage.clear();
     });
   });
 });

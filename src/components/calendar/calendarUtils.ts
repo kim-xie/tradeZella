@@ -28,6 +28,57 @@ export const getTradeExitTime = (t: Trade): string => {
 export type BrokerTimezoneMode = 'eet' | 'utc' | 'utc3' | 'utc2' | 'shanghai';
 export const TRADING_DAY_CUTOFF_STORAGE_KEY = 'tradezella_trading_day_cutoff';
 export const BROKER_TIMEZONE_STORAGE_KEY = 'tradezella_broker_timezone';
+export const BROKER_TIMEZONE_MANUAL_STORAGE_KEY = 'tradezella_broker_timezone_manual';
+export const DETECTED_BROKER_TIMEZONE_STORAGE_KEY = 'tradezella_detected_broker_timezone';
+
+export const isValidBrokerTimezoneMode = (val: unknown): val is BrokerTimezoneMode => {
+  return val === 'eet' || val === 'utc' || val === 'utc3' || val === 'utc2' || val === 'shanghai';
+};
+
+export const getDetectedBrokerTimezone = (): BrokerTimezoneMode | null => {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      const detected = localStorage.getItem(DETECTED_BROKER_TIMEZONE_STORAGE_KEY);
+      if (isValidBrokerTimezoneMode(detected)) {
+        return detected;
+      }
+    }
+  } catch {}
+  return null;
+};
+
+export const setDetectedBrokerTimezone = (tz: unknown): boolean => {
+  if (!isValidBrokerTimezoneMode(tz)) return false;
+  try {
+    if (typeof localStorage !== 'undefined') {
+      const prevEffective = getEffectiveBrokerTimezone();
+      const prevDetected = localStorage.getItem(DETECTED_BROKER_TIMEZONE_STORAGE_KEY);
+      localStorage.setItem(DETECTED_BROKER_TIMEZONE_STORAGE_KEY, tz);
+      const nextEffective = getEffectiveBrokerTimezone();
+      return prevDetected !== tz || prevEffective !== nextEffective;
+    }
+  } catch {}
+  return false;
+};
+
+export const isBrokerTimezoneAutoDetected = (): boolean => {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      const isManual = localStorage.getItem(BROKER_TIMEZONE_MANUAL_STORAGE_KEY) === '1';
+      return !isManual && getDetectedBrokerTimezone() !== null;
+    }
+  } catch {}
+  return false;
+};
+
+export const clearManualBrokerTimezoneOverride = (): void => {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem(BROKER_TIMEZONE_MANUAL_STORAGE_KEY);
+      localStorage.removeItem(BROKER_TIMEZONE_STORAGE_KEY);
+    }
+  } catch {}
+};
 
 /**
  * 判断指定服务器时间 (year, month 1-12, day, hour) 是否处于美式夏令时 (US DST)
@@ -61,8 +112,16 @@ export const isUSDST = (year: number, month: number, day: number, hour: number =
 export const getEffectiveBrokerTimezone = (): BrokerTimezoneMode => {
   try {
     if (typeof localStorage !== 'undefined') {
+      const isManual = localStorage.getItem(BROKER_TIMEZONE_MANUAL_STORAGE_KEY) === '1';
       const saved = localStorage.getItem(BROKER_TIMEZONE_STORAGE_KEY);
-      if (saved === 'eet' || saved === 'utc' || saved === 'utc3' || saved === 'utc2' || saved === 'shanghai') {
+      if (isManual && isValidBrokerTimezoneMode(saved)) {
+        return saved;
+      }
+      const detected = localStorage.getItem(DETECTED_BROKER_TIMEZONE_STORAGE_KEY);
+      if (isValidBrokerTimezoneMode(detected)) {
+        return detected;
+      }
+      if (isValidBrokerTimezoneMode(saved)) {
         return saved;
       }
     }

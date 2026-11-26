@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import Button from './common/Button';
 import { SERVER_BASE_URL as API_BASE_URL, getSyncToken } from '../services/api';
+import { getEffectiveBrokerTimezone } from './calendar/calendarUtils';
 import { useRealtimeTrades } from '../services/realtime';
 import { RefreshCw, Upload, CheckCircle2, AlertCircle, AlertTriangle, Download, Database, FileSpreadsheet, FileCode, Radio, Copy, Check, BarChart2, Zap, X, Globe, ShieldAlert, ChevronDown, ChevronUp, HelpCircle, Compass } from 'lucide-react';
 
@@ -23,7 +24,7 @@ const CSVUploader: React.FC<CSVUploaderProps> = ({ onUploadSuccess }) => {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const [sourceTimezone, setSourceTimezone] = useState<string>('broker');
+  const [sourceTimezone, setSourceTimezone] = useState<string>('auto');
 
   // EA Token state
   const [eaToken, setEaToken] = useState<string>('');
@@ -132,6 +133,10 @@ const CSVUploader: React.FC<CSVUploaderProps> = ({ onUploadSuccess }) => {
     const formData = new FormData();
     formData.append('file', selectedFile);
     formData.append('timezone', sourceTimezone);
+    if (sourceTimezone === 'auto') {
+      const effectiveTz = getEffectiveBrokerTimezone();
+      formData.append('fallbackTimezone', effectiveTz === 'eet' ? 'broker' : effectiveTz);
+    }
 
     setUploading(true);
     setError(null);
@@ -574,8 +579,9 @@ const CSVUploader: React.FC<CSVUploaderProps> = ({ onUploadSuccess }) => {
                       支持实时增量同步控制开关与灵活历史范围：
                     </span>
                     <p className="text-gray-600 dark:text-gray-400 text-[11px] mt-0.5">
+                      • <b>口径完全统一</b>：EA 实时同步与 MT5 HTML 报表导入已统一为<b>「完整已平仓持仓 (Position)」</b>维度（含双向手续费、费用与库存费，自动按 Position ID 去重不重复）。<br />
                       • <b>实时增量订单同步开关</b>：参数 <code className="text-purple-700 dark:text-purple-300 font-mono">InpLiveOrderSync</code> 默认开启（<code className="text-emerald-600 font-semibold">true</code>），历史单同步后只要有新平仓将毫秒级自动推送；<b>若不需要实时同步，只需在 EA 输入参数中将其设为 false 即可预防自动同步</b>。<br />
-                      • <b>订单历史范围</b>：在 EA 中配置 <code className="text-purple-700 dark:text-purple-300 font-mono">InpOrderSyncMode</code>，支持「本月（默认）」、「本周」、「今年」、「全部历史」或指定天数。<br />
+                      • <b>订单历史范围</b>：在 EA 中配置 <code className="text-purple-700 dark:text-purple-300 font-mono">InpOrderSyncMode</code>，支持「全部历史（默认，与HTML报表一致）」、「本月」、「本周」、「今年」或指定天数。<br />
                       • <b>K线实时增量流开关</b>：同样配备 <code className="text-purple-700 dark:text-purple-300 font-mono">InpLiveCandleSync</code> 开关（默认 true），历史K线同步完后自动保持每 15 秒/新K线增量推送，也可随时关闭。
                     </p>
                   </div>
@@ -607,7 +613,8 @@ const CSVUploader: React.FC<CSVUploaderProps> = ({ onUploadSuccess }) => {
               onChange={(e) => setSourceTimezone(e.target.value)}
               className="px-2.5 py-1.5 bg-gray-50 dark:bg-navy-900 border border-gray-300 dark:border-gray-600 rounded-md text-xs text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-1 focus:ring-purple-500 font-medium"
             >
-              <option value="broker">券商服务器时区 (EET/EEST 美式夏令时: 冬+6h/夏+5h) - 默认推荐</option>
+              <option value="auto">自动识别 (优先识别文件/表头时区 + 联动EA券商时区) - 推荐</option>
+              <option value="broker">券商服务器时区 (EET/EEST 美式夏令时: 冬+6h/夏+5h)</option>
               <option value="utc">UTC+0 零时区 (+8h 换算为北京时间)</option>
               <option value="utc3">UTC+3 固定时区 (+5h 换算为北京时间)</option>
               <option value="utc2">UTC+2 固定时区 (+6h 换算为北京时间)</option>
